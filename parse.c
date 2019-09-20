@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "util.h"
+
 static struct date no_date = { .timestamp = -1 };
 
 static void print_date(FILE *f, struct date d) {
@@ -74,8 +76,7 @@ static struct date parse_date(const char *buf) {
 }
 
 static uint32_t parse_color(char *buf) {
-    if (strcmp(buf, "magenta") == 0) return 0xFFFF00FF;
-    return 0;
+    return lookup_color(buf);
 }
 
 static void parse_event(FILE *f, struct event *ev) {
@@ -108,6 +109,7 @@ static void parse_calendar(FILE *f, struct calendar *cal) {
             *last = ev;
             last = &(ev->next);
             ev->next = NULL;
+            cal->n_events++;
         }
     }
 }

@@ -19,6 +19,8 @@ struct event {
 
 struct calendar {
     struct event *events;
+    int n_events;
+    char *name;
 };
 
 void parse_ics(FILE *f, struct calendar *cal);
