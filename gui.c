@@ -42,12 +42,34 @@ static const struct wl_buffer_listener wl_buffer_listener = {
 };
 
 static int
+create_shm_pool(struct display *display, int size) {
+	int fd = os_create_anonymous_file(size);
+    assert(fd >= 0, "anon file");
+	if (fd < 0) {
+		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
+			size, strerror(errno));
+		return -1;
+	}
+
+	void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (data == MAP_FAILED) {
+		fprintf(stderr, "mmap failed: %s\n", strerror(errno));
+		close(fd);
+		return -1;
+	}
+
+	display->pool = wl_shm_create_pool(display->wl_shm, fd, size);
+    display->pool_data = data;
+    display->pool_size = size;
+    close(fd);
+    return 0;
+}
+
+static int
 create_shm_buffer(struct display *display, struct buffer *buffer,
 		  int width, int height, uint32_t format)
 {
-	struct wl_shm_pool *pool;
-	int fd, size, stride;
-	void *data;
+	int size, stride;
 
     cairo_format_t cairo_format;
     if (format == WL_SHM_FORMAT_XRGB8888) {
@@ -59,33 +81,16 @@ create_shm_buffer(struct display *display, struct buffer *buffer,
 
     stride = cairo_format_stride_for_width(cairo_format, width);
 	size = stride * height;
+    if (size > display->pool_size) return -1;
 
-	fd = os_create_anonymous_file(size);
-    assert(fd >= 0, "anon file");
-	if (fd < 0) {
-		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
-			size, strerror(errno));
-		return -1;
-	}
-
-	data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	if (data == MAP_FAILED) {
-		fprintf(stderr, "mmap failed: %s\n", strerror(errno));
-		close(fd);
-		return -1;
-	}
-
-	pool = wl_shm_create_pool(display->wl_shm, fd, size);
-	buffer->buffer = wl_shm_pool_create_buffer(pool, 0,
+	buffer->buffer = wl_shm_pool_create_buffer(display->pool, 0,
 						   width, height,
 						   stride, format);
 	wl_buffer_add_listener(buffer->buffer, &wl_buffer_listener, buffer);
-	wl_shm_pool_destroy(pool);
-	close(fd);
 
-	buffer->shm_data = data;
+	buffer->shm_data = display->pool_data;
     buffer->cairo_surface = cairo_image_surface_create_for_data(
-        data,
+        display->pool_data,
         cairo_format,
         width,
         height,
@@ -93,6 +98,17 @@ create_shm_buffer(struct display *display, struct buffer *buffer,
     );
 
 	return 0;
+}
+
+void
+destroy_buffer(struct buffer *buffer) {
+    if (buffer->buffer) wl_buffer_destroy(buffer->buffer);
+    if (buffer->cairo_surface) cairo_surface_destroy(buffer->cairo_surface);
+
+    buffer->buffer = NULL;
+    buffer->cairo_surface = NULL;
+    buffer->shm_data = NULL;
+    buffer->busy = 0;
 }
 
 // xdg_surface_listener
@@ -120,7 +136,17 @@ handle_xdg_toplevel_configure(void *data, struct xdg_toplevel *xdg_toplevel,
         int32_t width, int32_t height, struct wl_array *state)
 {
     struct window *window = data;
-    // fprintf(stderr, "xdg_toplevel_configure: %dx%d\n", width, height);
+
+    if (height != 0 && width != 0 &&
+            (window->width != width || window->height != height)) {
+        window->width = width;
+        window->height = height;
+
+        destroy_buffer(&window->buffers[0]);
+        destroy_buffer(&window->buffers[1]);
+
+        fprintf(stderr, "xdg_toplevel_configure: %dx%d\n", width, height);
+    }
 }
 
 static void
@@ -147,8 +173,8 @@ create_window(struct display *display, int width, int height) {
 	window->width = width;
 	window->height = height;
 	window->surface = wl_compositor_create_surface(display->compositor);
-    window->buffers[0] = (struct buffer){ NULL, NULL, 0 };
-    window->buffers[1] = (struct buffer){ NULL, NULL, 0 };
+    window->buffers[0] = (struct buffer){ NULL, NULL, NULL, 0 };
+    window->buffers[1] = (struct buffer){ NULL, NULL, NULL, 0 };
 
     window->xdg_surface = xdg_wm_base_get_xdg_surface(display->wm_base,
             window->surface);
@@ -172,10 +198,8 @@ void
 destroy_window(struct window *window)
 {
     if (window->callback) wl_callback_destroy(window->callback);
-    if (window->buffers[0].buffer)
-        wl_buffer_destroy(window->buffers[0].buffer);
-    if (window->buffers[1].buffer)
-        wl_buffer_destroy(window->buffers[1].buffer);
+    destroy_buffer(&window->buffers[0]);
+    destroy_buffer(&window->buffers[1]);
     if (window->xdg_toplevel) xdg_toplevel_destroy(window->xdg_toplevel);
     if (window->xdg_surface) xdg_surface_destroy(window->xdg_surface);
 	wl_surface_destroy(window->surface);
@@ -266,7 +290,7 @@ static void keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
     struct display *d = data;
     enum wl_keyboard_key_state key_state = _key_state;
     if (key_state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-        fprintf(stderr, "pressed: %d\n", key);
+        // fprintf(stderr, "pressed: %d\n", key);
         d->k_cb(d, key);
     }
 }
@@ -373,6 +397,9 @@ create_display(paint_cb p_cb, keyboard_cb k_cb) {
     assert(display->wm_base, "xdg_wm_base");
     assert(display->compositor, "wl_compositor");
 
+    assert(create_shm_pool(display, 1366 * 768 * 4) == 0, "create_shm_pool");
+    assert(display->pool, "pool");
+
 	wl_display_roundtrip(display->display);
     return display;
 }
@@ -383,6 +410,7 @@ destroy_display(struct display *display)
     if (display->wl_shm) wl_shm_destroy(display->wl_shm);
     if (display->wm_base) xdg_wm_base_destroy(display->wm_base);
     if (display->compositor) wl_compositor_destroy(display->compositor);
+    if (display->pool) wl_shm_pool_destroy(display->pool);
 	wl_registry_destroy(display->registry);
 	wl_display_flush(display->display);
 	wl_display_disconnect(display->display);

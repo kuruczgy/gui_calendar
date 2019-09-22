@@ -16,6 +16,9 @@ struct display {
 	struct wl_compositor *compositor;
 	struct xdg_wm_base *wm_base;
 	struct wl_shm *wl_shm;
+    struct wl_shm_pool *pool;
+    int pool_size;
+    void *pool_data;
     struct wl_seat *wl_seat;
     struct wl_keyboard *keyboard;
     paint_cb p_cb;

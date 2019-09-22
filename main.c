@@ -18,6 +18,8 @@ struct state {
 
     int week_offset;
 
+    int window_width, window_height;
+
     bool dirty;
 };
 
@@ -218,9 +220,15 @@ next:
 
 static bool
 paint(struct window *window, cairo_t *cr) {
+    int w = window->width, h = window->height;
+    if (state.window_width != w ||
+            state.window_height != h) {
+        state.window_width = w;
+        state.window_height = h;
+        state.dirty = true;
+    }
     if (!state.dirty) return false;
 
-    int w = window->width, h = window->height;
 
     cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL,
             CAIRO_FONT_WEIGHT_NORMAL);
@@ -268,7 +276,9 @@ main(int argc, char **argv) {
 
     state = (struct state){
         .n_cal = 0,
-        .week_offset = 0
+        .week_offset = 0,
+        .window_width = -1,
+        .window_height = -1
     };
 
     for (int i = 1; i < argc; i++) {
