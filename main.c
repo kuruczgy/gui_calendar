@@ -17,6 +17,7 @@ struct state {
     int n_cal;
 
     int week_offset;
+    int hour_from, hour_to;
 
     int window_width, window_height;
 
@@ -73,7 +74,9 @@ void paint_sidebar(cairo_t *cr, box b) {
             "Usage:\r"
             " n: next\r"
             " p: previous\r"
-            " t: today");
+            " t: today\r"
+            " up/down: move 1 hour up/down\r"
+            " +/-: inc./dec. vertical scale\r");
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
     cairo_move_to(cr, b.w, 0);
@@ -120,7 +123,7 @@ static time_t week_base() {
     time_t now = time(NULL);
     struct tm t = *gmtime(&now);
     t.tm_sec = t.tm_min = t.tm_hour = 0;
-    t.tm_mday -= (t.tm_wday-1)%7;
+    t.tm_mday -= (t.tm_wday-1+7)%7;
     return mktime(&t);
 }
 
@@ -132,15 +135,19 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
     int start_sec = day_sec(ev->start.time);
     int end_sec = day_sec(ev->end.time);
     int day_sec = 24 * 3600;
-    int day_i = diff / (3600 * 24);
+    int day_i = diff / day_sec;
+
+    int from_sec = state.hour_from * 3600;
+    int to_sec = state.hour_to * 3600;
+    int interval_sec = to_sec - from_sec;
 
     int pad = 2;
     int sw = b.w / 7;
     int dw = sw / max_n;
     int x = sw * day_i + dw * col + pad;
-    int y = b.h * start_sec / day_sec;
+    int y = b.h * (start_sec - from_sec) / interval_sec;
     int w = dw - 2*pad;
-    int h = b.h * (end_sec - start_sec) / day_sec;
+    int h = b.h * (end_sec - start_sec) / interval_sec;
 
     if (ev->color) cairo_set_source_argb(cr, ev->color);
     else cairo_set_source_rgba(cr, 0, 255, 0, 255);
@@ -149,22 +156,25 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
     cairo_move_to(cr, x, y);
-    pango_printf(cr, "Monospace 8", 1.0, w, h, "%s", ev->summary);
+    pango_printf(cr, "Monospace 8", 1.0, w, h, "%02d:%02d-%02d:%02d %s",
+            ev->start.time.tm_hour, ev->start.time.tm_min,
+            ev->end.time.tm_hour, ev->end.time.tm_min,
+            ev->summary);
 }
 
-void paint_calendar(cairo_t *cr, box b, time_t base) {
+void paint_calendar_events(cairo_t *cr, box b, time_t base) {
     cairo_translate(cr, b.x, b.y);
 
-    int n = 7;
-    int sw = b.w / n;
+    int num_days = 7;
+    int sw = b.w / num_days;
 
     int n_all_events = 0;
-    for (int i = 0; i < state.n_cal; i++) n_all_events += state.cal[i].n_events;
-
+    for (int i = 0; i < state.n_cal; i++)
+        n_all_events += state.cal[i].n_events;
     struct event **active = malloc(sizeof(struct event*) * n_all_events);
     struct layout_event *layout_events =
         malloc(sizeof(struct layout_event*) * n_all_events);
-    for (int d = 0; d < 7; d++) {
+    for (int d = 0; d < num_days; d++) {
         int active_n = 0;
         time_t day_base = base + 3600 * 24 * d;
         for (int i = 0; i < state.n_cal; i++) {
@@ -196,24 +206,63 @@ next:
     }
     free(layout_events);
     free(active);
+    cairo_translate(cr, -b.x, -b.y);
+}
 
-    time_t now = time(NULL);
-    struct tm t = *gmtime(&now);
-    int now_sec = day_sec(t);
-    int day_sec = 24 * 3600;
-    int day_i = (now - base) / day_sec;
-    int y = b.h * now_sec / day_sec;
-    cairo_move_to(cr, day_i * sw, y);
-    cairo_line_to(cr, (day_i+1) * sw, y);
-    cairo_set_source_rgba(cr, 255, 0, 0, 255);
-    cairo_stroke(cr);
+void paint_calendar(cairo_t *cr, box b, time_t base) {
+    cairo_translate(cr, b.x, b.y);
 
+    int num_days = 7;
+    int time_strip_w = 30;
+    int sw = (b.w - time_strip_w) / num_days;
+
+    cairo_translate(cr, time_strip_w, 0);
+
+    // draw vertical lines
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
-    for (int i = 1; i < n; i++) {
+    for (int i = 0; i < num_days; i++) {
         cairo_move_to(cr, sw*i, 0);
         cairo_line_to(cr, sw*i, b.h);
     }
     cairo_stroke(cr);
+
+    cairo_set_line_width(cr, 1);
+    cairo_set_source_argb(cr, 0xFF555555);
+    for (int i = state.hour_from + 1; i < state.hour_to; i++) {
+        int y = b.h * (i - state.hour_from) / (state.hour_to - state.hour_from);
+        cairo_move_to(cr, 0, y);
+        cairo_line_to(cr, b.w - time_strip_w, y);
+    }
+    cairo_stroke(cr);
+    cairo_set_line_width(cr, 2);
+
+    cairo_translate(cr, -time_strip_w, 0);
+    char buf[64];
+    for (int i = state.hour_from + 1; i < state.hour_to; i++) {
+        int y = b.h * (i - state.hour_from) / (state.hour_to - state.hour_from);
+        snprintf(buf, 64, "%02d", i);
+        draw_text(cr, time_strip_w / 2, y, buf);
+    }
+
+    // draw all the events
+    paint_calendar_events(cr, (box){ time_strip_w, 0, b.w-time_strip_w, b.h },
+            base);
+
+    // draw time marker red line
+    cairo_translate(cr, time_strip_w, 0);
+    time_t now = time(NULL);
+    struct tm t = *gmtime(&now);
+    int now_sec = day_sec(t);
+    int interval_sec = (state.hour_to - state.hour_from) * 3600;
+    int day_sec = 24 * 3600;
+    int day_i = (now - base) / day_sec;
+    int y = b.h * (now_sec - state.hour_from * 3600) / interval_sec;
+    if (now >= base) {
+        cairo_move_to(cr, day_i * sw, y);
+        cairo_line_to(cr, (day_i+1) * sw, y);
+        cairo_set_source_rgba(cr, 255, 0, 0, 255);
+        cairo_stroke(cr);
+    }
 
     cairo_identity_matrix(cr);
 }
@@ -238,17 +287,20 @@ paint(struct window *window, cairo_t *cr) {
 	cairo_set_source_rgba(cr, 255, 255, 255, 255);
 	cairo_paint(cr);
 
+    int time_strip_w = 30;
+
     time_t base = week_base() + state.week_offset * 7 * 24 * 3600;
     paint_calendar(cr,  (box){ 120, 60, w-120, h-60 }, base);
     paint_sidebar(cr,   (box){ 0, 60, 120, h-60 });
-    paint_header(cr,    (box){ 120, 0, w-120, 60 }, base);
+    paint_header(cr,    (box){ 120 + time_strip_w, 0, w-120-time_strip_w, 60 },
+            base);
 
     state.dirty = false;
     return true;
 }
 
 static void
-handle_key(struct display *display, uint32_t key) {
+handle_key(struct display *display, uint32_t key, uint32_t mods) {
     if (key == 49) {// n
         state.week_offset++;
         state.dirty = true;
@@ -268,6 +320,32 @@ handle_key(struct display *display, uint32_t key) {
             state.dirty = true;
         }
     }
+    if (mods & 1) { // shift
+        if (key == 13) {
+            if (state.hour_to > state.hour_from + 1) --state.hour_to;
+            state.dirty = true;
+        }
+        if (key == 12) {
+            if (state.hour_to < 24) { ++state.hour_to; state.dirty = true; }
+            if (state.hour_from > 0) { --state.hour_from; state.dirty = true; }
+        }
+    }
+    if (key == 103) { // up
+        if (state.hour_from > 0) {
+            --state.hour_from;
+            --state.hour_to;
+            state.dirty = true;
+        }
+    }
+    if (key == 108) { // down
+        if (state.hour_to < 24) {
+            ++state.hour_from;
+            ++state.hour_to;
+            state.dirty = true;
+        }
+    }
+    assert(state.hour_to > state.hour_from && state.hour_to <= 24
+            && state.hour_from >= 0, "wrong from/to hour");
 }
 
 int
@@ -291,6 +369,9 @@ main(int argc, char **argv) {
         };
         if (++state.n_cal >= 16) break;
     }
+
+    state.hour_from = 5;
+    state.hour_to = 17;
 
     struct display *display = create_display(&paint, &handle_key);
 	struct window *window = create_window(display, 900, 700);

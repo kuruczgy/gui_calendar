@@ -8,7 +8,7 @@ struct window;
 struct display;
 
 typedef bool (*paint_cb)(struct window*, cairo_t*);
-typedef void (*keyboard_cb)(struct display*, uint32_t);
+typedef void (*keyboard_cb)(struct display*, uint32_t key, uint32_t mods);
 
 struct display {
 	struct wl_display *display;

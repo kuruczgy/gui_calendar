@@ -2,6 +2,7 @@
 #define _UTIL_H_
 #include <sys/types.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 struct layout_event {
     int start, end;
@@ -15,5 +16,7 @@ uint32_t
 lookup_color(char *name);
 
 void calendar_layout(struct layout_event *e, int N);
+
+void assert(bool, const char *);
 
 #endif

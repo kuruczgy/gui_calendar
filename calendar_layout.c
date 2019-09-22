@@ -5,14 +5,6 @@
 #include <stdint.h>
 #include "util.h"
 
-static void
-assert(bool b, const char *msg) {
-    if (!b) {
-        fprintf(stderr, "assert error msg: %s\n", msg);
-        exit(1);
-    }
-}
-
 struct point {
     int val;
     bool start;

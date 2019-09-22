@@ -20,7 +20,7 @@ redraw(void *data, struct wl_callback *callback, uint32_t time);
 
 // helpers
 
-static void
+void
 assert(bool b, const char *msg) {
     if (!b) {
         fprintf(stderr, "assert error msg: %s\n", msg);
@@ -145,7 +145,7 @@ handle_xdg_toplevel_configure(void *data, struct xdg_toplevel *xdg_toplevel,
         destroy_buffer(&window->buffers[0]);
         destroy_buffer(&window->buffers[1]);
 
-        fprintf(stderr, "xdg_toplevel_configure: %dx%d\n", width, height);
+        // fprintf(stderr, "xdg_toplevel_configure: %dx%d\n", width, height);
     }
 }
 
@@ -285,19 +285,23 @@ static void keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
 	// Who cares
 }
 
+static uint32_t mods_state = 0;
 static void keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
 		uint32_t serial, uint32_t time, uint32_t key, uint32_t _key_state) {
     struct display *d = data;
     enum wl_keyboard_key_state key_state = _key_state;
     if (key_state == WL_KEYBOARD_KEY_STATE_PRESSED) {
         // fprintf(stderr, "pressed: %d\n", key);
-        d->k_cb(d, key);
+        d->k_cb(d, key, mods_state);
     }
 }
 
 static void keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
 		uint32_t serial, uint32_t mods_depressed, uint32_t mods_latched,
 		uint32_t mods_locked, uint32_t group) {
+    /* printf("keyboard_modifiers: dep: %x, lat: %x, loc: %x\n",
+            mods_depressed, mods_latched, mods_locked); */
+    mods_state = mods_depressed;
 }
 
 static void keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
@@ -360,7 +364,7 @@ handle_wl_registry_global(void *data, struct wl_registry *registry, uint32_t
             wl_seat_add_listener(d->wl_seat, &seat_listener, d);
         }
 	} else {
-        fprintf(stderr, "reg: %s\n", interface);
+        // fprintf(stderr, "reg: %s\n", interface);
     }
 }
 
