@@ -17,7 +17,8 @@ struct state {
     int n_cal;
     struct timezone *zone;
 
-    int week_offset;
+    int day_offset;
+    int view_days;
     int hour_from, hour_to;
 
     int window_width, window_height;
@@ -76,6 +77,7 @@ void paint_sidebar(cairo_t *cr, box b) {
             " n: next\r"
             " p: previous\r"
             " t: today\r"
+            " v: cycle view modes\r"
             " up/down: move 1 hour up/down\r"
             " +/-: inc./dec. vertical scale\r");
 
@@ -95,9 +97,9 @@ void paint_header(cairo_t *cr, box b, time_t base) {
     cairo_line_to(cr, b.w, b.h);
     cairo_stroke(cr);
 
-    int n = 7;
-    int sw = b.w / n;
-    for (int i = 1; i < n; i++) {
+    int num_days = state.view_days;
+    int sw = b.w / num_days;
+    for (int i = 1; i < num_days; i++) {
         cairo_move_to(cr, sw*i, 0);
         cairo_line_to(cr, sw*i, b.h);
     }
@@ -105,7 +107,7 @@ void paint_header(cairo_t *cr, box b, time_t base) {
 
     char *days[] = { "H", "K", "Sze", "Cs", "P", "Szo", "V" };
     char buf[64];
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < num_days; i++) {
         time_t time_off = base + 3600 * 24 * i;
         struct tm *t = gmtime(&time_off);
         snprintf(buf, 64, "%s: %d-%d",
@@ -124,7 +126,8 @@ static time_t week_base() {
     time_t now = time(NULL);
     struct tm t = *gmtime(&now);
     t.tm_sec = t.tm_min = t.tm_hour = 0;
-    t.tm_mday -= (t.tm_wday-1+7)%7;
+    if (state.view_days > 1)
+        t.tm_mday -= (t.tm_wday-1+7)%7;
     return mktime(&t);
 }
 
@@ -132,6 +135,8 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
         int max_n, int col) {
     time_t diff = ev->start.timestamp - base;
     if (diff > 3600 * 24 * 7 || diff < 0) return;
+
+    int num_days = state.view_days;
 
     int start_sec = day_sec(ev->start.local_time);
     int end_sec = day_sec(ev->end.local_time);
@@ -143,7 +148,7 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
     int interval_sec = to_sec - from_sec;
 
     int pad = 2;
-    int sw = b.w / 7;
+    int sw = b.w / num_days;
     int dw = sw / max_n;
     int x = sw * day_i + dw * col + pad;
     int y = b.h * (start_sec - from_sec) / interval_sec;
@@ -187,7 +192,7 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
 void paint_calendar_events(cairo_t *cr, box b, time_t base) {
     cairo_translate(cr, b.x, b.y);
 
-    int num_days = 7;
+    int num_days = state.view_days;
     int sw = b.w / num_days;
 
     int n_all_events = 0;
@@ -234,7 +239,7 @@ next:
 void paint_calendar(cairo_t *cr, box b, time_t base) {
     cairo_translate(cr, b.x, b.y);
 
-    int num_days = 7;
+    int num_days = state.view_days;
     int time_strip_w = 30;
     int sw = (b.w - time_strip_w) / num_days;
 
@@ -313,7 +318,7 @@ paint(struct window *window, cairo_t *cr) {
     int sidebar_w = 120;
     int header_h = 60;
 
-    time_t base = week_base() + state.week_offset * 7 * 24 * 3600;
+    time_t base = week_base() + state.day_offset * 24 * 3600;
     paint_calendar(cr,  (box){ sidebar_w, header_h, w-sidebar_w, h-header_h },
             base);
     paint_sidebar(cr,   (box){ 0, header_h, sidebar_w, h-header_h });
@@ -333,15 +338,21 @@ paint(struct window *window, cairo_t *cr) {
 static void
 handle_key(struct display *display, uint32_t key, uint32_t mods) {
     if (key == 49) {// n
-        state.week_offset++;
+        state.day_offset += state.view_days;
         state.dirty = true;
     }
     if (key == 25) { // p
-        state.week_offset--;
+        state.day_offset -= state.view_days;
         state.dirty = true;
     }
     if (key == 20) { // t
-        state.week_offset = 0;
+        state.day_offset = 0;
+        state.dirty = true;
+    }
+    if (key == 0x2F) { // v
+        if (state.view_days > 1) state.view_days = 1;
+        else state.view_days = 7;
+        state.day_offset -= state.day_offset % state.view_days;
         state.dirty = true;
     }
     if (key >= 0x02 && key <= 0x0A) {
@@ -385,7 +396,8 @@ main(int argc, char **argv) {
 
     state = (struct state){
         .n_cal = 0,
-        .week_offset = 0,
+        .day_offset = 0,
+        .view_days = 7,
         .window_width = -1,
         .window_height = -1
     };
