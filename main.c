@@ -66,8 +66,17 @@ next:
         }
     }
 
+    struct tm t = time_now(state.zone);
+    int now_sec = day_sec(t);
+    time_t diff = time(NULL) - state.base;
+    if (!(diff > state.view_days * 3600 * 24 || diff < 0)) {
+        fprintf(stderr, "fit now_sec: %f\n", now_sec / 3600.0);
+        if (now_sec < min_sec) min_sec = now_sec;
+        if (now_sec > max_sec) max_sec = now_sec;
+    }
+
     state.hour_from = max(0, min_sec / 3600);
-    state.hour_to = min(24, max_sec / 3600);
+    state.hour_to = min(24, (max_sec + 3599) / 3600);
     if (state.hour_to <= state.hour_from) {
         state.hour_from = 0;
         state.hour_to = 24;
