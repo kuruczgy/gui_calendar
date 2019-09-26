@@ -13,10 +13,12 @@ struct layout_event {
 int
 os_create_anonymous_file(off_t size);
 uint32_t
-lookup_color(char *name);
+lookup_color(const char *name);
 
 void calendar_layout(struct layout_event *e, int N);
 
 void assert(bool, const char *);
+
+char *str_dup(const char *s);
 
 #endif

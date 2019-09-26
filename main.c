@@ -132,8 +132,8 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
     time_t diff = ev->start.timestamp - base;
     if (diff > 3600 * 24 * 7 || diff < 0) return;
 
-    int start_sec = day_sec(ev->start.time);
-    int end_sec = day_sec(ev->end.time);
+    int start_sec = day_sec(ev->start.local_time);
+    int end_sec = day_sec(ev->end.local_time);
     int day_sec = 24 * 3600;
     int day_i = diff / day_sec;
 
@@ -149,16 +149,21 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
     int w = dw - 2*pad;
     int h = b.h * (end_sec - start_sec) / interval_sec;
 
-    if (ev->color) cairo_set_source_argb(cr, ev->color);
-    else cairo_set_source_rgba(cr, 0, 255, 0, 255);
+    uint32_t color = ev->color;
+    if (!color) color = 0xFF00FF00;
+    double light = (color & 0xFF) + ((color >> 8) & 0xFF)
+        + ((color >> 16) & 0xFF);
+    light /= 255.0;
+    cairo_set_source_argb(cr, color);
     cairo_rectangle(cr, x, y, w, h);
     cairo_fill(cr);
 
-    cairo_set_source_rgba(cr, 0, 0, 0, 255);
+    uint32_t fg = light < 0.9 ? 0xFFFFFFFF : 0xFF000000;
+    cairo_set_source_argb(cr, fg);
     cairo_move_to(cr, x, y);
     pango_printf(cr, "Monospace 8", 1.0, w, h, "%02d:%02d-%02d:%02d %s",
-            ev->start.time.tm_hour, ev->start.time.tm_min,
-            ev->end.time.tm_hour, ev->end.time.tm_min,
+            ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
+            ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
             ev->summary);
 }
 
@@ -190,8 +195,8 @@ next:
         }
         for (int k = 0; k < active_n; k++) {
             struct event *ev = active[k];
-            int start_sec = day_sec(ev->start.time);
-            int end_sec = day_sec(ev->end.time);
+            int start_sec = day_sec(ev->start.local_time);
+            int end_sec = day_sec(ev->end.local_time);
             layout_events[k] = (struct layout_event){
                 .start = start_sec,
                 .end = end_sec
@@ -288,12 +293,21 @@ paint(struct window *window, cairo_t *cr) {
 	cairo_paint(cr);
 
     int time_strip_w = 30;
+    int sidebar_w = 120;
+    int header_h = 60;
 
     time_t base = week_base() + state.week_offset * 7 * 24 * 3600;
-    paint_calendar(cr,  (box){ 120, 60, w-120, h-60 }, base);
-    paint_sidebar(cr,   (box){ 0, 60, 120, h-60 });
-    paint_header(cr,    (box){ 120 + time_strip_w, 0, w-120-time_strip_w, 60 },
+    paint_calendar(cr,  (box){ sidebar_w, header_h, w-sidebar_w, h-header_h },
             base);
+    paint_sidebar(cr,   (box){ 0, header_h, sidebar_w, h-header_h });
+    paint_header(cr,    (box){ sidebar_w + time_strip_w, 0,
+            w-sidebar_w-time_strip_w, header_h }, base);
+
+    if (state.n_cal > 0) {
+        cairo_move_to(cr, 0, 0);
+        pango_printf(cr, "Monospace 8", 1.0, sidebar_w, header_h, "%s",
+                state.cal[0].tzname);
+    }
 
     state.dirty = false;
     return true;
@@ -360,10 +374,11 @@ main(int argc, char **argv) {
     };
 
     for (int i = 1; i < argc; i++) {
-        state.cal[i].events = NULL;
-        FILE *f = fopen(argv[i], "rb");
-        parse_ics(f, &state.cal[state.n_cal]);
-        state.cal[state.n_cal].name = argv[i];
+        struct calendar *cal = &state.cal[state.n_cal];
+        cal->events = NULL;
+        parse_dir(argv[i], cal);
+        calendar_calc_local_times(cal, "Europe/Budapest");
+        if (!cal->name) cal->name = argv[i];
         state.cal_info[state.n_cal] = (struct calendar_info) {
             .visible = true
         };

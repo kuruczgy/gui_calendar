@@ -1579,7 +1579,7 @@ static const BuiltinColor BuiltinColors[] = {
 };
 
 uint32_t
-lookup_color(char *name) {
+lookup_color(const char *name) {
     const BuiltinColor *c;
     int low, mid, high;
     int r;
