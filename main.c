@@ -17,7 +17,7 @@ struct state {
     int n_cal;
     struct timezone *zone;
 
-    int day_offset;
+    time_t base;
     int view_days;
     int hour_from, hour_to;
 
@@ -37,6 +37,42 @@ void draw_text(cairo_t *cr, int x, int y, char *text) {
     cairo_text_extents(cr, text, &ex);
     cairo_move_to(cr, x - ex.width/2, y + ex.height/2);
     cairo_show_text(cr, text);
+}
+
+static int day_sec(struct tm t) {
+    return 3600 * t.tm_hour + 60 * t.tm_min + t.tm_sec;
+}
+
+void fit_events() {
+    int min_sec = 3600 * 24 + 1, max_sec = -1;
+    for (int i = 0; i < state.n_cal; i++) {
+        if (!state.cal_info[i].visible) continue;
+        struct event *ev = state.cal[i].events;
+        while (ev) {
+            time_t diff = ev->start.timestamp - state.base;
+            if (diff > state.view_days * 3600 * 24 || diff < 0) goto next;
+            int start = day_sec(ev->start.local_time),
+                end = day_sec(ev->end.local_time);
+            if (start < min_sec) {
+                // fprintf(stderr, "smaller start: %d\n", start);
+                min_sec = start;
+            }
+            if (end > max_sec) {
+                // fprintf(stderr, "larger end: %d\n", end);
+                max_sec = end;
+            }
+next:
+            ev = ev->next;
+        }
+    }
+
+    state.hour_from = max(0, min_sec / 3600);
+    state.hour_to = min(24, max_sec / 3600);
+    if (state.hour_to <= state.hour_from) {
+        state.hour_from = 0;
+        state.hour_to = 24;
+    }
+    // fprintf(stderr, "fit: %f-%f\n", min_sec / 3600.0, max_sec / 3600.0);
 }
 
 static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
@@ -116,10 +152,6 @@ void paint_header(cairo_t *cr, box b, time_t base) {
     }
 
     cairo_identity_matrix(cr);
-}
-
-static int day_sec(struct tm t) {
-    return 3600 * t.tm_hour + 60 * t.tm_min + t.tm_sec;
 }
 
 static time_t week_base() {
@@ -318,7 +350,7 @@ paint(struct window *window, cairo_t *cr) {
     int sidebar_w = 120;
     int header_h = 60;
 
-    time_t base = week_base() + state.day_offset * 24 * 3600;
+    time_t base = state.base;
     paint_calendar(cr,  (box){ sidebar_w, header_h, w-sidebar_w, h-header_h },
             base);
     paint_sidebar(cr,   (box){ 0, header_h, sidebar_w, h-header_h });
@@ -338,21 +370,24 @@ paint(struct window *window, cairo_t *cr) {
 static void
 handle_key(struct display *display, uint32_t key, uint32_t mods) {
     if (key == 49) {// n
-        state.day_offset += state.view_days;
+        state.base += state.view_days * 3600 * 24;
+        fit_events();
         state.dirty = true;
     }
     if (key == 25) { // p
-        state.day_offset -= state.view_days;
+        state.base -= state.view_days * 3600 * 24;
+        fit_events();
         state.dirty = true;
     }
     if (key == 20) { // t
-        state.day_offset = 0;
+        state.base = week_base();
+        fit_events();
         state.dirty = true;
     }
     if (key == 0x2F) { // v
         if (state.view_days > 1) state.view_days = 1;
         else state.view_days = 7;
-        state.day_offset -= state.day_offset % state.view_days;
+        fit_events();
         state.dirty = true;
     }
     if (key >= 0x02 && key <= 0x0A) {
@@ -396,11 +431,11 @@ main(int argc, char **argv) {
 
     state = (struct state){
         .n_cal = 0,
-        .day_offset = 0,
         .view_days = 7,
         .window_width = -1,
         .window_height = -1
     };
+    state.base = week_base();
 
     state.zone = new_timezone("Europe/Budapest");
     for (int i = 1; i < argc; i++) {

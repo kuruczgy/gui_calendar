@@ -401,7 +401,7 @@ create_display(paint_cb p_cb, keyboard_cb k_cb) {
     assert(display->wm_base, "xdg_wm_base");
     assert(display->compositor, "wl_compositor");
 
-    assert(create_shm_pool(display, 1366 * 768 * 4) == 0, "create_shm_pool");
+    assert(create_shm_pool(display, 1366 * 1024 * 4) == 0, "create_shm_pool");
     assert(display->pool, "pool");
 
 	wl_display_roundtrip(display->display);

@@ -80,7 +80,8 @@ os_create_anonymous_file(off_t size)
 	return fd;
 }
 
-static int min(int a, int b) { return a < b ? a : b; }
+int min(int a, int b) { return a < b ? a : b; }
+int max(int a, int b) { return a < b ? b : a; }
 
 char *str_dup(const char *s) {
     if (!s) return NULL;
