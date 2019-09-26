@@ -80,3 +80,13 @@ os_create_anonymous_file(off_t size)
 	return fd;
 }
 
+static int min(int a, int b) { return a < b ? a : b; }
+
+char *str_dup(const char *s) {
+    if (!s) return NULL;
+    int len = strlen(s);
+    char *n = malloc(len+1);
+    memcpy(n, s, len);
+    n[len] = '\0';
+    return n;
+}

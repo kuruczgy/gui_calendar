@@ -7,9 +7,13 @@
 #include <libical/ical.h>
 #undef assert
 
-static void set_local_time(struct date* date, icaltimezone *zone) {
-    icaltimetype tt = icaltime_from_timet_with_zone(date->timestamp, 0, zone);
-    date->local_time = (struct tm){
+struct timezone {
+    icaltimezone *impl;
+    char *desc;
+};
+
+static struct tm tt_to_tm(icaltimetype tt) {
+    return (struct tm){
         .tm_sec = tt.second,
         .tm_min = tt.minute,
         .tm_hour = tt.hour,
@@ -22,19 +26,37 @@ static void set_local_time(struct date* date, icaltimezone *zone) {
     };
 }
 
-void calendar_calc_local_times(struct calendar* cal, const char *location) {
-    icaltimezone *zone = icaltimezone_get_builtin_timezone(location);
-    const char *tznames = icaltimezone_get_tznames(zone);
+struct tm time_now(struct timezone *zone) {
+    return tt_to_tm(icaltime_current_time_with_zone(zone->impl));
+}
 
+struct timezone *new_timezone(const char *location) {
+    struct timezone *zone = malloc(sizeof(struct timezone));
+    zone->impl = icaltimezone_get_builtin_timezone(location);
+
+    const char *tznames = icaltimezone_get_tznames(zone->impl);
     int l = strlen(location) + strlen(tznames) + 4;
     char *buf = malloc(l);
     snprintf(buf, l, "%s (%s)", location, tznames);
-    cal->tzname = buf;
+    zone->desc = buf;
 
+    return zone;
+}
+
+const char *get_timezone_desc(struct timezone *zone) {
+    return zone->desc;
+}
+
+static void set_local_time(struct date* date, icaltimezone *zone) {
+    icaltimetype tt = icaltime_from_timet_with_zone(date->timestamp, 0, zone);
+    date->local_time = tt_to_tm(tt);
+}
+
+void calendar_calc_local_times(struct calendar* cal, struct timezone *zone) {
     struct event *ev = cal->events;
     while (ev) {
-        set_local_time(&ev->start, zone);
-        set_local_time(&ev->end, zone);
+        set_local_time(&ev->start, zone->impl);
+        set_local_time(&ev->end, zone->impl);
         ev = ev->next;
     }
 }
@@ -68,6 +90,7 @@ void libical_parse_ics(FILE *f, struct calendar *cal) {
         ev->summary = str_dup(icalcomponent_get_summary(c));
         ev->uid = str_dup(icalcomponent_get_uid(c));
         ev->color = 0;
+        ev->location = str_dup(icalcomponent_get_location(c));
 
         icalproperty *p = icalcomponent_get_first_property(c,
                 ICAL_COLOR_PROPERTY);
@@ -87,48 +110,28 @@ void libical_parse_ics(FILE *f, struct calendar *cal) {
     }
     cal->tail = last;
 
+    icalcomponent_free(root);
     icalparser_free(parser);
 }
 
-static int not_main(int argc, char **argv) {
-    char* line;
-    icalcomponent *component;
-    icalparser *parser = icalparser_new();
+static void free_event(struct event *e) {
+    free(e->uid);
+    free(e->summary);
+    free(e->location);
+    free(e);
+}
 
-    // open file (first command-line argument)
-    FILE* stream = fopen(argv[1], "r");
-
-    // associate the FILE with the parser so that read_stream
-    // will have access to it
-    icalparser_set_gen_data(parser, stream);
-
-    // parse the opened file
-    component = icalparser_parse(parser, read_stream);
-    assert(component != 0, "cant parse component");
-
-    icaltimezone *utc = icaltimezone_get_utc_timezone();
-
-    for (icalcomponent *c = icalcomponent_get_first_component(component,
-                ICAL_VEVENT_COMPONENT); c != 0; c =
-            icalcomponent_get_next_component(component, ICAL_VEVENT_COMPONENT))
-    {
-        icalproperty *p = icalcomponent_get_first_property(c,
-                ICAL_SUMMARY_PROPERTY);
-        icalvalue *v = icalproperty_get_value(p);
-        const char * text = icalvalue_get_text(v);
-
-        icaltimetype dtstart = icalcomponent_get_dtstart(c);
-        const char *time = icaltime_as_ical_string(dtstart);
-
-        const char *uid = icalcomponent_get_uid(c);
-
-        fprintf(stderr, "event: %s\n", uid);
-        fprintf(stderr, "\tsummary: %s\n", text);
-        fprintf(stderr, "\tdtstart: %s\n", time);
+void free_calendar(struct calendar *cal) {
+    struct event *ev = cal->events;
+    while (ev) {
+        struct event *next = ev->next;
+        free_event(ev);
+        ev = next;
     }
+    free(cal->name);
+}
 
-    icalcomponent_free(component);
-    icalparser_free(parser);
-
-    return 0;
+void free_timezone(struct timezone *zone) {
+    free(zone->desc);
+    free(zone);
 }

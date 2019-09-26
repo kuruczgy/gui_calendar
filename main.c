@@ -15,6 +15,7 @@ struct state {
     struct calendar cal[16];
     struct calendar_info cal_info[16];
     int n_cal;
+    struct timezone *zone;
 
     int week_offset;
     int hour_from, hour_to;
@@ -151,20 +152,36 @@ void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
 
     uint32_t color = ev->color;
     if (!color) color = 0xFF00FF00;
-    double light = (color & 0xFF) + ((color >> 8) & 0xFF)
+    double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
         + ((color >> 16) & 0xFF);
-    light /= 255.0;
+    lightness /= 255.0;
     cairo_set_source_argb(cr, color);
     cairo_rectangle(cr, x, y, w, h);
     cairo_fill(cr);
 
-    uint32_t fg = light < 0.9 ? 0xFFFFFFFF : 0xFF000000;
+    bool light = lightness < 0.9 ? true : false;
+    uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
     cairo_set_source_argb(cr, fg);
+
+    int loc_h;
+    get_text_size(cr, "Monospace 8", w, &loc_h, 1.0, "%s", ev->location);
+
     cairo_move_to(cr, x, y);
-    pango_printf(cr, "Monospace 8", 1.0, w, h, "%02d:%02d-%02d:%02d %s",
+    pango_printf(cr, "Monospace 8", 1.0, w, h-loc_h, "%02d:%02d-%02d:%02d %s",
             ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
             ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
             ev->summary);
+
+
+    if (ev->location) {
+        cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
+        cairo_move_to(cr, x, y+h-loc_h);
+        pango_printf(cr, "Monospace 8", 1.0, w, loc_h, "%s", ev->location);
+    }
+
+    // cairo_move_to(cr, x, y+h-loc_h);
+    // cairo_line_to(cr, x+w, y+h-loc_h);
+    // cairo_stroke(cr);
 }
 
 void paint_calendar_events(cairo_t *cr, box b, time_t base) {
@@ -255,8 +272,8 @@ void paint_calendar(cairo_t *cr, box b, time_t base) {
 
     // draw time marker red line
     cairo_translate(cr, time_strip_w, 0);
-    time_t now = time(NULL);
-    struct tm t = *gmtime(&now);
+    time_t now = time(NULL); //TODO: fix this
+    struct tm t = time_now(state.zone);
     int now_sec = day_sec(t);
     int interval_sec = (state.hour_to - state.hour_from) * 3600;
     int day_sec = 24 * 3600;
@@ -285,7 +302,7 @@ paint(struct window *window, cairo_t *cr) {
 
 
     cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL,
-            CAIRO_FONT_WEIGHT_NORMAL);
+            CAIRO_FONT_WEIGHT_NORMAL); //TODO: this leaks??
     cairo_set_font_size(cr, 12);
     cairo_set_line_width(cr, 2);
 
@@ -306,7 +323,7 @@ paint(struct window *window, cairo_t *cr) {
     if (state.n_cal > 0) {
         cairo_move_to(cr, 0, 0);
         pango_printf(cr, "Monospace 8", 1.0, sidebar_w, header_h, "%s",
-                state.cal[0].tzname);
+                get_timezone_desc(state.zone));
     }
 
     state.dirty = false;
@@ -373,12 +390,13 @@ main(int argc, char **argv) {
         .window_height = -1
     };
 
+    state.zone = new_timezone("Europe/Budapest");
     for (int i = 1; i < argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
         cal->events = NULL;
         parse_dir(argv[i], cal);
-        calendar_calc_local_times(cal, "Europe/Budapest");
-        if (!cal->name) cal->name = argv[i];
+        calendar_calc_local_times(cal, state.zone);
+        if (!cal->name) cal->name = str_dup(argv[i]);
         state.cal_info[state.n_cal] = (struct calendar_info) {
             .visible = true
         };
@@ -394,6 +412,11 @@ main(int argc, char **argv) {
 
     state.dirty = true;
     gui_run(window);
+
+    for (int i = 0; i < state.n_cal; i++) {
+        free_calendar(&state.cal[i]);
+    }
+    free_timezone(state.zone);
 
 	destroy_window(window);
 	destroy_display(display);

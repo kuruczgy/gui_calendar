@@ -9,6 +9,8 @@
 
 #include "cairo.h"
 
+/* adopted from sway (MIT license) */
+
 PangoLayout *get_pango_layout(cairo_t *cairo, const char *font,
 		const char *text, double scale) {
 	PangoLayout *layout = pango_cairo_create_layout(cairo);
@@ -16,6 +18,7 @@ PangoLayout *get_pango_layout(cairo_t *cairo, const char *font,
     pango_layout_set_text(layout, text, -1);
 
 	pango_attr_list_insert(attrs, pango_attr_scale_new(scale));
+    pango_attr_list_insert(attrs, pango_attr_insert_hyphens_new(false));
 	PangoFontDescription *desc = pango_font_description_from_string(font);
 	pango_layout_set_font_description(layout, desc);
 	// pango_layout_set_single_paragraph_mode(layout, 1);
@@ -27,8 +30,8 @@ PangoLayout *get_pango_layout(cairo_t *cairo, const char *font,
 	return layout;
 }
 
-void get_text_size(cairo_t *cairo, const char *font, int *width, int *height,
-		int *baseline, double scale, const char *fmt, ...) {
+void get_text_size(cairo_t *cairo, const char *font, int width, int *height,
+        double scale, const char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
 	// Add one since vsnprintf excludes null terminator.
@@ -45,11 +48,9 @@ void get_text_size(cairo_t *cairo, const char *font, int *width, int *height,
 	va_end(args);
 
 	PangoLayout *layout = get_pango_layout(cairo, font, buf, scale);
+    pango_layout_set_width(layout, width * PANGO_SCALE);
 	pango_cairo_update_layout(cairo, layout);
-	pango_layout_get_pixel_size(layout, width, height);
-	if (baseline) {
-		*baseline = pango_layout_get_baseline(layout) / PANGO_SCALE;
-	}
+	pango_layout_get_pixel_size(layout, &width, height);
 	g_object_unref(layout);
 	free(buf);
 }

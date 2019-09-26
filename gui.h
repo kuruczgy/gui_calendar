@@ -38,7 +38,6 @@ struct window {
 	struct wl_surface *surface;
 	struct xdg_surface *xdg_surface;
 	struct xdg_toplevel *xdg_toplevel;
-    struct wl_shm_pool *shm_pool;
 	struct buffer buffers[2];
 	struct buffer *prev_buffer;
 	struct wl_callback *callback;

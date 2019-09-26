@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "date.h"
 
+struct timezone;
+
 struct date {
     time_t timestamp;
 
@@ -16,6 +18,7 @@ struct event {
     char *uid, *summary;
     struct date start, end;
     uint32_t color;
+    char *location;
 };
 
 struct calendar {
@@ -23,14 +26,16 @@ struct calendar {
     struct event **tail;
     int n_events;
     char *name;
-
-    char *tzname;
 };
 
-void calendar_calc_local_times(struct calendar *cal, const char *location);
+void calendar_calc_local_times(struct calendar *cal, struct timezone *zone);
+struct tm time_now(struct timezone *zone);
+struct timezone *new_timezone(const char *location);
+void free_timezone(struct timezone *zone);
+const char *get_timezone_desc(struct timezone *zone);
 
-void parse_ics(FILE *f, struct calendar *cal);
 void parse_dir(char *path, struct calendar *cal);
 void libical_parse_ics(FILE *f, struct calendar *cal);
+void free_calendar(struct calendar *cal);
 
 #endif

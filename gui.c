@@ -202,7 +202,7 @@ destroy_window(struct window *window)
     destroy_buffer(&window->buffers[1]);
     if (window->xdg_toplevel) xdg_toplevel_destroy(window->xdg_toplevel);
     if (window->xdg_surface) xdg_surface_destroy(window->xdg_surface);
-	wl_surface_destroy(window->surface);
+	if (window->surface) wl_surface_destroy(window->surface);
 	free(window);
 }
 
@@ -411,10 +411,12 @@ create_display(paint_cb p_cb, keyboard_cb k_cb) {
 void
 destroy_display(struct display *display)
 {
+    if (display->keyboard) wl_keyboard_destroy(display->keyboard);
+    if (display->wl_seat) wl_seat_destroy(display->wl_seat);
+    if (display->pool) wl_shm_pool_destroy(display->pool);
     if (display->wl_shm) wl_shm_destroy(display->wl_shm);
     if (display->wm_base) xdg_wm_base_destroy(display->wm_base);
     if (display->compositor) wl_compositor_destroy(display->compositor);
-    if (display->pool) wl_shm_pool_destroy(display->pool);
 	wl_registry_destroy(display->registry);
 	wl_display_flush(display->display);
 	wl_display_disconnect(display->display);
