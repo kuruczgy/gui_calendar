@@ -49,6 +49,7 @@ void get_text_size(cairo_t *cairo, const char *font, int width, int *height,
 
 	PangoLayout *layout = get_pango_layout(cairo, font, buf, scale);
     pango_layout_set_width(layout, width * PANGO_SCALE);
+    pango_layout_set_height(layout, -1000);
 	pango_cairo_update_layout(cairo, layout);
 	pango_layout_get_pixel_size(layout, &width, height);
 	g_object_unref(layout);

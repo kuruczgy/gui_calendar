@@ -66,21 +66,20 @@ next:
         }
     }
 
+    if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
+
     struct tm t = time_now(state.zone);
     int now_sec = day_sec(t);
     time_t diff = time(NULL) - state.base;
     if (!(diff > state.view_days * 3600 * 24 || diff < 0)) {
-        fprintf(stderr, "fit now_sec: %f\n", now_sec / 3600.0);
+        // fprintf(stderr, "fit now_sec: %f\n", now_sec / 3600.0);
         if (now_sec < min_sec) min_sec = now_sec;
         if (now_sec > max_sec) max_sec = now_sec;
     }
 
     state.hour_from = max(0, min_sec / 3600);
     state.hour_to = min(24, (max_sec + 3599) / 3600);
-    if (state.hour_to <= state.hour_from) {
-        state.hour_from = 0;
-        state.hour_to = 24;
-    }
+    if (state.hour_to<=state.hour_from) state.hour_from = 0, state.hour_to = 24;
     // fprintf(stderr, "fit: %f-%f\n", min_sec / 3600.0, max_sec / 3600.0);
 }
 
@@ -92,39 +91,104 @@ static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
             1.0);
 }
 
+void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
+        int max_n, int col) {
+    time_t diff = ev->start.timestamp - base;
+    if (diff > 3600 * 24 * 7 || diff < 0) return;
+
+    int num_days = state.view_days;
+
+    int start_sec = day_sec(ev->start.local_time);
+    int end_sec = day_sec(ev->end.local_time);
+    int day_sec = 24 * 3600;
+    int day_i = diff / day_sec;
+
+    int from_sec = state.hour_from * 3600;
+    int to_sec = state.hour_to * 3600;
+    int interval_sec = to_sec - from_sec;
+
+    int pad = 2;
+    int sw = b.w / num_days;
+    int dw = sw / max_n;
+    int x = sw * day_i + dw * col + pad;
+    int y = b.h * (start_sec - from_sec) / interval_sec;
+    int w = dw - 2*pad;
+    int h = b.h * (end_sec - start_sec) / interval_sec;
+
+    uint32_t color = ev->color;
+    if (!color) color = 0xFF00FF00;
+    double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
+        + ((color >> 16) & 0xFF);
+    lightness /= 255.0;
+    cairo_set_source_argb(cr, color);
+    cairo_rectangle(cr, x, y, w, h);
+    cairo_fill(cr);
+
+    bool light = lightness < 0.9 ? true : false;
+    uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
+    cairo_set_source_argb(cr, fg);
+
+    int loc_h;
+    get_text_size(cr, "Monospace 8", w, &loc_h, 1.0, "%s", ev->location);
+    loc_h = min(h / 2, loc_h);
+
+    cairo_move_to(cr, x, y);
+    pango_printf(cr, "Monospace 8", 1.0, w, h-loc_h, "%02d:%02d-%02d:%02d %s",
+            ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
+            ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
+            ev->summary);
+
+    if (ev->location) {
+        cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
+        cairo_move_to(cr, x, y+h-loc_h);
+        pango_printf(cr, "Monospace 8", 1.0, w, loc_h, "%s", ev->location);
+    }
+
+    // cairo_move_to(cr, x, y+h-loc_h);
+    // cairo_line_to(cr, x+w, y+h-loc_h);
+    // cairo_stroke(cr);
+}
+
 void paint_sidebar(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
+    int h = 0;
+    int pad = 6;
     for (int i = 0; i < state.n_cal; i++) {
         bool vis = state.cal_info[i].visible;
+        const char *name = state.cal[i].name;
+
+        int height;
+        get_text_size(cr, "Monospace 8", b.w, &height, 1.0, "%i: %s",i+1,name);
+
         cairo_set_source_argb(cr, vis ? 0xFF00FF00 : 0xFFFFFFFF);
-        cairo_rectangle(cr, 0, i*20, b.w, 20);
+        cairo_rectangle(cr, 0, h, b.w, height + pad);
         cairo_fill(cr);
-    }
 
-    cairo_set_source_rgba(cr, 0, 0, 0, 255);
-    for(int i = 1; i < state.n_cal; i++) {
-        cairo_move_to(cr, 0, i*20);
-        cairo_line_to(cr, b.w, i*20);
-    }
-    cairo_stroke(cr);
+        cairo_set_source_argb(cr, 0xFF000000);
+        cairo_move_to(cr, 0, h + pad / 2);
+        pango_printf(cr, "Monospace 8", 1.0, b.w, height, "%i: %s", i+1, name);
 
-    char buf[64];
-    for (int i = 0; i < state.n_cal; i++) {
-        snprintf(buf, 64, "%i: %s", i+1, state.cal[i].name);
-        draw_text(cr, b.w/2, i*20+10, buf);
+        h += height + pad;
+        cairo_move_to(cr, 0, h);
+        cairo_line_to(cr, b.w, h);
+        cairo_stroke(cr);
     }
 
     cairo_set_source_rgba(cr, .3, .3, .3, 1);
-    cairo_move_to(cr, 0, state.n_cal * 20 + 30);
-    pango_printf(cr, "Monospace 8", 1.0, b.w, b.h, "%s", 
-            "Usage:\r"
-            " n: next\r"
-            " p: previous\r"
-            " t: today\r"
-            " v: cycle view modes\r"
-            " up/down: move 1 hour up/down\r"
-            " +/-: inc./dec. vertical scale\r");
+    cairo_move_to(cr, 0, h += 5);
+    const char *usage =
+        "Usage:\r"
+        " n: next\r"
+        " p: previous\r"
+        " t: today\r"
+        " v: cycle view modes\r"
+        " up/down: move 1 hour up/down\r"
+        " +/-: inc./dec. vertical scale\r";
+    int height;
+    get_text_size(cr, "Monospace 8", b.w, &height, 1.0, "%s", usage);
+    pango_printf(cr, "Monospace 8", 1.0, b.w, b.h, "%s", usage);
+    h += height;
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
     cairo_move_to(cr, b.w, 0);
@@ -170,64 +234,6 @@ static time_t week_base() {
     if (state.view_days > 1)
         t.tm_mday -= (t.tm_wday-1+7)%7;
     return mktime(&t);
-}
-
-void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
-        int max_n, int col) {
-    time_t diff = ev->start.timestamp - base;
-    if (diff > 3600 * 24 * 7 || diff < 0) return;
-
-    int num_days = state.view_days;
-
-    int start_sec = day_sec(ev->start.local_time);
-    int end_sec = day_sec(ev->end.local_time);
-    int day_sec = 24 * 3600;
-    int day_i = diff / day_sec;
-
-    int from_sec = state.hour_from * 3600;
-    int to_sec = state.hour_to * 3600;
-    int interval_sec = to_sec - from_sec;
-
-    int pad = 2;
-    int sw = b.w / num_days;
-    int dw = sw / max_n;
-    int x = sw * day_i + dw * col + pad;
-    int y = b.h * (start_sec - from_sec) / interval_sec;
-    int w = dw - 2*pad;
-    int h = b.h * (end_sec - start_sec) / interval_sec;
-
-    uint32_t color = ev->color;
-    if (!color) color = 0xFF00FF00;
-    double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
-        + ((color >> 16) & 0xFF);
-    lightness /= 255.0;
-    cairo_set_source_argb(cr, color);
-    cairo_rectangle(cr, x, y, w, h);
-    cairo_fill(cr);
-
-    bool light = lightness < 0.9 ? true : false;
-    uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
-    cairo_set_source_argb(cr, fg);
-
-    int loc_h;
-    get_text_size(cr, "Monospace 8", w, &loc_h, 1.0, "%s", ev->location);
-
-    cairo_move_to(cr, x, y);
-    pango_printf(cr, "Monospace 8", 1.0, w, h-loc_h, "%02d:%02d-%02d:%02d %s",
-            ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
-            ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
-            ev->summary);
-
-
-    if (ev->location) {
-        cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
-        cairo_move_to(cr, x, y+h-loc_h);
-        pango_printf(cr, "Monospace 8", 1.0, w, loc_h, "%s", ev->location);
-    }
-
-    // cairo_move_to(cr, x, y+h-loc_h);
-    // cairo_line_to(cr, x+w, y+h-loc_h);
-    // cairo_stroke(cr);
 }
 
 void paint_calendar_events(cairo_t *cr, box b, time_t base) {
@@ -403,6 +409,7 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
         int n = key - 2; /* key 1->0 .. key 9->8 */
         if (n < state.n_cal) {
             state.cal_info[n].visible = ! state.cal_info[n].visible;
+            fit_events();
             state.dirty = true;
         }
     }
@@ -459,8 +466,7 @@ main(int argc, char **argv) {
         if (++state.n_cal >= 16) break;
     }
 
-    state.hour_from = 5;
-    state.hour_to = 17;
+    fit_events();
 
     struct display *display = create_display(&paint, &handle_key);
 	struct window *window = create_window(display, 900, 700);
