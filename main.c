@@ -32,6 +32,10 @@ typedef struct {
     int x, y, w, h;
 } box;
 
+static bool interval_overlap(int a1, int a2, int b1, int b2) {
+    return a1 <= b2 && a2 >= b1;
+}
+
 void draw_text(cairo_t *cr, int x, int y, char *text) {
     cairo_text_extents_t ex;
     cairo_text_extents(cr, text, &ex);
@@ -91,17 +95,17 @@ static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
             1.0);
 }
 
-void paint_event(cairo_t *cr, struct event *ev, time_t base, box b,
-        int max_n, int col) {
-    time_t diff = ev->start.timestamp - base;
-    if (diff > 3600 * 24 * 7 || diff < 0) return;
+void paint_event(cairo_t *cr, struct event *ev, int day_i, time_t day_base,
+        box b, int max_n, int col) {
+    assert(interval_overlap(
+                ev->start.timestamp, ev->end.timestamp,
+                day_base, day_base + 3600 * 24
+    ), "event does not overlap with day");
 
     int num_days = state.view_days;
 
-    int start_sec = day_sec(ev->start.local_time);
-    int end_sec = day_sec(ev->end.local_time);
-    int day_sec = 24 * 3600;
-    int day_i = diff / day_sec;
+    int start_sec = max(0, ev->start.timestamp - day_base);
+    int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
 
     int from_sec = state.hour_from * 3600;
     int to_sec = state.hour_to * 3600;
@@ -218,22 +222,15 @@ void paint_header(cairo_t *cr, box b, time_t base) {
     char buf[64];
     for (int i = 0; i < num_days; i++) {
         time_t time_off = base + 3600 * 24 * i;
-        struct tm *t = gmtime(&time_off);
+        struct icaltimetype t = icaltime_from_timet_with_zone(
+            time_off, false, state.zone->impl);
+        int dow = icaltime_day_of_week(t);
         snprintf(buf, 64, "%s: %d-%d",
-                days[(t->tm_wday+6)%7], t->tm_mon+1, t->tm_mday);
+                days[(dow+5)%7], t.month, t.day);
         draw_text(cr, i*sw+sw/2, b.h/2, buf);
     }
 
     cairo_identity_matrix(cr);
-}
-
-static time_t week_base() {
-    time_t now = time(NULL);
-    struct tm t = *gmtime(&now);
-    t.tm_sec = t.tm_min = t.tm_hour = 0;
-    if (state.view_days > 1)
-        t.tm_mday -= (t.tm_wday-1+7)%7;
-    return mktime(&t);
 }
 
 void paint_calendar_events(cairo_t *cr, box b, time_t base) {
@@ -256,7 +253,10 @@ void paint_calendar_events(cairo_t *cr, box b, time_t base) {
             struct event *ev = state.cal[i].events;
             while (ev) {
                 time_t diff = ev->start.timestamp - day_base;
-                if (diff > 3600 * 24 || diff < 0) goto next;
+                if (!interval_overlap(
+                            ev->start.timestamp, ev->end.timestamp,
+                            day_base, day_base + 3600 * 24
+                )) goto next;
                 active[active_n++] = ev;
 next:
                 ev = ev->next;
@@ -264,8 +264,8 @@ next:
         }
         for (int k = 0; k < active_n; k++) {
             struct event *ev = active[k];
-            int start_sec = day_sec(ev->start.local_time);
-            int end_sec = day_sec(ev->end.local_time);
+            int start_sec = max(0, ev->start.timestamp - day_base);
+            int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
             layout_events[k] = (struct layout_event){
                 .start = start_sec,
                 .end = end_sec
@@ -275,7 +275,7 @@ next:
         for (int k = 0; k < active_n; k++) {
             struct event *ev = active[k];
             struct layout_event *le = &layout_events[k];
-            paint_event(cr, ev, base, b, le->max_n, le->col);
+            paint_event(cr, ev, d, day_base, b, le->max_n, le->col);
         }
     }
     free(layout_events);
@@ -395,7 +395,7 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
         state.dirty = true;
     }
     if (key == 20) { // t
-        state.base = week_base();
+        state.base = get_day_base(state.zone, state.view_days > 1);
         fit_events();
         state.dirty = true;
     }
@@ -451,9 +451,10 @@ main(int argc, char **argv) {
         .window_width = -1,
         .window_height = -1
     };
-    state.base = week_base();
 
     state.zone = new_timezone("Europe/Budapest");
+    state.base = get_day_base(state.zone, state.view_days > 1);
+
     for (int i = 1; i < argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
         cal->events = NULL;

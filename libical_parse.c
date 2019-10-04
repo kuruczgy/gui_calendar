@@ -4,13 +4,6 @@
 #include <string.h>
 #include "util.h"
 #include "parse.h"
-#include <libical/ical.h>
-#undef assert
-
-struct timezone {
-    icaltimezone *impl;
-    char *desc;
-};
 
 static struct tm tt_to_tm(icaltimetype tt) {
     return (struct tm){
@@ -28,6 +21,17 @@ static struct tm tt_to_tm(icaltimetype tt) {
 
 struct tm time_now(struct timezone *zone) {
     return tt_to_tm(icaltime_current_time_with_zone(zone->impl));
+}
+
+time_t get_day_base(struct timezone *zone, bool week) {
+    struct icaltimetype now = icaltime_current_time_with_zone(zone->impl);
+    now.hour = now.minute = now.second = 0;
+    if (week) {
+        int dow = icaltime_day_of_week(now);
+        int adjust = -((dow - 2 + 7) % 7);
+        icaltime_adjust(&now, adjust, 0, 0, 0);
+    }
+    return icaltime_as_timet_with_zone(now, zone->impl);
 }
 
 struct timezone *new_timezone(const char *location) {
@@ -87,6 +91,8 @@ void libical_parse_ics(FILE *f, struct calendar *cal) {
 
         ev->start = parse_date(icalcomponent_get_dtstart(c));
         ev->end = parse_date(icalcomponent_get_dtend(c));
+        assert(ev->start.timestamp <= ev->end.timestamp,
+                "event ends before it begins");
         ev->summary = str_dup(icalcomponent_get_summary(c));
         ev->uid = str_dup(icalcomponent_get_uid(c));
         ev->color = 0;

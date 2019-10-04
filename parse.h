@@ -2,9 +2,15 @@
 #define _PARSE_H_
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <libical/ical.h>
+#undef assert
 #include "date.h"
 
-struct timezone;
+struct timezone {
+    icaltimezone *impl;
+    char *desc;
+};
 
 struct date {
     time_t timestamp;
@@ -33,6 +39,7 @@ struct tm time_now(struct timezone *zone);
 struct timezone *new_timezone(const char *location);
 void free_timezone(struct timezone *zone);
 const char *get_timezone_desc(struct timezone *zone);
+time_t get_day_base(struct timezone *zone, bool week);
 
 void parse_dir(char *path, struct calendar *cal);
 void libical_parse_ics(FILE *f, struct calendar *cal);
