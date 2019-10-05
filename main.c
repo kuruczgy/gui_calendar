@@ -47,14 +47,30 @@ static int day_sec(struct tm t) {
     return 3600 * t.tm_hour + 60 * t.tm_min + t.tm_sec;
 }
 
+static bool different_day(struct tm a, struct tm b) {
+    return a.tm_mday != b.tm_mday || a.tm_mon != b.tm_mon || a.tm_year !=
+        b.tm_year;
+}
+
 void fit_events() {
     int min_sec = 3600 * 24 + 1, max_sec = -1;
     for (int i = 0; i < state.n_cal; i++) {
         if (!state.cal_info[i].visible) continue;
         struct event *ev = state.cal[i].events;
         while (ev) {
-            time_t diff = ev->start.timestamp - state.base;
-            if (diff > state.view_days * 3600 * 24 || diff < 0) goto next;
+            if (! interval_overlap(
+                    state.base, state.base + state.view_days * 3600 * 24,
+                    ev->start.timestamp, ev->end.timestamp)
+                ) goto next;
+
+            if (different_day(ev->start.local_time, ev->end.local_time)) {
+                /* TODO: maybe could do better when the event begins on the
+                 * last day of the view range. */
+                min_sec = 0;
+                max_sec = 3600 * 24;
+                goto skip;
+            }
+
             int start = day_sec(ev->start.local_time),
                 end = day_sec(ev->end.local_time);
             if (start < min_sec) {
@@ -69,6 +85,7 @@ next:
             ev = ev->next;
         }
     }
+skip:
 
     if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
 
