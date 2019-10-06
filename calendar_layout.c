@@ -11,8 +11,14 @@ struct point {
     int index;
 };
 
-static int cmp_point(const void *a, const void *b) {
-    return ((struct point*)a)->val - ((struct point*)b)->val;
+static int cmp_point(const void *pa, const void *pb) {
+    const struct point *a = pa, *b = pb;
+    int val = a->val - b->val;
+    if (val == 0) {
+        if (!a->start && b->start) return -1;
+        if (a->start && !b->start) return 1;
+    }
+    return val;
 }
 
 static int first_free_bit(uint32_t n) {
