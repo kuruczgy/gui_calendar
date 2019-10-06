@@ -102,6 +102,12 @@ void libical_parse_event(icalcomponent *c, struct calendar *cal) {
     ev->color = 0;
     ev->location = str_dup(icalcomponent_get_location(c));
 
+    ev->tentative = false;
+    icalproperty_status pstatus = icalcomponent_get_status(c);
+    if (pstatus == ICAL_STATUS_TENTATIVE || pstatus == ICAL_STATUS_CANCELLED) {
+        ev->tentative = true;
+    }
+
     icalproperty *p = icalcomponent_get_first_property(c,
             ICAL_COLOR_PROPERTY);
     if (p) {

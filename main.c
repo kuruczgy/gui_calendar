@@ -114,7 +114,7 @@ static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
             ((c >> 16) & 0xFF) / 255.0,
             ((c >> 8) & 0xFF) / 255.0,
             (c & 0xFF) / 255.0,
-            1.0);
+            ((c >> 24) & 0xFF) / 255.0);
 }
 
 void paint_event(cairo_t *cr, struct event *ev, int day_i, time_t day_base,
@@ -143,6 +143,9 @@ void paint_event(cairo_t *cr, struct event *ev, int day_i, time_t day_base,
 
     uint32_t color = ev->color;
     if (!color) color = 0xFF00FF00;
+    if (ev->tentative) {
+        color = (color & 0x00FFFFFF) | 0x30000000;
+    }
     double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
         + ((color >> 16) & 0xFF);
     lightness /= 255.0;
