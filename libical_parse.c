@@ -4,6 +4,8 @@
 #include <string.h>
 #include "util.h"
 #include "parse.h"
+#include <sys/stat.h>
+#include <dirent.h>
 
 static struct tm tt_to_tm(icaltimetype tt) {
     return (struct tm){
@@ -77,6 +79,60 @@ static struct date parse_date(icaltimetype tt) {
     return (struct date) { .utc_time = tm, .timestamp = t };
 }
 
+static void cal_append(struct calendar *cal, struct event *ev) {
+    assert(*(cal->tail) == NULL, "tail not null");
+    *(cal->tail) = ev;
+    cal->tail = &(ev->next);
+    ev->next = NULL;
+    cal->n_events++;
+}
+
+void libical_parse_event(icalcomponent *c, struct calendar *cal) {
+    struct event *ev = malloc(sizeof(struct event));
+
+    struct icaltimetype
+        dtstart = icalcomponent_get_dtstart(c),
+        dtend = icalcomponent_get_dtend(c);
+    ev->start = parse_date(dtstart);
+    ev->end = parse_date(dtend);
+    assert(ev->start.timestamp <= ev->end.timestamp,
+            "event ends before it begins");
+    ev->summary = str_dup(icalcomponent_get_summary(c));
+    ev->uid = str_dup(icalcomponent_get_uid(c));
+    ev->color = 0;
+    ev->location = str_dup(icalcomponent_get_location(c));
+
+    icalproperty *p = icalcomponent_get_first_property(c,
+            ICAL_COLOR_PROPERTY);
+    if (p) {
+        icalvalue *v = icalproperty_get_value(p);
+        const char *text = icalvalue_get_text(v);
+        ev->color = lookup_color(text);
+    }
+
+    icalproperty *rrule=icalcomponent_get_first_property(c,ICAL_RRULE_PROPERTY);
+    if (rrule) {
+        struct icalrecurrencetype recur = icalproperty_get_rrule(rrule);
+        icalrecur_iterator *ritr = icalrecur_iterator_new(recur, dtstart);
+        struct icaldurationtype dur = icaltime_subtract(dtend, dtstart);
+        struct icaltimetype next;
+        int n = 0;
+        while (next = icalrecur_iterator_next(ritr), ++n,
+                (!icaltime_is_null_time(next) && n < 128)) {
+            struct event *ev2 = malloc(sizeof(struct event));
+            memcpy(ev2, ev, sizeof(struct event));
+            ev2->start = parse_date(next);
+            next = icaltime_add(next, dur);
+            ev2->end = parse_date(next);
+            cal_append(cal, ev2);
+        }
+        free(ev);
+    } else {
+        cal_append(cal, ev);
+    }
+
+}
+
 void libical_parse_ics(FILE *f, struct calendar *cal) {
     icalparser *parser = icalparser_new();
     icalparser_set_gen_data(parser, f);
@@ -85,36 +141,11 @@ void libical_parse_ics(FILE *f, struct calendar *cal) {
     
     icalcomponent *c = icalcomponent_get_first_component(
         root, ICAL_VEVENT_COMPONENT);
-    struct event **last = cal->tail;
     while(c) {
-        struct event *ev = malloc(sizeof(struct event));
-
-        ev->start = parse_date(icalcomponent_get_dtstart(c));
-        ev->end = parse_date(icalcomponent_get_dtend(c));
-        assert(ev->start.timestamp <= ev->end.timestamp,
-                "event ends before it begins");
-        ev->summary = str_dup(icalcomponent_get_summary(c));
-        ev->uid = str_dup(icalcomponent_get_uid(c));
-        ev->color = 0;
-        ev->location = str_dup(icalcomponent_get_location(c));
-
-        icalproperty *p = icalcomponent_get_first_property(c,
-                ICAL_COLOR_PROPERTY);
-        if (p) {
-            icalvalue *v = icalproperty_get_value(p);
-            const char *text = icalvalue_get_text(v);
-            ev->color = lookup_color(text);
-        }
-
-        *last = ev;
-        last = &(ev->next);
-        ev->next = NULL;
-        cal->n_events++;
-
+        libical_parse_event(c, cal);
         c = icalcomponent_get_next_component(
             root, ICAL_VEVENT_COMPONENT);
     }
-    cal->tail = last;
 
     icalcomponent_free(root);
     icalparser_free(parser);
@@ -135,9 +166,57 @@ void free_calendar(struct calendar *cal) {
         ev = next;
     }
     free(cal->name);
+    free(cal->storage);
 }
 
 void free_timezone(struct timezone *zone) {
     free(zone->desc);
     free(zone);
+}
+
+void parse_dir(char *path, struct calendar *cal) {
+    struct stat sb;
+    assert(stat(path, &sb) == 0, "stat");
+
+    cal->events = NULL;
+    cal->name = NULL;
+    cal->tail = &(cal->events);
+    if (S_ISREG(sb.st_mode)) { // file
+        FILE *f = fopen(path, "rb");
+        libical_parse_ics(f, cal);
+        fclose(f);
+    } else {
+        assert(S_ISDIR(sb.st_mode), "not dir");
+        DIR *d;
+        struct dirent *dir;
+        char buf[1024];
+        assert(d = opendir(path), "opendir");
+        while(dir = readdir(d)) {
+            if (dir->d_type != DT_REG) continue;
+            int l = strlen(dir->d_name);
+            bool displayname = false;
+            if (!( l >= 4 && strcmp(dir->d_name + l - 4, ".ics") == 0 )) {
+                if (strcmp(dir->d_name, "displayname") == 0) {
+                    displayname = true;
+                } else {
+                    continue;
+                }
+            }
+            snprintf(buf, 1024, "%s/%s", path, dir->d_name);
+            FILE *f = fopen(buf, "rb");
+            assert(f, "could not open");
+            if (displayname) {
+                int cnt = fread(buf, 1, 1024, f);
+                assert(cnt > 0, "meta");
+                assert(cal->name == NULL, "name null");
+                cal->name = malloc(cnt+1);
+                memcpy(cal->name, buf, cnt);
+                cal->name[cnt] = '\0';
+            } else {
+                libical_parse_ics(f, cal);
+            }
+            fclose(f);
+        }
+        assert(closedir(d) == 0, "closedir");
+    }
 }

@@ -1,7 +1,6 @@
-
 #include <stdio.h>
-
 #include <cairo.h>
+#include <sys/types.h>
 #include "util.h"
 #include "parse.h"
 #include "pango.h"
@@ -22,6 +21,8 @@ struct state {
     int hour_from, hour_to;
 
     int window_width, window_height;
+    struct subprocess_handle *sp;
+    const char **editor;
 
     bool dirty;
 };
@@ -101,6 +102,10 @@ skip:
     state.hour_from = max(0, min_sec / 3600);
     state.hour_to = min(24, (max_sec + 3599) / 3600);
     if (state.hour_to<=state.hour_from) state.hour_from = 0, state.hour_to = 24;
+
+    /* hack until this problem caused by DST is properly fixed */
+    if (state.hour_to < 24) state.hour_to++;
+
     // fprintf(stderr, "fit: %f-%f\n", min_sec / 3600.0, max_sec / 3600.0);
 }
 
@@ -205,7 +210,8 @@ void paint_sidebar(cairo_t *cr, box b) {
         " t: today\r"
         " v: cycle view modes\r"
         " up/down: move 1 hour up/down\r"
-        " +/-: inc./dec. vertical scale\r";
+        " +/-: inc./dec. vertical scale\r"
+        " c: create event\r";
     int height;
     get_text_size(cr, "Monospace 8", b.w, &height, 1.0, "%s", usage);
     pango_printf(cr, "Monospace 8", 1.0, b.w, b.h, "%s", usage);
@@ -261,7 +267,7 @@ void paint_calendar_events(cairo_t *cr, box b, time_t base) {
         n_all_events += state.cal[i].n_events;
     struct event **active = malloc(sizeof(struct event*) * n_all_events);
     struct layout_event *layout_events =
-        malloc(sizeof(struct layout_event*) * n_all_events);
+        malloc(sizeof(struct layout_event) * n_all_events);
     for (int d = 0; d < num_days; d++) {
         int active_n = 0;
         time_t day_base = base + 3600 * 24 * d;
@@ -283,6 +289,7 @@ next:
             struct event *ev = active[k];
             int start_sec = max(0, ev->start.timestamp - day_base);
             int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
+            assert(k < n_all_events, "too many events");
             layout_events[k] = (struct layout_event){
                 .start = start_sec,
                 .end = end_sec
@@ -454,8 +461,36 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
             state.dirty = true;
         }
     }
+    if (key == 0x2E) { // c
+        if (!state.sp) {
+            state.sp = subprocess_new_event_input(
+                state.editor[0], state.editor + 1);
+        }
+    }
     assert(state.hour_to > state.hour_from && state.hour_to <= 24
             && state.hour_from >= 0, "wrong from/to hour");
+}
+
+static void handle_child(struct display *display, pid_t pid) {
+    FILE *f = subprocess_get_result(&(state.sp), pid);
+    if (!f) return;
+
+    icalcomponent *event = parse_event_template(f, state.zone->impl);
+    char uid[64];
+    generate_uid(uid);
+    icalcomponent_add_property(event, icalproperty_new_uid(uid));
+    fprintf(stderr, "parsed event:\n%s\n",
+        icalcomponent_as_ical_string(event));
+
+    assert(state.n_cal > 0, "no calendar to save to");
+    struct calendar *cal = &(state.cal[0]);
+    int res = save_event(event, cal);
+    if (res >= 0) {
+        calendar_calc_local_times(cal, state.zone);
+        state.dirty = true;
+    } else {
+        fprintf(stderr, "event creation failed\n");
+    }
 }
 
 int
@@ -466,27 +501,46 @@ main(int argc, char **argv) {
         .n_cal = 0,
         .view_days = 7,
         .window_width = -1,
-        .window_height = -1
+        .window_height = -1,
+        .sp = NULL
     };
+
+    const char *ed = getenv("EDITOR");
+    assert(ed, "please set EDITOR env variable");
+    const char *editor[] = { "st", "st", ed, "{file}", NULL }; // TODO: config
+    state.editor = editor;
 
     state.zone = new_timezone("Europe/Budapest");
     state.base = get_day_base(state.zone, state.view_days > 1);
 
     for (int i = 1; i < argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
+
+        // setup
         cal->events = NULL;
+        cal->tail = &(cal->events);
+
+        // read
         parse_dir(argv[i], cal);
         calendar_calc_local_times(cal, state.zone);
+
+        // set metadata
         if (!cal->name) cal->name = str_dup(argv[i]);
+        cal->storage = str_dup(argv[i]);
+
+        // init cal_info
         state.cal_info[state.n_cal] = (struct calendar_info) {
-            .visible = true
+            .visible = (i == 1) // default to only the first being visible
         };
+
+        // next
         if (++state.n_cal >= 16) break;
     }
 
     fit_events();
 
-    struct display *display = create_display(&paint, &handle_key);
+    struct display *display =
+        create_display(&paint, &handle_key, &handle_child);
 	struct window *window = create_window(display, 900, 700);
     if (!window) return 1;
 

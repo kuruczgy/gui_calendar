@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/types.h>
 #include <libical/ical.h>
 #undef assert
 #include "date.h"
@@ -32,6 +33,7 @@ struct calendar {
     struct event **tail;
     int n_events;
     char *name;
+    char *storage;
 };
 
 void calendar_calc_local_times(struct calendar *cal, struct timezone *zone);
@@ -42,7 +44,17 @@ const char *get_timezone_desc(struct timezone *zone);
 time_t get_day_base(struct timezone *zone, bool week);
 
 void parse_dir(char *path, struct calendar *cal);
+void libical_parse_event(icalcomponent *c, struct calendar *cal);
 void libical_parse_ics(FILE *f, struct calendar *cal);
 void free_calendar(struct calendar *cal);
+
+icalcomponent* parse_event_template(FILE *f, icaltimezone *zone);
+int save_event(icalcomponent *event, struct calendar *cal);
+
+// subprocess stuff
+struct subprocess_handle;
+struct subprocess_handle* subprocess_new_event_input(
+        const char *file, const char *argv[]);
+FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
 
 #endif

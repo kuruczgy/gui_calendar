@@ -7,6 +7,8 @@
 #include <stdio.h>
 
 #include <sys/mman.h>
+#include <poll.h>
+#include <sys/wait.h>
 
 #include <wayland-client.h>
 #include <cairo.h>
@@ -380,7 +382,7 @@ static const struct wl_registry_listener wl_registry_listener = {
 };
 
 struct display *
-create_display(paint_cb p_cb, keyboard_cb k_cb) {
+create_display(paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb) {
 	struct display *display;
 
 	display = malloc(sizeof *display);
@@ -393,6 +395,7 @@ create_display(paint_cb p_cb, keyboard_cb k_cb) {
 
     display->k_cb = k_cb;
     display->p_cb = p_cb;
+    display->c_cb = c_cb;
 
 	display->registry = wl_display_get_registry(display->display);
     wl_registry_add_listener(display->registry, &wl_registry_listener, display);
@@ -423,11 +426,42 @@ destroy_display(struct display *display)
     free(display);
 }
 
+static void handle_children(struct display *display) {
+    pid_t pid;
+    while((pid = waitpid(-1, NULL, WNOHANG)) > 0) {
+        fprintf(stderr, "handle_children got pid: %d\n", pid);
+        display->c_cb(display, pid);
+    }
+}
+
 void
 gui_run(struct window *window) {
-    int ret = 0;
     wl_surface_damage(window->surface, 0, 0, window->width, window->height);
     if (!window->wait_for_configure) redraw(window, NULL, 0);
-    while (window->running && ret != -1)
-        ret = wl_display_dispatch(window->display->display);
+
+    struct wl_display *display = window->display->display;
+
+
+    int ret = 0;
+    // polling code from
+    // https://git.sr.ht/~sircmpwn/wlroots/tree/b9b397ef8094b221bc1042aedf0dbbbb5d9a5f1e/examples/dmabuf-capture.c#L631
+    while (window->running && ret != -1) {
+        while (wl_display_prepare_read(display) != 0)
+            wl_display_dispatch_pending(display);
+        wl_display_flush(display);
+
+        struct pollfd fds[1];
+        fds[0].fd = wl_display_get_fd(display);
+        fds[0].events = POLLIN | POLLERR | POLLHUP;
+        ret = poll(fds, 1, 500);
+
+        handle_children(window->display);
+
+        if (!(fds[0].revents & POLLIN)) wl_display_cancel_read(display);
+        if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
+        if (fds[0].revents & POLLIN) {
+            if (wl_display_read_events(display) < 0) break;
+			wl_display_dispatch_pending(display);
+		}
+    }
 }

@@ -5,7 +5,7 @@ MY_FLAGS=`pkg-config --cflags --libs cairo pango pangocairo libical`
 
 all: xdg_shell
 	$(CC) -g -o gui_calendar \
-		main.c util.c parse.c pango.c gui.c colors.c \
+		main.c util.c parse.c pango.c gui.c subprocess.c colors.c \
 		calendar_layout.c libical_parse.c \
 		xdg-shell-client-protocol.c \
 		-lwayland-client $(MY_FLAGS)
