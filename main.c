@@ -19,6 +19,7 @@ struct state {
     time_t base;
     int view_days;
     int hour_from, hour_to;
+    time_t now;
 
     int window_width, window_height;
     struct subprocess_handle *sp;
@@ -90,7 +91,7 @@ skip:
 
     if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
 
-    struct tm t = time_now(state.zone);
+    struct tm t = timet_to_tm_with_zone(state.now, state.zone);
     int now_sec = day_sec(t);
     time_t diff = time(NULL) - state.base;
     if (!(diff > state.view_days * 3600 * 24 || diff < 0)) {
@@ -351,8 +352,8 @@ void paint_calendar(cairo_t *cr, box b, time_t base) {
 
     // draw time marker red line
     cairo_translate(cr, time_strip_w, 0);
-    time_t now = time(NULL); //TODO: fix this
-    struct tm t = time_now(state.zone);
+    time_t now = state.now;
+    struct tm t = timet_to_tm_with_zone(now, state.zone);
     int now_sec = day_sec(t);
     int interval_sec = (state.hour_to - state.hour_from) * 3600;
     int day_sec = 24 * 3600;
@@ -371,6 +372,11 @@ void paint_calendar(cairo_t *cr, box b, time_t base) {
 static bool
 paint(struct window *window, cairo_t *cr) {
     int w = window->width, h = window->height;
+    time_t now = time(NULL);
+    if (state.now != now) {
+        state.now = now;
+        state.dirty = true;
+    }
     if (state.window_width != w ||
             state.window_height != h) {
         state.window_width = w;
@@ -378,6 +384,8 @@ paint(struct window *window, cairo_t *cr) {
         state.dirty = true;
     }
     if (!state.dirty) return false;
+    static int frame_counter = 0;
+    ++frame_counter;
 
 
     cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL,
@@ -401,8 +409,13 @@ paint(struct window *window, cairo_t *cr) {
 
     if (state.n_cal > 0) {
         cairo_move_to(cr, 0, 0);
-        pango_printf(cr, "Monospace 8", 1.0, sidebar_w, header_h, "%s",
-                get_timezone_desc(state.zone));
+
+        struct tm t = timet_to_tm_with_zone(state.now, state.zone);
+        pango_printf(cr, "Monospace 8", 1.0, sidebar_w, header_h,
+                "%s\rframe %d\r%02d:%02d:%02d",
+                get_timezone_desc(state.zone),
+                frame_counter,
+                t.tm_hour, t.tm_min, t.tm_sec);
     }
 
     state.dirty = false;

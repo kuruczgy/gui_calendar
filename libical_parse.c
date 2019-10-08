@@ -21,8 +21,8 @@ static struct tm tt_to_tm(icaltimetype tt) {
     };
 }
 
-struct tm time_now(struct timezone *zone) {
-    return tt_to_tm(icaltime_current_time_with_zone(zone->impl));
+struct tm timet_to_tm_with_zone(time_t t, struct timezone *zone) {
+    return tt_to_tm(icaltime_from_timet_with_zone(t, false, zone->impl));
 }
 
 time_t get_day_base(struct timezone *zone, bool week) {
