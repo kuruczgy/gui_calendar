@@ -9,7 +9,7 @@ struct layout_event {
     int start, end;
     int max_n;
     int col;
-    void *tag;
+    int idx;
 };
 
 int os_create_anonymous_file(off_t size);

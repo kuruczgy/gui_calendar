@@ -49,6 +49,15 @@ bool key_sym(uint32_t code, char sym) {
     return lut[code] == sym;
 }
 
+bool key_is_sym(uint32_t code) {
+    char sym = key_get_sym(code);
+    return 'a' <= sym && 'z' >= sym;
+}
+
+char key_get_sym(uint32_t code) {
+    return lut[code];
+}
+
 int key_num(uint32_t code) {
     if (code < KEY_1 || code > KEY_9) return -1;
     return code - KEY_1 + 1;
@@ -69,10 +78,9 @@ void key_gen_init(int n, struct key_gen *g) {
     g->begin = true;
 }
 
-#include <stdio.h>
-static char* print_perm(int *c, int N) {
-    static char cc[33]; cc[N] = '\0';
-    for (int i = 0; i < N; ++i) cc[i] = lut[gen[c[i]]];
+static char* print_perm(int *c, int k) {
+    static char cc[33]; cc[k] = '\0';
+    for (int i = 0; i < k; ++i) cc[i] = lut[gen[c[i]]];
     return cc;
 }
 const char* key_gen_get(struct key_gen *g) {
@@ -82,10 +90,11 @@ const char* key_gen_get(struct key_gen *g) {
     return print_perm(g->A, g->k);
 }
 
+/* #include <stdio.h>
 static int main() {
     struct key_gen g;
     key_gen_init(9, &g);
     const char *c;
     int i = 0;
     while (c = key_gen_get(&g)) printf("%d: %s\n", ++i, c);
-}
+} */

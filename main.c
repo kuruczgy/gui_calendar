@@ -11,16 +11,22 @@ struct calendar_info {
     bool visible;
 };
 
+struct event_tag {
+    struct event *ev;
+    char code[33];
+};
+
 struct state {
     struct calendar cal[16];
     struct calendar_info cal_info[16];
     struct event **active_events;
+    struct event_tag *active_events_tag;
     struct layout_event **layout_events;
     int *layout_event_n;
     int active_n;
     int n_cal;
-    struct timezone *zone;
 
+    struct timezone *zone;
     time_t base;
     int view_days;
     int hour_from, hour_to;
@@ -29,6 +35,10 @@ struct state {
     int window_width, window_height;
     struct subprocess_handle *sp;
     const char **editor;
+    bool mode_select;
+    char mode_select_code[33];
+    int mode_select_code_n;
+    int mode_select_len;
 
     bool dirty;
 };
@@ -59,14 +69,55 @@ static bool different_day(struct tm a, struct tm b) {
         b.tm_year;
 }
 
+void disable_mode_select() {
+    state.mode_select = false;
+}
+
+void switch_mode_select() {
+    state.mode_select_code_n = 0;
+    if (state.mode_select) return;
+    state.mode_select = true;
+    struct key_gen g;
+    key_gen_init(state.active_n, &g);
+    state.mode_select_len = g.k;
+    for (int i = 0; i < state.active_n; ++i) {
+        const char *code = key_gen_get(&g);
+        assert(code, "not enough codes");
+        strcpy(state.active_events_tag[i].code, code);
+    }
+}
+
+void mode_select_append_sym(char sym) {
+    state.mode_select_code[state.mode_select_code_n++] = sym;
+    if (state.mode_select_code_n >= state.mode_select_len) {
+        disable_mode_select();
+        state.dirty = true;
+        for (int i = 0; i < state.active_n; ++i) {
+            if (strncmp(
+                    state.active_events_tag[i].code, state.mode_select_code,
+                    state.mode_select_code_n) == 0) {
+                fprintf(stderr, "selected event: %s\n",
+                        state.active_events[i]->summary);
+                break;
+            }
+        }
+    }
+}
+
 static void update_active_events() {
     // discard existing structures
-    free(state.active_events);
+    if (state.active_events) {
+        free(state.active_events);
+        free(state.active_events_tag);
+    }
     if (state.layout_event_n) {
         for (int d = 0; state.layout_event_n[d] > 0; d++)
             free(state.layout_events[d]);
         free(state.layout_event_n);
     }
+
+    // clear any modes that depend on current event structures
+    disable_mode_select();
 
     int n_all_events = 0;
     for (int i = 0; i < state.n_cal; i++) n_all_events += state.cal[i].n_events;
@@ -85,6 +136,7 @@ next:
             ev = ev->next;
         }
     }
+    state.active_events_tag = malloc(sizeof(struct event_tag) * active_n);
 
     struct layout_event **layout_events =
         malloc(sizeof(struct layout_event*) * state.view_days);
@@ -107,7 +159,7 @@ next:
             la[l++] = (struct layout_event){
                 .start = start_sec,
                 .end = end_sec,
-                .tag = ev
+                .idx = k
             };
         }
         calendar_layout(la, l);
@@ -166,8 +218,10 @@ static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
             ((c >> 24) & 0xFF) / 255.0);
 }
 
-void paint_event(cairo_t *cr, struct event *ev, int day_i, time_t day_base,
-        box b, int max_n, int col) {
+void paint_event(cairo_t *cr, int day_i, time_t day_base,
+        box b, int max_n, int col, int idx) {
+    struct event *ev = state.active_events[idx];
+    struct event_tag *event_tag = &state.active_events_tag[idx];
     assert(interval_overlap(
                 ev->start.timestamp, ev->end.timestamp,
                 day_base, day_base + 3600 * 24
@@ -220,6 +274,12 @@ void paint_event(cairo_t *cr, struct event *ev, int day_i, time_t day_base,
         cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
         cairo_move_to(cr, x, y+h-loc_h);
         pango_printf(cr, "Monospace 8", 1.0, w, loc_h, "%s", ev->location);
+    }
+
+    if (state.mode_select) {
+        cairo_set_source_argb(cr, 0xFFFF0000);
+        cairo_move_to(cr, x, y);
+        pango_printf(cr, "Monospace 13", 1.0, -1, -1, "%s", event_tag->code);
     }
 
     // cairo_move_to(cr, x, y+h-loc_h);
@@ -317,8 +377,7 @@ void paint_calendar_events(cairo_t *cr, box b) {
         struct layout_event *la = state.layout_events[d];
         for (int k = 0; k < n; k++) {
             struct layout_event *le = &la[k];
-            struct event *ev = le->tag;
-            paint_event(cr, ev, d, day_base, b, le->max_n, le->col);
+            paint_event(cr, d, day_base, b, le->max_n, le->col, le->idx);
         }
     }
     cairo_translate(cr, -b.x, -b.y);
@@ -436,35 +495,45 @@ paint(struct window *window, cairo_t *cr) {
 
 static void
 handle_key(struct display *display, uint32_t key, uint32_t mods) {
-    if (key_sym(key, 'n')) {
-        state.base += state.view_days * 3600 * 24;
-        update_active_events();
-        fit_events();
-        state.dirty = true;
-    }
-    if (key_sym(key, 'p')) {
-        state.base -= state.view_days * 3600 * 24;
-        update_active_events();
-        fit_events();
-        state.dirty = true;
-    }
-    if (key_sym(key, 't')) {
-        state.base = get_day_base(state.zone, state.view_days > 1);
-        update_active_events();
-        fit_events();
-        state.dirty = true;
-    }
-    if (key_sym(key, 'v')) {
-        if (state.view_days > 1) state.view_days = 1;
-        else state.view_days = 7;
-        update_active_events();
-        fit_events();
-        state.dirty = true;
-    }
-    if (key_sym(key, 'c')) {
-        if (!state.sp) {
-            state.sp = subprocess_new_event_input(
-                state.editor[0], state.editor + 1);
+    if (key_is_sym(key)) {
+        if (state.mode_select) {
+            mode_select_append_sym(key_get_sym(key));
+            return;
+        }
+        if (key_sym(key, 'n')) {
+            state.base += state.view_days * 3600 * 24;
+            update_active_events();
+            fit_events();
+            state.dirty = true;
+        }
+        if (key_sym(key, 'p')) {
+            state.base -= state.view_days * 3600 * 24;
+            update_active_events();
+            fit_events();
+            state.dirty = true;
+        }
+        if (key_sym(key, 't')) {
+            state.base = get_day_base(state.zone, state.view_days > 1);
+            update_active_events();
+            fit_events();
+            state.dirty = true;
+        }
+        if (key_sym(key, 'v')) {
+            if (state.view_days > 1) state.view_days = 1;
+            else state.view_days = 7;
+            update_active_events();
+            fit_events();
+            state.dirty = true;
+        }
+        if (key_sym(key, 'c')) {
+            if (!state.sp) {
+                state.sp = subprocess_new_event_input(
+                    state.editor[0], state.editor + 1);
+            }
+        }
+        if (key_sym(key, 'e')) {
+            switch_mode_select();
+            state.dirty = true;
         }
     }
     int n;
@@ -540,7 +609,8 @@ main(int argc, char **argv) {
         .window_height = -1,
         .sp = NULL,
         .active_events = NULL,
-        .layout_event_n = NULL
+        .layout_event_n = NULL,
+        .mode_select = false
     };
 
     const char *ed = getenv("EDITOR");
