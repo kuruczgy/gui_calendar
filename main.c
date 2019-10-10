@@ -5,6 +5,7 @@
 #include "parse.h"
 #include "pango.h"
 #include "gui.h"
+#include "keyboard.h"
 
 struct calendar_info {
     bool visible;
@@ -13,6 +14,10 @@ struct calendar_info {
 struct state {
     struct calendar cal[16];
     struct calendar_info cal_info[16];
+    struct event **active_events;
+    struct layout_event **layout_events;
+    int *layout_event_n;
+    int active_n;
     int n_cal;
     struct timezone *zone;
 
@@ -54,8 +59,19 @@ static bool different_day(struct tm a, struct tm b) {
         b.tm_year;
 }
 
-void fit_events() {
-    int min_sec = 3600 * 24 + 1, max_sec = -1;
+static void update_active_events() {
+    // discard existing structures
+    free(state.active_events);
+    if (state.layout_event_n) {
+        for (int d = 0; state.layout_event_n[d] > 0; d++)
+            free(state.layout_events[d]);
+        free(state.layout_event_n);
+    }
+
+    int n_all_events = 0;
+    for (int i = 0; i < state.n_cal; i++) n_all_events += state.cal[i].n_events;
+    struct event **active = malloc(sizeof(struct event*) * n_all_events);
+    int active_n = 0;
     for (int i = 0; i < state.n_cal; i++) {
         if (!state.cal_info[i].visible) continue;
         struct event *ev = state.cal[i].events;
@@ -64,30 +80,62 @@ void fit_events() {
                     state.base, state.base + state.view_days * 3600 * 24,
                     ev->start.timestamp, ev->end.timestamp)
                 ) goto next;
-
-            if (different_day(ev->start.local_time, ev->end.local_time)) {
-                /* TODO: maybe could do better when the event begins on the
-                 * last day of the view range. */
-                min_sec = 0;
-                max_sec = 3600 * 24;
-                goto skip;
-            }
-
-            int start = day_sec(ev->start.local_time),
-                end = day_sec(ev->end.local_time);
-            if (start < min_sec) {
-                // fprintf(stderr, "smaller start: %d\n", start);
-                min_sec = start;
-            }
-            if (end > max_sec) {
-                // fprintf(stderr, "larger end: %d\n", end);
-                max_sec = end;
-            }
+            active[active_n++] = ev;
 next:
             ev = ev->next;
         }
     }
-skip:
+
+    struct layout_event **layout_events =
+        malloc(sizeof(struct layout_event*) * state.view_days);
+    int *layout_event_n = malloc(sizeof(int) * (state.view_days + 1));
+    layout_event_n[state.view_days] = -1;
+    for (int d = 0; d < state.view_days; d++) {
+        time_t day_base = state.base + 3600 * 24 * d;
+        int l = 0;
+        struct layout_event *la = layout_events[d]
+            = malloc(sizeof(struct layout_event) * active_n);
+        for (int k = 0; k < active_n; k++) {
+            struct event *ev = active[k];
+            if ( ! interval_overlap(
+                    day_base, day_base + 3600 * 24,
+                    ev->start.timestamp, ev->end.timestamp)
+                ) continue;
+            int start_sec = max(0, ev->start.timestamp - day_base);
+            int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
+            assert(l < active_n, "too many events");
+            la[l++] = (struct layout_event){
+                .start = start_sec,
+                .end = end_sec,
+                .tag = ev
+            };
+        }
+        calendar_layout(la, l);
+        layout_event_n[d] = l;
+    }
+
+    state.active_events = active;
+    state.active_n = active_n;
+    state.layout_events = layout_events;
+    state.layout_event_n = layout_event_n;
+}
+
+void fit_events() {
+    int min_sec = 3600 * 24 + 1, max_sec = -1;
+    for (int i = 0; i < state.active_n; ++i) {
+        struct event *ev = state.active_events[i];
+        if (different_day(ev->start.local_time, ev->end.local_time)) {
+            /* TODO: maybe could do better when the event begins on the
+             * last day of the view range. */
+            min_sec = 0;
+            max_sec = 3600 * 24;
+            break;
+        }
+        int start = day_sec(ev->start.local_time),
+            end = day_sec(ev->end.local_time);
+        if (start < min_sec) min_sec = start;
+        if (end > max_sec) max_sec = end;
+    }
 
     if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
 
@@ -260,54 +308,19 @@ void paint_header(cairo_t *cr, box b, time_t base) {
     cairo_identity_matrix(cr);
 }
 
-void paint_calendar_events(cairo_t *cr, box b, time_t base) {
+void paint_calendar_events(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
-
-    int num_days = state.view_days;
-    int sw = b.w / num_days;
-
-    int n_all_events = 0;
-    for (int i = 0; i < state.n_cal; i++)
-        n_all_events += state.cal[i].n_events;
-    struct event **active = malloc(sizeof(struct event*) * n_all_events);
-    struct layout_event *layout_events =
-        malloc(sizeof(struct layout_event) * n_all_events);
-    for (int d = 0; d < num_days; d++) {
-        int active_n = 0;
-        time_t day_base = base + 3600 * 24 * d;
-        for (int i = 0; i < state.n_cal; i++) {
-            if (!state.cal_info[i].visible) continue;
-            struct event *ev = state.cal[i].events;
-            while (ev) {
-                time_t diff = ev->start.timestamp - day_base;
-                if (!interval_overlap(
-                            ev->start.timestamp, ev->end.timestamp,
-                            day_base, day_base + 3600 * 24
-                )) goto next;
-                active[active_n++] = ev;
-next:
-                ev = ev->next;
-            }
-        }
-        for (int k = 0; k < active_n; k++) {
-            struct event *ev = active[k];
-            int start_sec = max(0, ev->start.timestamp - day_base);
-            int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
-            assert(k < n_all_events, "too many events");
-            layout_events[k] = (struct layout_event){
-                .start = start_sec,
-                .end = end_sec
-            };
-        }
-        calendar_layout(layout_events, active_n);
-        for (int k = 0; k < active_n; k++) {
-            struct event *ev = active[k];
-            struct layout_event *le = &layout_events[k];
+    int sw = b.w / state.view_days;
+    for (int d = 0; d < state.view_days; d++) {
+        time_t day_base = state.base + 3600 * 24 * d;
+        int n = state.layout_event_n[d];
+        struct layout_event *la = state.layout_events[d];
+        for (int k = 0; k < n; k++) {
+            struct layout_event *le = &la[k];
+            struct event *ev = le->tag;
             paint_event(cr, ev, d, day_base, b, le->max_n, le->col);
         }
     }
-    free(layout_events);
-    free(active);
     cairo_translate(cr, -b.x, -b.y);
 }
 
@@ -347,8 +360,7 @@ void paint_calendar(cairo_t *cr, box b, time_t base) {
     }
 
     // draw all the events
-    paint_calendar_events(cr, (box){ time_strip_w, 0, b.w-time_strip_w, b.h },
-            base);
+    paint_calendar_events(cr, (box){ time_strip_w, 0, b.w-time_strip_w, b.h });
 
     // draw time marker red line
     cairo_translate(cr, time_strip_w, 0);
@@ -424,41 +436,53 @@ paint(struct window *window, cairo_t *cr) {
 
 static void
 handle_key(struct display *display, uint32_t key, uint32_t mods) {
-    if (key == 49) {// n
+    if (key_sym(key, 'n')) {
         state.base += state.view_days * 3600 * 24;
+        update_active_events();
         fit_events();
         state.dirty = true;
     }
-    if (key == 25) { // p
+    if (key_sym(key, 'p')) {
         state.base -= state.view_days * 3600 * 24;
+        update_active_events();
         fit_events();
         state.dirty = true;
     }
-    if (key == 20) { // t
+    if (key_sym(key, 't')) {
         state.base = get_day_base(state.zone, state.view_days > 1);
+        update_active_events();
         fit_events();
         state.dirty = true;
     }
-    if (key == 0x2F) { // v
+    if (key_sym(key, 'v')) {
         if (state.view_days > 1) state.view_days = 1;
         else state.view_days = 7;
+        update_active_events();
         fit_events();
         state.dirty = true;
     }
-    if (key >= 0x02 && key <= 0x0A) {
-        int n = key - 2; /* key 1->0 .. key 9->8 */
+    if (key_sym(key, 'c')) {
+        if (!state.sp) {
+            state.sp = subprocess_new_event_input(
+                state.editor[0], state.editor + 1);
+        }
+    }
+    int n;
+    if ((n = key_num(key)) >= 0) {
+        --n; /* key 1->0 .. key 9->8 */
         if (n < state.n_cal) {
             state.cal_info[n].visible = ! state.cal_info[n].visible;
+            update_active_events();
             fit_events();
             state.dirty = true;
         }
     }
     if (mods & 1) { // shift
-        if (key == 13) {
+        if (key == 13) { // KEY_EQUALS
             if (state.hour_to > state.hour_from + 1) --state.hour_to;
             state.dirty = true;
         }
-        if (key == 12) {
+        if (key == 12) { // KEY_MINUS
             if (state.hour_to < 24) { ++state.hour_to; state.dirty = true; }
             if (state.hour_from > 0) { --state.hour_from; state.dirty = true; }
         }
@@ -475,12 +499,6 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
             ++state.hour_from;
             ++state.hour_to;
             state.dirty = true;
-        }
-    }
-    if (key == 0x2E) { // c
-        if (!state.sp) {
-            state.sp = subprocess_new_event_input(
-                state.editor[0], state.editor + 1);
         }
     }
     assert(state.hour_to > state.hour_from && state.hour_to <= 24
@@ -503,6 +521,8 @@ static void handle_child(struct display *display, pid_t pid) {
     int res = save_event(event, cal);
     if (res >= 0) {
         calendar_calc_local_times(cal, state.zone);
+        update_active_events();
+        fit_events();
         state.dirty = true;
     } else {
         fprintf(stderr, "event creation failed\n");
@@ -518,7 +538,9 @@ main(int argc, char **argv) {
         .view_days = 7,
         .window_width = -1,
         .window_height = -1,
-        .sp = NULL
+        .sp = NULL,
+        .active_events = NULL,
+        .layout_event_n = NULL
     };
 
     const char *ed = getenv("EDITOR");
@@ -553,6 +575,7 @@ main(int argc, char **argv) {
         if (++state.n_cal >= 16) break;
     }
 
+    update_active_events();
     fit_events();
 
     struct display *display =
