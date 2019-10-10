@@ -98,6 +98,10 @@ void mode_select_append_sym(char sym) {
                     state.mode_select_code_n) == 0) {
                 fprintf(stderr, "selected event: %s\n",
                         state.active_events[i]->summary);
+                if (!state.sp) {
+                    state.sp = subprocess_new_event_input(state.editor[0],
+                            state.editor + 1, state.active_events[i]);
+                }
                 break;
             }
         }
@@ -527,8 +531,19 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
         }
         if (key_sym(key, 'c')) {
             if (!state.sp) {
+                time_t now = time(NULL);
+                struct tm t = *gmtime(&now);
+                struct event template = {
+                    .uid = NULL,
+                    .summary = NULL,
+                    .start = { .local_time = t },
+                    .end = { .local_time = t },
+                    .location = NULL,
+                    .desc = NULL
+                };
+
                 state.sp = subprocess_new_event_input(
-                    state.editor[0], state.editor + 1);
+                    state.editor[0], state.editor + 1, &template);
             }
         }
         if (key_sym(key, 'e')) {
@@ -578,16 +593,12 @@ static void handle_child(struct display *display, pid_t pid) {
     FILE *f = subprocess_get_result(&(state.sp), pid);
     if (!f) return;
 
-    icalcomponent *event = parse_event_template(f, state.zone->impl);
-    char uid[64];
-    generate_uid(uid);
-    icalcomponent_add_property(event, icalproperty_new_uid(uid));
-    fprintf(stderr, "parsed event:\n%s\n",
-        icalcomponent_as_ical_string(event));
+    struct event ev;
+    parse_event_template(f, &ev, state.zone->impl);
 
     assert(state.n_cal > 0, "no calendar to save to");
     struct calendar *cal = &(state.cal[0]);
-    int res = save_event(event, cal);
+    int res = save_event(&ev, cal);
     if (res >= 0) {
         calendar_calc_local_times(cal, state.zone);
         update_active_events();

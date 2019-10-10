@@ -101,6 +101,7 @@ void libical_parse_event(icalcomponent *c, struct calendar *cal) {
     ev->uid = str_dup(icalcomponent_get_uid(c));
     ev->color = 0;
     ev->location = str_dup(icalcomponent_get_location(c));
+    ev->desc = str_dup(icalcomponent_get_description(c));
 
     ev->tentative = false;
     icalproperty_status pstatus = icalcomponent_get_status(c);
@@ -139,12 +140,17 @@ void libical_parse_event(icalcomponent *c, struct calendar *cal) {
 
 }
 
-void libical_parse_ics(FILE *f, struct calendar *cal) {
+icalcomponent* libical_component_from_file(FILE *f) {
     icalparser *parser = icalparser_new();
     icalparser_set_gen_data(parser, f);
     icalcomponent *root = icalparser_parse(parser, read_stream);
+    icalparser_free(parser);
+    return root;
+}
+
+void libical_parse_ics(FILE *f, struct calendar *cal) {
+    icalcomponent *root = libical_component_from_file(f);
     assert(root, "parsing fucked up");
-    
     icalcomponent *c = icalcomponent_get_first_component(
         root, ICAL_VEVENT_COMPONENT);
     while(c) {
@@ -154,7 +160,6 @@ void libical_parse_ics(FILE *f, struct calendar *cal) {
     }
 
     icalcomponent_free(root);
-    icalparser_free(parser);
 }
 
 static void free_event(struct event *e) {

@@ -10,34 +10,14 @@ struct subprocess_handle {
     char *name;
 };
 
-static void print_time(FILE *f, struct tm *tim) {
-    fprintf(f, "%04d-%02d-%02d %02d:%02d", tim->tm_year + 1900,
-            tim->tm_mon + 1, tim->tm_mday, tim->tm_hour, tim->tm_min);
-}
-
-static void print_event_template(FILE *f) {
-    time_t t = time(NULL);
-    struct tm *tim = gmtime(&t);
-    tim->tm_min = 0;
-    fprintf(f, "summary:\n");
-    fprintf(f, "start: ");
-    print_time(f, tim);
-    fprintf(f, "\nend: ");
-    tim->tm_hour++;
-    mktime(tim);
-    print_time(f, tim);
-    fprintf(f, "\nlocation:\n");
-    fprintf(f, "desc:\n");
-}
-
 struct subprocess_handle* subprocess_new_event_input(
-        const char *file, const char *argv[]) {
+        const char *file, const char *argv[], const struct event *template_ev) {
     char *name = create_tmpfile_template();
     int fd = set_cloexec_or_close(mkstemp(name));
     struct subprocess_handle *res = NULL;
     if (fd >= 0) {
         FILE *f = fdopen(fd, "w");
-        print_event_template(f);
+        print_event_template(f, template_ev);
         fclose(f);
         pid_t pid = fork();
         if (pid > 0) { // parent

@@ -27,6 +27,7 @@ struct event {
     uint32_t color;
     char *location;
     bool tentative;
+    char *desc;
 };
 
 struct calendar {
@@ -47,15 +48,17 @@ time_t get_day_base(struct timezone *zone, bool week);
 void parse_dir(char *path, struct calendar *cal);
 void libical_parse_event(icalcomponent *c, struct calendar *cal);
 void libical_parse_ics(FILE *f, struct calendar *cal);
+icalcomponent* libical_component_from_file(FILE *f);
 void free_calendar(struct calendar *cal);
 
-icalcomponent* parse_event_template(FILE *f, icaltimezone *zone);
-int save_event(icalcomponent *event, struct calendar *cal);
+void print_event_template(FILE *f, const struct event *ev);
+void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone);
+int save_event(struct event *ev, struct calendar *cal);
 
 // subprocess stuff
 struct subprocess_handle;
 struct subprocess_handle* subprocess_new_event_input(
-        const char *file, const char *argv[]);
+        const char *file, const char *argv[], const struct event *template_ev);
 FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
 
 #endif
