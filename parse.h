@@ -7,6 +7,7 @@
 #include <libical/ical.h>
 #undef assert
 #include "date.h"
+#include "util/hashmap.h"
 
 struct timezone {
     icaltimezone *impl;
@@ -21,7 +22,6 @@ struct date {
 };
 
 struct event {
-    struct event *next;
     char *uid, *summary;
     struct date start, end;
     uint32_t color;
@@ -31,9 +31,7 @@ struct event {
 };
 
 struct calendar {
-    struct event *events;
-    struct event **tail;
-    int n_events;
+    map_t events;
     char *name;
     char *storage;
 };

@@ -148,18 +148,14 @@ int save_event(struct event *ev, struct calendar *cal) {
 
         icalcomponent_free(root);
 
-        struct event *e = cal->events;
-        while (e) {
-            if (strcmp(e->uid, uid) == 0) { // found it
-                e->summary = ev->summary; // TODO: memory leak in all of these
-                e->start = ev->start;
-                e->end = ev->end;
-                e->location = ev->location;
-                e->desc = ev->desc;
-                break;
-            }
-            e = e->next;
-        }
+        struct event *e;
+        assert(hashmap_get(cal->events, uid, (void**)&e) == MAP_OK,
+                "uid not found");
+        e->summary = ev->summary; // TODO: memory leak in all of these
+        e->start = ev->start;
+        e->end = ev->end;
+        e->location = ev->location;
+        e->desc = ev->desc;
     } else {
         if (ev->uid) {
             fprintf(stderr, "uid specified, but not found. aborting.\n");

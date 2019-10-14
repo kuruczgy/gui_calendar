@@ -58,13 +58,16 @@ static void set_local_time(struct date* date, icaltimezone *zone) {
     date->local_time = tt_to_tm(tt);
 }
 
+static int calc_local_time(void *zone_p, void *ev_p) {
+    struct timezone *zone = zone_p;
+    struct event *ev = ev_p;
+    set_local_time(&ev->start, zone->impl);
+    set_local_time(&ev->end, zone->impl);
+    return MAP_OK;
+}
+
 void calendar_calc_local_times(struct calendar* cal, struct timezone *zone) {
-    struct event *ev = cal->events;
-    while (ev) {
-        set_local_time(&ev->start, zone->impl);
-        set_local_time(&ev->end, zone->impl);
-        ev = ev->next;
-    }
+    hashmap_iterate(cal->events, calc_local_time, zone);
 }
 
 char* read_stream(char *s, size_t size, void *d)
@@ -80,11 +83,8 @@ static struct date parse_date(icaltimetype tt) {
 }
 
 static void cal_append(struct calendar *cal, struct event *ev) {
-    assert(*(cal->tail) == NULL, "tail not null");
-    *(cal->tail) = ev;
-    cal->tail = &(ev->next);
-    ev->next = NULL;
-    cal->n_events++;
+    assert(ev->uid, "uid missing at insert");
+    hashmap_put(cal->events, ev->uid, ev);
 }
 
 void libical_parse_event(icalcomponent *c, struct calendar *cal) {
@@ -162,20 +162,18 @@ void libical_parse_ics(FILE *f, struct calendar *cal) {
     icalcomponent_free(root);
 }
 
-static void free_event(struct event *e) {
+static int free_event(void *u, void *ev) {
+    struct event *e = ev;
     free(e->uid);
     free(e->summary);
     free(e->location);
     free(e);
+    return MAP_OK;
 }
 
 void free_calendar(struct calendar *cal) {
-    struct event *ev = cal->events;
-    while (ev) {
-        struct event *next = ev->next;
-        free_event(ev);
-        ev = next;
-    }
+    hashmap_iterate(cal->events, free_event, NULL);
+    hashmap_free(cal->events);
     free(cal->name);
     free(cal->storage);
 }
@@ -189,9 +187,8 @@ void parse_dir(char *path, struct calendar *cal) {
     struct stat sb;
     assert(stat(path, &sb) == 0, "stat");
 
-    cal->events = NULL;
+    cal->events = hashmap_new();
     cal->name = NULL;
-    cal->tail = &(cal->events);
     if (S_ISREG(sb.st_mode)) { // file
         FILE *f = fopen(path, "rb");
         libical_parse_ics(f, cal);

@@ -108,6 +108,20 @@ void mode_select_append_sym(char sym) {
     }
 }
 
+struct overlap_filterer {
+    struct event **list;
+    int n;
+    time_t from, to;
+};
+static int filter_events_overlap(void *f_p, void *e_p) {
+    struct overlap_filterer *f = f_p;
+    struct event *e = e_p;
+    if (interval_overlap(f->from,f->to,e->start.timestamp,e->end.timestamp)) {
+        f->list[f->n++] = e;
+    }
+    return MAP_OK;
+}
+
 static void update_active_events() {
     // discard existing structures
     if (state.active_events) {
@@ -124,22 +138,22 @@ static void update_active_events() {
     disable_mode_select();
 
     int n_all_events = 0;
-    for (int i = 0; i < state.n_cal; i++) n_all_events += state.cal[i].n_events;
+    for (int i = 0; i < state.n_cal; i++)
+        n_all_events += hashmap_length(state.cal[i].events);
     struct event **active = malloc(sizeof(struct event*) * n_all_events);
-    int active_n = 0;
+    struct overlap_filterer of = {
+        .list = active,
+        .n = 0,
+        .from = state.base,
+        .to = state.base + state.view_days * 3600 * 24
+    };
     for (int i = 0; i < state.n_cal; i++) {
-        if (!state.cal_info[i].visible) continue;
-        struct event *ev = state.cal[i].events;
-        while (ev) {
-            if (! interval_overlap(
-                    state.base, state.base + state.view_days * 3600 * 24,
-                    ev->start.timestamp, ev->end.timestamp)
-                ) goto next;
-            active[active_n++] = ev;
-next:
-            ev = ev->next;
+        if (state.cal_info[i].visible) {
+            hashmap_iterate(state.cal[i].events,
+                    filter_events_overlap, &of);
         }
     }
+    int active_n = of.n;
     state.active_events_tag = malloc(sizeof(struct event_tag) * active_n);
 
     struct layout_event **layout_events =
@@ -634,10 +648,6 @@ main(int argc, char **argv) {
 
     for (int i = 1; i < argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
-
-        // setup
-        cal->events = NULL;
-        cal->tail = &(cal->events);
 
         // read
         parse_dir(argv[i], cal);

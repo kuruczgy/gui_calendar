@@ -7,6 +7,7 @@ all: xdg_shell
 	$(CC) -g -o gui_calendar \
 		main.c util.c parse.c pango.c gui.c subprocess.c colors.c \
 		calendar_layout.c libical_parse.c keyboard.c algo.c \
+		util/hashmap.c \
 		xdg-shell-client-protocol.c \
 		-lwayland-client $(MY_FLAGS)
 xdg_shell:
