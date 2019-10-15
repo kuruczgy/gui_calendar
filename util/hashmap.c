@@ -349,7 +349,7 @@ int hashmap_iterate(map_t in, PFany f, any_t item) {
 /*
  * Remove an element with that key from the map
  */
-int hashmap_remove(map_t in, char* key){
+int hashmap_remove(map_t in, const char* key){
 	int i;
 	int curr;
 	hashmap_map* m;

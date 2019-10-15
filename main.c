@@ -26,7 +26,7 @@ struct state {
     int active_n;
     int n_cal;
 
-    struct timezone *zone;
+    struct cal_timezone *zone;
     time_t base;
     int view_days;
     int hour_from, hour_to;
@@ -116,30 +116,39 @@ struct overlap_filterer {
 static int filter_events_overlap(void *f_p, void *e_p) {
     struct overlap_filterer *f = f_p;
     struct event *e = e_p;
-    if (interval_overlap(f->from,f->to,e->start.timestamp,e->end.timestamp)) {
-        f->list[f->n++] = e;
-    }
+    do {
+        if (interval_overlap(f->from,f->to,e->start.timestamp,e->end.timestamp)) {
+            f->list[f->n++] = e;
+        }
+    } while (e = e->recur);
     return MAP_OK;
 }
 
-static void update_active_events() {
+static void discard_temp_structures() {
     // discard existing structures
     if (state.active_events) {
         free(state.active_events);
         free(state.active_events_tag);
     }
     if (state.layout_event_n) {
-        for (int d = 0; state.layout_event_n[d] > 0; d++)
+        for (int d = 0; state.layout_event_n[d] >= 0; d++)
             free(state.layout_events[d]);
+        free(state.layout_events);
         free(state.layout_event_n);
     }
+}
+
+
+static void update_active_events() {
+    discard_temp_structures();
 
     // clear any modes that depend on current event structures
     disable_mode_select();
 
     int n_all_events = 0;
     for (int i = 0; i < state.n_cal; i++)
-        n_all_events += hashmap_length(state.cal[i].events);
+        n_all_events += state.cal[i].num_events;
+        //hashmap_length(state.cal[i].events);
     struct event **active = malloc(sizeof(struct event*) * n_all_events);
     struct overlap_filterer of = {
         .list = active,
@@ -190,7 +199,7 @@ static void update_active_events() {
     state.layout_event_n = layout_event_n;
 }
 
-void fit_events() {
+static void fit_events() {
     int min_sec = 3600 * 24 + 1, max_sec = -1;
     for (int i = 0; i < state.active_n; ++i) {
         struct event *ev = state.active_events[i];
@@ -226,6 +235,16 @@ void fit_events() {
     if (state.hour_to < 24) state.hour_to++;
 
     // fprintf(stderr, "fit: %f-%f\n", min_sec / 3600.0, max_sec / 3600.0);
+}
+
+static void reload_calendars() {
+    for (int i = 0; i < state.n_cal; i++) {
+        update_calendar_from_storage(&state.cal[i]);
+        calendar_calc_local_times(&state.cal[i], state.zone);
+    }
+    update_active_events();
+    fit_events();
+    state.dirty = true;
 }
 
 static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
@@ -341,7 +360,9 @@ void paint_sidebar(cairo_t *cr, box b) {
         " v: cycle view modes\r"
         " up/down: move 1 hour up/down\r"
         " +/-: inc./dec. vertical scale\r"
-        " c: create event\r";
+        " c: create event\r"
+        " e: edit event\r"
+        " r: reload calendars\r";
     int height;
     get_text_size(cr, "Monospace 8", b.w, &height, 1.0, "%s", usage);
     pango_printf(cr, "Monospace 8", 1.0, b.w, b.h, "%s", usage);
@@ -564,6 +585,9 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
             switch_mode_select();
             state.dirty = true;
         }
+        if (key_sym(key, 'r')) {
+            reload_calendars();
+        }
     }
     int n;
     if ((n = key_num(key)) >= 0) {
@@ -649,8 +673,12 @@ main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
 
+        // init
+        init_calendar(cal);
+
         // read
-        parse_dir(argv[i], cal);
+        cal->storage = str_dup(argv[i]);
+        update_calendar_from_storage(cal);
         calendar_calc_local_times(cal, state.zone);
 
         // set metadata
@@ -677,6 +705,7 @@ main(int argc, char **argv) {
     state.dirty = true;
     gui_run(window);
 
+    discard_temp_structures();
     for (int i = 0; i < state.n_cal; i++) {
         free_calendar(&state.cal[i]);
     }
