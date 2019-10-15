@@ -55,6 +55,7 @@ void print_event_template(FILE *f, const struct event *ev) {
     if (ev->uid) {
         fprintf(f, "uid: %s\n", ev->uid);
     }
+    fprintf(f, "delete: \n");
 }
 
 static char* parse_prop(char *buf, const char *name) {
@@ -67,7 +68,9 @@ static char* parse_prop(char *buf, const char *name) {
     return NULL;
 }
 
-void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone) {
+void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
+        bool *del) {
+    *del = false;
     ev->summary = ev->location = ev->desc = ev->uid = NULL;
     char buf[1024], *p;
     int len;
@@ -85,6 +88,9 @@ void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone) {
             parse_datetime(p, zone, &ev->start); // TODO: check error
         } else if (p = parse_prop(buf, "end")) {
             parse_datetime(p, zone, &ev->end); // TODO: check error
+        } else if (p = parse_prop(buf, "delete")) {
+            if (strcmp(p, "true") == 0) *del = true;
+            else *del = false;
         }
     }
 }
@@ -104,7 +110,7 @@ static void ev_to_comp(struct event *ev, icalcomponent *event) {
     if (ev->desc) icalcomponent_set_description(event, ev->desc);
 }
 
-int save_event(struct event *ev, struct calendar *cal) {
+int save_event(struct event *ev, struct calendar *cal, bool del) {
     // check if directory
     struct stat sb;
     char *path = cal->storage;
@@ -122,7 +128,14 @@ int save_event(struct event *ev, struct calendar *cal) {
     assert(strlen(uid) >= 32, "uid sanity check");
     snprintf(buf, 1024, "%s/%s.ics", path, uid);
 
-    if (access(buf, F_OK) == 0) { // event file already exists?
+    if (del) {
+        if (unlink(buf) < 0) {
+            fprintf(stderr, "deletion failed\n");
+            return -1;
+        }
+        hashmap_remove(cal->events, uid);
+        fprintf(stderr, "deleted %s\n", buf);
+    } else if (access(buf, F_OK) == 0) { // event file already exists?
         FILE *f = fopen(buf, "r");
         icalcomponent *root = libical_component_from_file(f);
         fclose(f);

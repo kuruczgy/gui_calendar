@@ -55,8 +55,9 @@ void init_calendar(struct calendar* cal);
 void free_calendar(struct calendar *cal);
 
 void print_event_template(FILE *f, const struct event *ev);
-void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone);
-int save_event(struct event *ev, struct calendar *cal);
+void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
+        bool *del);
+int save_event(struct event *ev, struct calendar *cal, bool del);
 
 // subprocess stuff
 struct subprocess_handle;

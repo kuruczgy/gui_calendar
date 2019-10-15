@@ -632,11 +632,12 @@ static void handle_child(struct display *display, pid_t pid) {
     if (!f) return;
 
     struct event ev;
-    parse_event_template(f, &ev, state.zone->impl);
-
+    int res;
+    bool del;
+    parse_event_template(f, &ev, state.zone->impl, &del);
     assert(state.n_cal > 0, "no calendar to save to");
     struct calendar *cal = &(state.cal[0]);
-    int res = save_event(&ev, cal);
+    res = save_event(&ev, cal, del);
     if (res >= 0) {
         calendar_calc_local_times(cal, state.zone);
         update_active_events();
