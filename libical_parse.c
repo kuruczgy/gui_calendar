@@ -7,6 +7,12 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
+void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n) {
+    icaltimetype tt = icaltime_from_timet_with_zone(*t, false, zone->impl);
+    icaltime_adjust(&tt, n, 0, 0, 0);
+    *t = icaltime_as_timet_with_zone(tt, zone->impl);
+}
+
 static struct tm tt_to_tm(icaltimetype tt) {
     return (struct tm){
         .tm_sec = tt.second,

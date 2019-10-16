@@ -42,6 +42,7 @@ struct calendar {
 
 void calendar_calc_local_times(struct calendar *cal, struct cal_timezone *zone);
 struct tm timet_to_tm_with_zone(time_t t, struct cal_timezone *zone);
+void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n);
 struct cal_timezone *new_timezone(const char *location);
 void free_timezone(struct cal_timezone *zone);
 const char *get_timezone_desc(struct cal_timezone *zone);

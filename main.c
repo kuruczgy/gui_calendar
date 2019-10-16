@@ -170,6 +170,7 @@ static void update_active_events() {
     int *layout_event_n = malloc(sizeof(int) * (state.view_days + 1));
     layout_event_n[state.view_days] = -1;
     for (int d = 0; d < state.view_days; d++) {
+        // TODO: what if day not 24h long?
         time_t day_base = state.base + 3600 * 24 * d;
         int l = 0;
         struct layout_event *la = layout_events[d]
@@ -411,6 +412,7 @@ void paint_calendar_events(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
     int sw = b.w / state.view_days;
     for (int d = 0; d < state.view_days; d++) {
+        // TODO: what if day not 24h long?
         time_t day_base = state.base + 3600 * 24 * d;
         int n = state.layout_event_n[d];
         struct layout_event *la = state.layout_events[d];
@@ -540,13 +542,13 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
             return;
         }
         if (key_sym(key, 'n')) {
-            state.base += state.view_days * 3600 * 24;
+            timet_adjust_days(&state.base, state.zone, state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
         }
         if (key_sym(key, 'p')) {
-            state.base -= state.view_days * 3600 * 24;
+            timet_adjust_days(&state.base, state.zone, -state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
