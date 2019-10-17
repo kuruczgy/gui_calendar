@@ -232,9 +232,6 @@ static void fit_events() {
     state.hour_to = min(24, (max_sec + 3599) / 3600);
     if (state.hour_to<=state.hour_from) state.hour_from = 0, state.hour_to = 24;
 
-    /* hack until this problem caused by DST is properly fixed */
-    if (state.hour_to < 24) state.hour_to++;
-
     // fprintf(stderr, "fit: %f-%f\n", min_sec / 3600.0, max_sec / 3600.0);
 }
 
