@@ -6,11 +6,22 @@
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
 
-PangoLayout *get_pango_layout(cairo_t *cairo, const char *font,
-		const char *text, double scale);
-void get_text_size(cairo_t *cairo, const char *font, int width, int *height,
-        double scale, const char *fmt, ...);
-void pango_printf(cairo_t *cairo, const char *font,
-		double scale, int width, int height, const char *fmt, ...);
+struct layout_params {
+    const char *text;
+    double scale;
+    bool hyphens;
+    int width, height;
+};
+
+struct text_renderer {
+    PangoFontDescription *desc;
+    struct layout_params p;
+};
+
+struct text_renderer* text_renderer_new(const char *font);
+char* text_format(const char *fmt, ...);
+void text_get_size(cairo_t *cr, struct text_renderer *tr, const char *text);
+void text_print_free(cairo_t *cr, struct text_renderer *tr, char *text);
+void text_print_own(cairo_t *cr, struct text_renderer *tr, const char *text);
 
 #endif

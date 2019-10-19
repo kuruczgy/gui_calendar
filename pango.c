@@ -7,81 +7,79 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "cairo.h"
+#include "pango.h"
+#include "util.h"
 
-/* adopted from sway (MIT license) */
-
-PangoLayout *get_pango_layout(cairo_t *cairo, const char *font,
-		const char *text, double scale) {
-	PangoLayout *layout = pango_cairo_create_layout(cairo);
-	PangoAttrList *attrs = pango_attr_list_new();
-    pango_layout_set_text(layout, text, -1);
-
-	pango_attr_list_insert(attrs, pango_attr_scale_new(scale));
-    pango_attr_list_insert(attrs, pango_attr_insert_hyphens_new(false));
-	PangoFontDescription *desc = pango_font_description_from_string(font);
-	pango_layout_set_font_description(layout, desc);
-	// pango_layout_set_single_paragraph_mode(layout, 1);
-    pango_layout_set_wrap(layout, PANGO_WRAP_CHAR);
-    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
-	pango_layout_set_attributes(layout, attrs);
-	pango_attr_list_unref(attrs);
-	pango_font_description_free(desc);
-	return layout;
+struct text_renderer* text_renderer_new(const char *font) {
+    struct text_renderer *tr = malloc(sizeof(struct text_renderer));
+	tr->desc = pango_font_description_from_string(font);
+    tr->p.scale = 1.0;
+    tr->p.hyphens = false;
+    return tr;
 }
 
-void get_text_size(cairo_t *cairo, const char *font, int width, int *height,
-        double scale, const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	// Add one since vsnprintf excludes null terminator.
-	int length = vsnprintf(NULL, 0, fmt, args) + 1;
-	va_end(args);
+static PangoLayout *create_pango_layout(cairo_t *cr, struct text_renderer *tr) {
+    PangoLayout *l = pango_cairo_create_layout(cr);
+    PangoAttrList *a = pango_attr_list_new();
+    assert(tr->p.text, "text");
+    pango_layout_set_text(l, tr->p.text, -1);
 
-	char *buf = malloc(length);
-	if (buf == NULL) {
-        // error... lol
-		return;
-	}
-	va_start(args, fmt);
-	vsnprintf(buf, length, fmt, args);
-	va_end(args);
+    pango_attr_list_insert(a, pango_attr_scale_new(tr->p.scale));
+    pango_attr_list_insert(a, pango_attr_insert_hyphens_new(tr->p.hyphens));
+    pango_layout_set_attributes(l, a);
+    pango_attr_list_unref(a);
 
-	PangoLayout *layout = get_pango_layout(cairo, font, buf, scale);
-    pango_layout_set_width(layout, width * PANGO_SCALE);
-    pango_layout_set_height(layout, -1000);
-	pango_cairo_update_layout(cairo, layout);
-	pango_layout_get_pixel_size(layout, &width, height);
-	g_object_unref(layout);
-	free(buf);
-}
+    pango_layout_set_font_description(l, tr->desc);
 
-void pango_printf(cairo_t *cairo, const char *font,
-		double scale, int width, int height, const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	// Add one since vsnprintf excludes null terminator.
-	int length = vsnprintf(NULL, 0, fmt, args) + 1;
-	va_end(args);
+    pango_layout_set_wrap(l, PANGO_WRAP_CHAR);
+    pango_layout_set_ellipsize(l, PANGO_ELLIPSIZE_END);
 
-	char *buf = malloc(length);
-	if (buf == NULL) {
-        // error... lol
-		return;
-	}
-	va_start(args, fmt);
-	vsnprintf(buf, length, fmt, args);
-	va_end(args);
+    pango_layout_set_width(l, tr->p.width * PANGO_SCALE);
+    pango_layout_set_height(l, tr->p.height * PANGO_SCALE);
 
-	PangoLayout *layout = get_pango_layout(cairo, font, buf, scale);
-    pango_layout_set_width(layout, width * PANGO_SCALE);
-    pango_layout_set_height(layout, height * PANGO_SCALE);
-	cairo_font_options_t *fo = cairo_font_options_create();
-	cairo_get_font_options(cairo, fo);
+    /* pango_layout_set_alignment(l, tr->p.center ?
+            PANGO_ALIGN_CENTER : PANGO_ALIGN_LEFT); */
+
+	/* cairo_get_font_options(cairo, fo);
 	pango_cairo_context_set_font_options(pango_layout_get_context(layout), fo);
-	cairo_font_options_destroy(fo);
-	pango_cairo_update_layout(cairo, layout);
-	pango_cairo_show_layout(cairo, layout);
-	g_object_unref(layout);
-	free(buf);
+	cairo_font_options_destroy(fo); */
+	pango_cairo_update_layout(cr, l);
+
+    return l;
+}
+
+void text_get_size(cairo_t *cr, struct text_renderer *tr, const char *text) {
+    tr->p.text = text;
+    PangoLayout *l = create_pango_layout(cr, tr);
+	pango_layout_get_pixel_size(l, &tr->p.width, &tr->p.height);
+	g_object_unref(l);
+}
+
+void text_print_free(cairo_t *cr, struct text_renderer *tr, char *text) {
+    text_print_own(cr, tr, text);
+    free(text);
+}
+void text_print_own(cairo_t *cr, struct text_renderer *tr, const char *text) {
+    tr->p.text = text;
+    PangoLayout *l = create_pango_layout(cr, tr);
+	pango_layout_get_pixel_size(l, &tr->p.width, &tr->p.height);
+	pango_cairo_show_layout(cr, l);
+    g_object_unref(l);
+    tr->p.text = NULL;
+}
+
+char* text_format(const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	// Add one since vsnprintf excludes null terminator.
+	int length = vsnprintf(NULL, 0, fmt, args) + 1;
+	va_end(args);
+
+	char *buf = malloc(length);
+    assert(buf, "malloc error");
+	va_start(args, fmt);
+	vsnprintf(buf, length, fmt, args);
+	va_end(args);
+
+    return buf;
 }

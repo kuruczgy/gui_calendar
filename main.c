@@ -17,6 +17,8 @@ struct event_tag {
 };
 
 struct state {
+    struct text_renderer *tr;
+
     struct calendar cal[16];
     struct calendar_info cal_info[16];
     struct event **active_events;
@@ -295,31 +297,40 @@ void paint_event(cairo_t *cr, int day_i, time_t day_base,
     uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
     cairo_set_source_argb(cr, fg);
 
-    int loc_h;
-    get_text_size(cr, "Monospace 8", w, &loc_h, 1.0, "%s", ev->location);
-    loc_h = min(h / 2, loc_h);
+    if (ev->location) {
+        state.tr->p.width = w; state.tr->p.height = -1;
+        text_get_size(cr, state.tr, ev->location);
+    }
+    int loc_h = ev->location ? min(h / 2, state.tr->p.height) : 0;
 
     cairo_move_to(cr, x, y);
-    pango_printf(cr, "Monospace 8", 1.0, w, h-loc_h, "%02d:%02d-%02d:%02d %s",
+    state.tr->p.width = w; state.tr->p.height = h - loc_h;
+    char *text = text_format("%02d:%02d-%02d:%02d %s",
             ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
             ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
             ev->summary);
+    text_print_free(cr, state.tr, text);
 
     if (ev->location) {
         cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
         cairo_move_to(cr, x, y+h-loc_h);
-        pango_printf(cr, "Monospace 8", 1.0, w, loc_h, "%s", ev->location);
+
+        state.tr->p.width = w; state.tr->p.height = loc_h;
+        text_print_own(cr, state.tr, ev->location);
     }
 
     if (state.mode_select) {
-        cairo_set_source_argb(cr, 0xFFFF0000);
-        cairo_move_to(cr, x, y);
-        pango_printf(cr, "Monospace 13", 1.0, -1, -1, "%s", event_tag->code);
+        uint32_t c = (color ^ 0x00FFFFFF) | 0xFF000000;
+        cairo_set_source_argb(cr, c);
+        char *text = event_tag->code;
+        state.tr->p.scale = 3.0;
+        state.tr->p.width = w; state.tr->p.height = -1;
+        text_get_size(cr, state.tr, text);
+        cairo_move_to(cr, x + w/2 - state.tr->p.width/2,
+                          y + h/2 - state.tr->p.height/2);
+        text_print_own(cr, state.tr, event_tag->code);
+        state.tr->p.scale = 1.0;
     }
-
-    // cairo_move_to(cr, x, y+h-loc_h);
-    // cairo_line_to(cr, x+w, y+h-loc_h);
-    // cairo_stroke(cr);
 }
 
 void paint_sidebar(cairo_t *cr, box b) {
@@ -331,8 +342,10 @@ void paint_sidebar(cairo_t *cr, box b) {
         bool vis = state.cal_info[i].visible;
         const char *name = state.cal[i].name;
 
-        int height;
-        get_text_size(cr, "Monospace 8", b.w, &height, 1.0, "%i: %s",i+1,name);
+        char *text = text_format("%i: %s", i + 1, name);
+        state.tr->p.width = b.w;
+        text_get_size(cr, state.tr, text);
+        int height = state.tr->p.height;
 
         cairo_set_source_argb(cr, vis ? 0xFF00FF00 : 0xFFFFFFFF);
         cairo_rectangle(cr, 0, h, b.w, height + pad);
@@ -340,7 +353,8 @@ void paint_sidebar(cairo_t *cr, box b) {
 
         cairo_set_source_argb(cr, 0xFF000000);
         cairo_move_to(cr, 0, h + pad / 2);
-        pango_printf(cr, "Monospace 8", 1.0, b.w, height, "%i: %s", i+1, name);
+        state.tr->p.width = b.w; state.tr->p.height = height;
+        text_print_free(cr, state.tr, text);
 
         h += height + pad;
         cairo_move_to(cr, 0, h);
@@ -361,10 +375,11 @@ void paint_sidebar(cairo_t *cr, box b) {
         " c: create event\r"
         " e: edit event\r"
         " r: reload calendars\r";
-    int height;
-    get_text_size(cr, "Monospace 8", b.w, &height, 1.0, "%s", usage);
-    pango_printf(cr, "Monospace 8", 1.0, b.w, b.h, "%s", usage);
-    h += height;
+    state.tr->p.width = b.w; state.tr->p.height = -1;
+    text_get_size(cr, state.tr, usage);
+    h += state.tr->p.height;
+
+    text_print_own(cr, state.tr, usage);
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
     cairo_move_to(cr, b.w, 0);
@@ -520,11 +535,13 @@ paint(struct window *window, cairo_t *cr) {
         cairo_move_to(cr, 0, 0);
 
         struct tm t = timet_to_tm_with_zone(state.now, state.zone);
-        pango_printf(cr, "Monospace 8", 1.0, sidebar_w, header_h,
+        char *text = text_format(
                 "%s\rframe %d\r%02d:%02d:%02d",
                 get_timezone_desc(state.zone),
                 frame_counter,
                 t.tm_hour, t.tm_min, t.tm_sec);
+        state.tr->p.width = sidebar_w; state.tr->p.height = header_h;
+        text_print_free(cr, state.tr, text);
     }
 
     state.dirty = false;
@@ -701,6 +718,8 @@ main(int argc, char **argv) {
         create_display(&paint, &handle_key, &handle_child);
 	struct window *window = create_window(display, 900, 700);
     if (!window) return 1;
+
+    state.tr = text_renderer_new("Monospace 8");
 
     state.dirty = true;
     gui_run(window);
