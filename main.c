@@ -55,11 +55,17 @@ static bool interval_overlap(int a1, int a2, int b1, int b2) {
     return a1 <= b2 && a2 >= b1;
 }
 
-void draw_text(cairo_t *cr, int x, int y, char *text) {
-    cairo_text_extents_t ex;
-    cairo_text_extents(cr, text, &ex);
-    cairo_move_to(cr, x - ex.width/2, y + ex.height/2);
-    cairo_show_text(cr, text);
+static void draw_text(cairo_t *cr, int x, int y, char *text) {
+    state.tr->p.width = -1; state.tr->p.height = -1;
+    text_get_size(cr, state.tr, text);
+    cairo_move_to(cr, x - state.tr->p.width / 2, y - state.tr->p.height / 2);
+    text_print_own(cr, state.tr, text);
+}
+
+static void draw_text_scale(cairo_t *cr, int x, int y, char *text, double scale) {
+    state.tr->p.scale = scale;
+    draw_text(cr, x, y, text);
+    state.tr->p.scale = 1.0;
 }
 
 static int day_sec(struct tm t) {
@@ -139,7 +145,6 @@ static void discard_temp_structures() {
         free(state.layout_event_n);
     }
 }
-
 
 static void update_active_events() {
     discard_temp_structures();
@@ -388,7 +393,7 @@ void paint_sidebar(cairo_t *cr, box b) {
     cairo_identity_matrix(cr);
 }
 
-void paint_header(cairo_t *cr, box b, time_t base) {
+void paint_header(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
@@ -408,13 +413,13 @@ void paint_header(cairo_t *cr, box b, time_t base) {
     char *days[] = { "H", "K", "Sze", "Cs", "P", "Szo", "V" };
     char buf[64];
     for (int i = 0; i < num_days; i++) {
-        time_t time_off = base + 3600 * 24 * i;
+        time_t time_off = state.base + 3600 * 24 * i;
         struct icaltimetype t = icaltime_from_timet_with_zone(
             time_off, false, state.zone->impl);
         int dow = icaltime_day_of_week(t);
         snprintf(buf, 64, "%s: %d-%d",
                 days[(dow+5)%7], t.month, t.day);
-        draw_text(cr, i*sw+sw/2, b.h/2, buf);
+        draw_text_scale(cr, i*sw+sw/2, b.h/2, buf, 1.5);
     }
 
     cairo_identity_matrix(cr);
@@ -436,7 +441,7 @@ void paint_calendar_events(cairo_t *cr, box b) {
     cairo_translate(cr, -b.x, -b.y);
 }
 
-void paint_calendar(cairo_t *cr, box b, time_t base) {
+void paint_calendar(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
 
     int num_days = state.view_days;
@@ -481,9 +486,9 @@ void paint_calendar(cairo_t *cr, box b, time_t base) {
     int now_sec = day_sec(t);
     int interval_sec = (state.hour_to - state.hour_from) * 3600;
     int day_sec = 24 * 3600;
-    int day_i = (now - base) / day_sec;
+    int day_i = (now - state.base) / day_sec;
     int y = b.h * (now_sec - state.hour_from * 3600) / interval_sec;
-    if (now >= base) {
+    if (now >= state.base) {
         cairo_move_to(cr, day_i * sw, y);
         cairo_line_to(cr, (day_i+1) * sw, y);
         cairo_set_source_rgba(cr, 255, 0, 0, 255);
@@ -511,25 +516,17 @@ paint(struct window *window, cairo_t *cr) {
     static int frame_counter = 0;
     ++frame_counter;
 
-
-    cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL,
-            CAIRO_FONT_WEIGHT_NORMAL); //TODO: this leaks??
-    cairo_set_font_size(cr, 12);
-    cairo_set_line_width(cr, 2);
-
-	cairo_set_source_rgba(cr, 255, 255, 255, 255);
+	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
 	cairo_paint(cr);
 
     int time_strip_w = 30;
     int sidebar_w = 120;
     int header_h = 60;
 
-    time_t base = state.base;
-    paint_calendar(cr,  (box){ sidebar_w, header_h, w-sidebar_w, h-header_h },
-            base);
+    paint_calendar(cr,  (box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
     paint_sidebar(cr,   (box){ 0, header_h, sidebar_w, h-header_h });
     paint_header(cr,    (box){ sidebar_w + time_strip_w, 0,
-            w-sidebar_w-time_strip_w, header_h }, base);
+            w-sidebar_w-time_strip_w, header_h });
 
     if (state.n_cal > 0) {
         cairo_move_to(cr, 0, 0);
@@ -729,6 +726,7 @@ main(int argc, char **argv) {
         free_calendar(&state.cal[i]);
     }
     free_timezone(state.zone);
+    text_renderer_free(state.tr);
 
 	destroy_window(window);
 	destroy_display(display);

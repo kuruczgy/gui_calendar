@@ -18,6 +18,11 @@ struct text_renderer* text_renderer_new(const char *font) {
     return tr;
 }
 
+void text_renderer_free(struct text_renderer *tr) {
+    pango_font_description_free(tr->desc);
+    free(tr);
+}
+
 static PangoLayout *create_pango_layout(cairo_t *cr, struct text_renderer *tr) {
     PangoLayout *l = pango_cairo_create_layout(cr);
     PangoAttrList *a = pango_attr_list_new();
