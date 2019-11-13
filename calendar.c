@@ -1,4 +1,4 @@
-#include "parse.h"
+#include "calendar.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -13,11 +13,52 @@
 
 #include "util.h"
 
-int parse_datetime(char *s, icaltimezone *zone, struct date *res) {
+void init_calendar(struct calendar *cal) {
+    cal->events = hashmap_new();
+    cal->todos = hashmap_new();
+    cal->num_events = 0;
+    cal->name = NULL;
+    cal->loaded.tv_sec = 0; // should work...
+}
+
+static void free_event_props(struct event *ev) {
+    free(ev->uid); ev->uid = NULL;
+    free(ev->summary); ev->summary = NULL;
+    free(ev->location); ev->location = NULL;
+    free(ev->desc); ev->desc = NULL;
+}
+
+void free_event(struct event *e) {
+    if (e->recur) {
+        struct event *r = e->recur;
+        while (r) {
+            struct event *next = r->recur;
+            free(r);
+            r = next;
+        }
+    }
+    free_event_props(e);
+    free(e);
+}
+static int free_event_iter(void *u, void *ev) {
+    free_event(ev);
+    return MAP_OK;
+}
+
+void free_calendar(struct calendar *cal) {
+    hashmap_iterate(cal->events, free_event_iter, NULL);
+    // hashmap_iterate(cal->todos, free_task_iter, NULL); // TODO: free tasks
+    hashmap_free(cal->events);
+    hashmap_free(cal->todos);
+    free(cal->name);
+    free(cal->storage);
+}
+
+static int parse_datetime_prop(char *s, struct date *res,
+        icaltimezone *local_zone) {
     int year, month, day, hour, minute;
     int n = sscanf(s, "%d-%d-%d %d:%d", &year, &month, &day, &hour, &minute);
     if (n < 5) return -1;
-    // TODO icaltimetype is redundant here
     struct icaltimetype tt = {
         .year = year,
         .month = month,
@@ -26,12 +67,10 @@ int parse_datetime(char *s, icaltimezone *zone, struct date *res) {
         .minute = minute,
         .second = 0,
         .is_date = 0,
-        .is_daylight = 0, // TODO
-        .zone = zone
+        .is_daylight = 0, // TODO: is this ok like this?
+        .zone = local_zone
     };
-    time_t t = icaltime_as_timet_with_zone(tt, zone);
-    struct tm tm = *gmtime(&t);
-    *res = (struct date) { .utc_time = tm, .timestamp = t };
+    *res = date_from_icaltime(tt, local_zone);
     return 0;
 }
 
@@ -40,16 +79,16 @@ static char *trim_start(char *s) {
     return s;
 }
 
-static void print_time(FILE *f, const struct tm *tim) {
+static void print_time_prop(FILE *f, const struct tm *tim) {
     fprintf(f, "%04d-%02d-%02d %02d:%02d", tim->tm_year + 1900,
             tim->tm_mon + 1, tim->tm_mday, tim->tm_hour, tim->tm_min);
 }
 void print_event_template(FILE *f, const struct event *ev) {
     fprintf(f, "summary: %s\n", ev->summary ? ev->summary : "");
     fprintf(f, "start: ");
-    print_time(f, &ev->start.local_time);
+    print_time_prop(f, &ev->start.local_time);
     fprintf(f, "\nend: ");
-    print_time(f, &ev->end.local_time);
+    print_time_prop(f, &ev->end.local_time);
     fprintf(f, "\nlocation: %s\n", ev->location ? ev->location : "");
     fprintf(f, "desc: %s\n", ev->desc ? ev->desc : "");
     if (ev->uid) {
@@ -85,9 +124,11 @@ void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
         } else if (p = parse_prop(buf, "desc")) {
             if (*p) ev->desc = str_dup(p);
         } else if (p = parse_prop(buf, "start")) {
-            parse_datetime(p, zone, &ev->start); // TODO: check error
+            if (parse_datetime_prop(p, &ev->start, zone) < 0)
+                ev->start.timestamp = -1;
         } else if (p = parse_prop(buf, "end")) {
-            parse_datetime(p, zone, &ev->end); // TODO: check error
+            if (parse_datetime_prop(p, &ev->end, zone) < 0)
+                ev->end.timestamp = -1;
         } else if (p = parse_prop(buf, "delete")) {
             if (strcmp(p, "true") == 0) *del = true;
             else *del = false;
@@ -110,7 +151,8 @@ static void ev_to_comp(struct event *ev, icalcomponent *event) {
     if (ev->desc) icalcomponent_set_description(event, ev->desc);
 }
 
-int save_event(struct event *ev, struct calendar *cal, bool del) {
+int save_event(struct event *ev, struct calendar *cal, bool del,
+        icaltimezone *local_zone) {
     // check if directory
     struct stat sb;
     char *path = cal->storage;
@@ -135,7 +177,7 @@ int save_event(struct event *ev, struct calendar *cal, bool del) {
         }
         hashmap_remove(cal->events, uid);
         fprintf(stderr, "deleted %s\n", buf);
-    } else if (access(buf, F_OK) == 0) { // event file already exists?
+    } else if (access(buf, F_OK) == 0) { // event file already exists
         FILE *f = fopen(buf, "r");
         icalcomponent *root = libical_component_from_file(f);
         fclose(f);
@@ -164,11 +206,13 @@ int save_event(struct event *ev, struct calendar *cal, bool del) {
         struct event *e;
         assert(hashmap_get(cal->events, uid, (void**)&e) == MAP_OK,
                 "uid not found");
-        e->summary = ev->summary; // TODO: memory leak in all of these
-        e->start = ev->start;
-        e->end = ev->end;
+        free_event_props(e);
+        e->uid = ev->uid;
+        e->summary = ev->summary;
         e->location = ev->location;
         e->desc = ev->desc;
+        e->start = ev->start;
+        e->end = ev->end;
     } else {
         if (ev->uid) {
             fprintf(stderr, "uid specified, but not found. aborting.\n");
@@ -184,7 +228,7 @@ int save_event(struct event *ev, struct calendar *cal, bool del) {
         if (! icaltime_is_valid_time(icalcomponent_get_dtend(event))) return -1;
 
         // append event to the in-memory calendar
-        libical_parse_event(event, cal);
+        libical_parse_event(event, cal, local_zone);
 
         icalcomponent *calendar = icalcomponent_vanew(
             ICAL_VCALENDAR_COMPONENT,
@@ -202,4 +246,17 @@ int save_event(struct event *ev, struct calendar *cal, bool del) {
     }
 
     return 0;
+}
+
+static int todo_cmp(const void *pa, const void *pb) {
+    struct todo *a = *(struct todo**)pa, *b = *(struct todo**)pb;
+    if (a->due.timestamp > 0 || b->due.timestamp > 0) {
+        if (a->due.timestamp < 0) return 1;
+        else if (b->due.timestamp < 0) return -1;
+        return a->due.timestamp - b->due.timestamp;
+    }
+    return 0;
+}
+void priority_sort_todos(struct todo **todos, int n) {
+    qsort(todos, n, sizeof(struct todo*), todo_cmp);
 }

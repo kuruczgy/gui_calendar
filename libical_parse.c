@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "util.h"
-#include "parse.h"
+#include "calendar.h"
 #include <sys/stat.h>
 #include <dirent.h>
 
@@ -64,49 +64,21 @@ static void set_local_time(struct date* date, icaltimezone *zone) {
     date->local_time = tt_to_tm(tt);
 }
 
-static int calc_local_time(void *zone_p, void *ev_p) {
-    struct cal_timezone *zone = zone_p;
-    struct event *ev = ev_p;
-    while (ev) {
-        set_local_time(&ev->start, zone->impl);
-        set_local_time(&ev->end, zone->impl);
-        ev = ev->recur;
-    }
-    return MAP_OK;
-}
-
-void calendar_calc_local_times(struct calendar* cal,
-        struct cal_timezone *zone) {
-    hashmap_iterate(cal->events, calc_local_time, zone);
-}
-
 char* read_stream(char *s, size_t size, void *d)
 {
     return fgets(s, size, (FILE*)d);
 }
 
-static struct date parse_date(icaltimetype tt) {
-    // icaltimezone *utc = icaltimezone_get_utc_timezone();
+struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone) {
+    if (icaltime_is_null_time(tt)) return (struct date){ .timestamp = -1 };
     time_t t = icaltime_as_timet_with_zone(tt, icaltime_get_timezone(tt));
     struct tm tm = *gmtime(&t);
-    return (struct date) { .utc_time = tm, .timestamp = t };
-}
-
-static int free_event(void *u, void *ev) {
-    struct event *e = ev;
-    if (e->recur) {
-        struct event *r = e->recur;
-        while (r) {
-            struct event *next = r->recur;
-            free(r);
-            r = next;
-        }
-    }
-    free(e->uid);
-    free(e->summary);
-    free(e->location);
-    free(e);
-    return MAP_OK;
+    icaltimetype tt2 = icaltime_from_timet_with_zone(t, 0, local_zone);
+    return (struct date) {
+        .utc_time = tm,
+        .local_time = tt_to_tm(tt2),
+        .timestamp = t
+    };
 }
 
 static int cal_append(struct calendar *cal, struct event *ev) {
@@ -115,7 +87,7 @@ static int cal_append(struct calendar *cal, struct event *ev) {
     int res = 1;
     if (hashmap_get(cal->events, ev->uid, (void**)&e) == MAP_OK) {
         hashmap_remove(cal->events, ev->uid);
-        free_event(NULL, e);
+        free_event(e);
         res = 0;
     }
     if (ev->recur)
@@ -124,15 +96,16 @@ static int cal_append(struct calendar *cal, struct event *ev) {
     return res;
 }
 
-void libical_parse_event(icalcomponent *c, struct calendar *cal) {
+void libical_parse_event(icalcomponent *c, struct calendar *cal,
+        icaltimezone *local_zone) {
     struct event *ev = malloc(sizeof(struct event));
     ev->recur = NULL;
 
     struct icaltimetype
         dtstart = icalcomponent_get_dtstart(c),
         dtend = icalcomponent_get_dtend(c);
-    ev->start = parse_date(dtstart);
-    ev->end = parse_date(dtend);
+    ev->start = date_from_icaltime(dtstart, local_zone);
+    ev->end = date_from_icaltime(dtend, local_zone);
     assert(ev->start.timestamp <= ev->end.timestamp,
             "event ends before it begins");
     ev->summary = str_dup(icalcomponent_get_summary(c));
@@ -176,16 +149,35 @@ void libical_parse_event(icalcomponent *c, struct calendar *cal) {
             }
 
             assert(!ev2->recur, "recur not null");
-            ev2->start = parse_date(next);
+            ev2->start = date_from_icaltime(next, local_zone);
             next = icaltime_add(next, dur);
-            ev2->end = parse_date(next);
+            ev2->end = date_from_icaltime(next, local_zone);
         }
         icalrecur_iterator_free(ritr);
         free(ev);
     } else {
         cal->num_events += cal_append(cal, ev);
     }
+}
 
+void libical_parse_todo(icalcomponent *c, struct calendar *cal,
+        icaltimezone *local_zone) {
+    struct todo *td = malloc(sizeof(struct todo));
+
+    struct icaltimetype
+        dtstart = icalcomponent_get_dtstart(c),
+        due = icalcomponent_get_due(c);
+    td->start = date_from_icaltime(dtstart, local_zone);
+    td->due = date_from_icaltime(due, local_zone);
+
+    td->uid = str_dup(icalcomponent_get_uid(c));
+    td->summary = str_dup(icalcomponent_get_summary(c));
+    td->desc = str_dup(icalcomponent_get_description(c));
+
+    icalproperty_status s = icalcomponent_get_status(c);
+    td->is_active = s != ICAL_STATUS_COMPLETED && s != ICAL_STATUS_CANCELLED;
+
+    hashmap_put(cal->todos, td->uid, td); // TODO: memory leak
 }
 
 icalcomponent* libical_component_from_file(FILE *f) {
@@ -196,32 +188,23 @@ icalcomponent* libical_component_from_file(FILE *f) {
     return root;
 }
 
-void libical_parse_ics(FILE *f, struct calendar *cal) {
+void libical_parse_ics(FILE *f, struct calendar *cal,
+        icaltimezone *local_zone) {
     icalcomponent *root = libical_component_from_file(f);
     assert(root, "parsing fucked up");
     icalcomponent *c = icalcomponent_get_first_component(
-        root, ICAL_VEVENT_COMPONENT);
+        root, ICAL_ANY_COMPONENT);
     while(c) {
-        libical_parse_event(c, cal);
+        if (icalcomponent_isa(c) == ICAL_VEVENT_COMPONENT)
+            libical_parse_event(c, cal, local_zone);
+        else if (icalcomponent_isa(c) == ICAL_VTODO_COMPONENT)
+            libical_parse_todo(c, cal, local_zone);
+
         c = icalcomponent_get_next_component(
-            root, ICAL_VEVENT_COMPONENT);
+            root, ICAL_ANY_COMPONENT);
     }
 
     icalcomponent_free(root);
-}
-
-void init_calendar(struct calendar *cal) {
-    cal->events = hashmap_new();
-    cal->num_events = 0;
-    cal->name = NULL;
-    cal->loaded.tv_sec = 0; // should work...
-}
-
-void free_calendar(struct calendar *cal) {
-    hashmap_iterate(cal->events, free_event, NULL);
-    hashmap_free(cal->events);
-    free(cal->name);
-    free(cal->storage);
 }
 
 void free_timezone(struct cal_timezone *zone) {
@@ -234,7 +217,8 @@ static bool timespec_leq(struct timespec a, struct timespec b) {
     return a.tv_sec <= b.tv_sec;
 }
 
-void update_calendar_from_storage(struct calendar *cal) {
+void update_calendar_from_storage(struct calendar *cal,
+        icaltimezone *local_zone) {
     const char *path = cal->storage;
     struct stat sb;
     assert(stat(path, &sb) == 0, "stat");
@@ -243,7 +227,7 @@ void update_calendar_from_storage(struct calendar *cal) {
     clock_gettime(CLOCK_REALTIME, &cal->loaded);
     if (S_ISREG(sb.st_mode)) { // file
         FILE *f = fopen(path, "rb");
-        libical_parse_ics(f, cal);
+        libical_parse_ics(f, cal, local_zone);
         fclose(f);
     } else {
         assert(S_ISDIR(sb.st_mode), "not dir");
@@ -279,7 +263,7 @@ void update_calendar_from_storage(struct calendar *cal) {
                 memcpy(cal->name, buf, cnt);
                 cal->name[cnt] = '\0';
             } else {
-                libical_parse_ics(f, cal);
+                libical_parse_ics(f, cal, local_zone);
             }
             fclose(f);
         }

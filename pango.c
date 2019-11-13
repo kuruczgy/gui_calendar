@@ -15,6 +15,7 @@ struct text_renderer* text_renderer_new(const char *font) {
 	tr->desc = pango_font_description_from_string(font);
     tr->p.scale = 1.0;
     tr->p.hyphens = false;
+    tr->p.wrap_char = true;
     return tr;
 }
 
@@ -36,7 +37,8 @@ static PangoLayout *create_pango_layout(cairo_t *cr, struct text_renderer *tr) {
 
     pango_layout_set_font_description(l, tr->desc);
 
-    pango_layout_set_wrap(l, PANGO_WRAP_CHAR);
+    pango_layout_set_wrap(l,
+        tr->p.wrap_char ? PANGO_WRAP_CHAR : PANGO_WRAP_WORD_CHAR);
     pango_layout_set_ellipsize(l, PANGO_ELLIPSIZE_END);
 
     pango_layout_set_width(l, tr->p.width * PANGO_SCALE);

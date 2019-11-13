@@ -2,7 +2,7 @@
 #include <cairo.h>
 #include <sys/types.h>
 #include "util.h"
-#include "parse.h"
+#include "calendar.h"
 #include "pango.h"
 #include "gui.h"
 #include "keyboard.h"
@@ -28,6 +28,9 @@ struct state {
     int active_n;
     int n_cal;
 
+    struct todo **active_todos;
+    int active_todo_n;
+
     struct cal_timezone *zone;
     time_t base;
     int view_days;
@@ -41,6 +44,11 @@ struct state {
     char mode_select_code[33];
     int mode_select_code_n;
     int mode_select_len;
+
+    enum {
+        VIEW_CALENDAR,
+        VIEW_TODO
+    } main_view;
 
     bool dirty;
 };
@@ -60,6 +68,16 @@ static void draw_text(cairo_t *cr, int x, int y, char *text) {
     text_get_size(cr, state.tr, text);
     cairo_move_to(cr, x - state.tr->p.width / 2, y - state.tr->p.height / 2);
     text_print_own(cr, state.tr, text);
+}
+
+static void text_print_center(cairo_t *cr, box b, char *text) {
+    state.tr->p.width = b.w; state.tr->p.height = b.h;
+    state.tr->p.wrap_char = false;
+    text_get_size(cr, state.tr, text);
+    cairo_move_to(cr, b.x + b.w / 2 - state.tr->p.width / 2,
+                      b.y + b.h / 2 - state.tr->p.height / 2);
+    text_print_own(cr, state.tr, text);
+    state.tr->p.wrap_char = true;
 }
 
 static void draw_text_scale(cairo_t *cr, int x, int y, char *text, double scale) {
@@ -207,6 +225,33 @@ static void update_active_events() {
     state.layout_event_n = layout_event_n;
 }
 
+static int count_active_todos(void *f_p, void *t_p) {
+    struct todo *td = t_p;
+    int *cnt = f_p;
+    if (td->is_active) {
+        if (state.active_todos) state.active_todos[*cnt] = td;
+        (*cnt)++;
+    }
+    return MAP_OK;
+}
+
+static void update_active_todos() {
+    if (state.active_todos) {
+        free(state.active_todos);
+        state.active_todos = NULL;
+    }
+    int n = 0;
+    for (int i = 0; i < state.n_cal; ++i)
+        hashmap_iterate(state.cal[i].todos, count_active_todos, &n);
+    state.active_todos = malloc(sizeof(struct todo*) * n);
+    state.active_todo_n = 0;
+    for (int i = 0; i < state.n_cal; ++i)
+        hashmap_iterate(state.cal[i].todos, count_active_todos,
+                &state.active_todo_n);
+    assert(n == state.active_todo_n, "todo count mismatch");
+    priority_sort_todos(state.active_todos, state.active_todo_n);
+}
+
 static void fit_events() {
     int min_sec = 3600 * 24 + 1, max_sec = -1;
     for (int i = 0; i < state.active_n; ++i) {
@@ -244,11 +289,11 @@ static void fit_events() {
 
 static void reload_calendars() {
     for (int i = 0; i < state.n_cal; i++) {
-        update_calendar_from_storage(&state.cal[i]);
-        calendar_calc_local_times(&state.cal[i], state.zone);
+        update_calendar_from_storage(&state.cal[i], state.zone->impl);
     }
     update_active_events();
     fit_events();
+    update_active_todos();
     state.dirty = true;
 }
 
@@ -419,7 +464,9 @@ void paint_header(cairo_t *cr, box b) {
         int dow = icaltime_day_of_week(t);
         snprintf(buf, 64, "%s: %d-%d",
                 days[(dow+5)%7], t.month, t.day);
-        draw_text_scale(cr, i*sw+sw/2, b.h/2, buf, 1.5);
+        state.tr->p.scale = 1.5;
+        text_print_center(cr, (box){ i*sw, 0, sw, b.h }, buf);
+        state.tr->p.scale = 1.0;
     }
 
     cairo_identity_matrix(cr);
@@ -498,6 +545,66 @@ void paint_calendar(cairo_t *cr, box b) {
     cairo_identity_matrix(cr);
 }
 
+static char* natural_date_format(const struct date *d) {
+    time_t now = state.now;
+    struct tm t = timet_to_tm_with_zone(now, state.zone);
+    struct tm lt = d->local_time;
+    if (t.tm_year == lt.tm_year && t.tm_yday == lt.tm_yday)
+        return text_format("%02d:%02d", lt.tm_hour, lt.tm_min);
+    else
+        return text_format("%04d-%02d-%02d %02d:%02d", lt.tm_year + 1900,
+            lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min);
+}
+
+static int paint_todo_item(cairo_t *cr, struct todo *td, box b) {
+    cairo_translate(cr, b.x, b.y);
+    cairo_set_source_argb(cr, 0xFF000000);
+
+    int w = b.w;
+    if (td->due.timestamp != -1) {
+        char *text = natural_date_format(&td->due);
+        text_print_center(cr, (box){ b.w - 80, 0, 80, b.h }, text);
+        free(text);
+    }
+    w -= 80;
+
+    int n = 1;
+    if (td->desc) ++n;
+    state.tr->p.width = w/n; state.tr->p.height = b.h;
+    text_get_size(cr, state.tr, td->summary);
+    cairo_move_to(cr, 0, b.h/2 - state.tr->p.height/2);
+    text_print_own(cr, state.tr, td->summary);
+
+    if (td->desc) {
+        state.tr->p.width = w/n; state.tr->p.height = b.h;
+        text_get_size(cr, state.tr, td->summary);
+        cairo_move_to(cr, w/n, b.h/2 - state.tr->p.height/2);
+        text_print_own(cr, state.tr, td->desc);
+    }
+
+    cairo_set_line_width(cr, 1);
+    for (int i = 1; i <= n; ++i) {
+        cairo_move_to(cr, w*i/n +.5, 0);
+        cairo_line_to(cr, w*i/n +.5, b.h);
+        cairo_stroke(cr);
+    }
+
+    cairo_set_line_width(cr, 2);
+    cairo_move_to(cr, 0, b.h);
+    cairo_line_to(cr, b.w, b.h);
+    cairo_stroke(cr);
+    cairo_translate(cr, -b.x, -b.y);
+}
+
+void paint_todo_list(cairo_t *cr, box b) {
+    cairo_translate(cr, b.x, b.y);
+    for (int i = 0; i < state.active_todo_n; ++i) {
+        paint_todo_item(cr, state.active_todos[i], (box){ 0, i*40, b.w, 40 });
+        if (i*40 > b.h) break;
+    }
+    cairo_identity_matrix(cr);
+}
+
 static bool
 paint(struct window *window, cairo_t *cr) {
     int w = window->width, h = window->height;
@@ -523,21 +630,35 @@ paint(struct window *window, cairo_t *cr) {
     int sidebar_w = 120;
     int header_h = 60;
 
-    paint_calendar(cr,  (box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
-    paint_sidebar(cr,   (box){ 0, header_h, sidebar_w, h-header_h });
-    paint_header(cr,    (box){ sidebar_w + time_strip_w, 0,
-            w-sidebar_w-time_strip_w, header_h });
+    const char *view_name = "";
+    switch (state.main_view) {
+    case VIEW_CALENDAR:
+        paint_calendar(cr,
+            (box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
+        paint_header(cr, (box){
+            sidebar_w + time_strip_w, 0,
+            w-sidebar_w-time_strip_w, header_h
+        });
+        view_name = "calendar";
+        break;
+    case VIEW_TODO:
+        paint_todo_list(cr,
+            (box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
+        view_name = "todo";
+    }
+    paint_sidebar(cr, (box){ 0, header_h, sidebar_w, h-header_h });
 
     if (state.n_cal > 0) {
         cairo_move_to(cr, 0, 0);
 
         struct tm t = timet_to_tm_with_zone(state.now, state.zone);
         char *text = text_format(
-                "%s\rframe %d\r%02d:%02d:%02d",
+                "%s\rframe %d\r%02d:%02d:%02d\rmode: %s",
                 get_timezone_desc(state.zone),
                 frame_counter,
-                t.tm_hour, t.tm_min, t.tm_sec);
-        state.tr->p.width = sidebar_w; state.tr->p.height = header_h;
+                t.tm_hour, t.tm_min, t.tm_sec,
+                view_name);
+        state.tr->p.width = -1 /* sidebar_w */; state.tr->p.height = header_h;
         text_print_free(cr, state.tr, text);
     }
 
@@ -552,32 +673,40 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
             mode_select_append_sym(key_get_sym(key));
             return;
         }
-        if (key_sym(key, 'n')) {
+        if (key_sym(key, 'a')) {
+            state.main_view = VIEW_CALENDAR;
+            state.dirty = true;
+        }
+        else if (key_sym(key, 's')) {
+            state.main_view = VIEW_TODO;
+            state.dirty = true;
+        }
+        else if (key_sym(key, 'n')) {
             timet_adjust_days(&state.base, state.zone, state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
         }
-        if (key_sym(key, 'p')) {
+        else if (key_sym(key, 'p')) {
             timet_adjust_days(&state.base, state.zone, -state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
         }
-        if (key_sym(key, 't')) {
+        else if (key_sym(key, 't')) {
             state.base = get_day_base(state.zone, state.view_days > 1);
             update_active_events();
             fit_events();
             state.dirty = true;
         }
-        if (key_sym(key, 'v')) {
+        else if (key_sym(key, 'v')) {
             if (state.view_days > 1) state.view_days = 1;
             else state.view_days = 7;
             update_active_events();
             fit_events();
             state.dirty = true;
         }
-        if (key_sym(key, 'c')) {
+        else if (key_sym(key, 'c')) {
             if (!state.sp) {
                 time_t now = time(NULL);
                 struct tm t = *gmtime(&now);
@@ -594,11 +723,11 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
                     state.editor[0], state.editor + 1, &template);
             }
         }
-        if (key_sym(key, 'e')) {
+        else if (key_sym(key, 'e')) {
             switch_mode_select();
             state.dirty = true;
         }
-        if (key_sym(key, 'r')) {
+        else if (key_sym(key, 'r')) {
             reload_calendars();
         }
     }
@@ -650,9 +779,8 @@ static void handle_child(struct display *display, pid_t pid) {
     parse_event_template(f, &ev, state.zone->impl, &del);
     assert(state.n_cal > 0, "no calendar to save to");
     struct calendar *cal = &(state.cal[0]);
-    res = save_event(&ev, cal, del);
+    res = save_event(&ev, cal, del, state.zone->impl);
     if (res >= 0) {
-        calendar_calc_local_times(cal, state.zone);
         update_active_events();
         fit_events();
         state.dirty = true;
@@ -672,6 +800,7 @@ main(int argc, char **argv) {
         .window_height = -1,
         .sp = NULL,
         .active_events = NULL,
+        .active_todos = NULL,
         .layout_event_n = NULL,
         .mode_select = false
     };
@@ -692,8 +821,8 @@ main(int argc, char **argv) {
 
         // read
         cal->storage = str_dup(argv[i]);
-        update_calendar_from_storage(cal);
-        calendar_calc_local_times(cal, state.zone);
+        fprintf(stderr, "loading %s\n", argv[i]);
+        update_calendar_from_storage(cal, state.zone->impl);
 
         // set metadata
         if (!cal->name) cal->name = str_dup(argv[i]);
@@ -710,6 +839,7 @@ main(int argc, char **argv) {
 
     update_active_events();
     fit_events();
+    update_active_todos();
 
     struct display *display =
         create_display(&paint, &handle_key, &handle_child);

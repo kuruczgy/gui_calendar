@@ -16,6 +16,7 @@ struct cal_timezone {
 };
 
 struct date {
+    // to represent an invalid date, set timestamp to -1
     time_t timestamp;
 
     struct tm utc_time;
@@ -32,33 +33,46 @@ struct event {
     struct event *recur;
 };
 
+struct todo {
+    char *uid, *summary, *desc;
+    struct date start, due;
+    bool is_active;
+};
+
 struct calendar {
     map_t events;
+    map_t todos;
     int num_events;
     char *name;
     char *storage;
     struct timespec loaded;
 };
 
-void calendar_calc_local_times(struct calendar *cal, struct cal_timezone *zone);
 struct tm timet_to_tm_with_zone(time_t t, struct cal_timezone *zone);
 void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n);
 struct cal_timezone *new_timezone(const char *location);
 void free_timezone(struct cal_timezone *zone);
 const char *get_timezone_desc(struct cal_timezone *zone);
 time_t get_day_base(struct cal_timezone *zone, bool week);
+struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone);
 
-void update_calendar_from_storage(struct calendar *cal);
-void libical_parse_event(icalcomponent *c, struct calendar *cal);
-void libical_parse_ics(FILE *f, struct calendar *cal);
+void update_calendar_from_storage(struct calendar *cal,
+        icaltimezone *local_zone);
+void libical_parse_event(icalcomponent *c, struct calendar *cal,
+        icaltimezone *local_zone);
+void libical_parse_ics(FILE *f, struct calendar *cal, icaltimezone *local_zone);
 icalcomponent* libical_component_from_file(FILE *f);
 void init_calendar(struct calendar* cal);
 void free_calendar(struct calendar *cal);
+void free_event(struct event *e);
 
 void print_event_template(FILE *f, const struct event *ev);
 void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
         bool *del);
-int save_event(struct event *ev, struct calendar *cal, bool del);
+int save_event(struct event *ev, struct calendar *cal, bool del,
+        icaltimezone *local_zone);
+
+void priority_sort_todos(struct todo **todos, int n);
 
 // subprocess stuff
 struct subprocess_handle;

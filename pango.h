@@ -10,6 +10,7 @@ struct layout_params {
     const char *text;
     double scale;
     bool hyphens;
+    bool wrap_char;
     int width, height;
 };
 
