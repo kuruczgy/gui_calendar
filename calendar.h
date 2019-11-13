@@ -47,6 +47,7 @@ struct calendar {
     int num_events;
     char *name;
     char *storage;
+    bool priv;
     struct timespec loaded;
 };
 

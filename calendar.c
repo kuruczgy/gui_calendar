@@ -18,6 +18,7 @@ void init_calendar(struct calendar *cal) {
     cal->todos = hashmap_new();
     cal->num_events = 0;
     cal->name = NULL;
+    cal->priv = false;
     cal->loaded.tv_sec = 0; // should work...
 }
 

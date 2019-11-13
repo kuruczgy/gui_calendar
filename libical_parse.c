@@ -255,6 +255,9 @@ void update_calendar_from_storage(struct calendar *cal,
             if (!( l >= 4 && strcmp(dir->d_name + l - 4, ".ics") == 0 )) {
                 if (strcmp(dir->d_name, "displayname") == 0) {
                     displayname = true;
+                } else if (strcmp(dir->d_name, "my_private") == 0) {
+                    cal->priv = true;
+                    continue;
                 } else {
                     continue;
                 }

@@ -151,14 +151,14 @@ struct event_filterer {
     struct event **list;
     int n;
     time_t from, to;
-    bool priv;
+    bool show_priv;
 };
 void init_event_filterer(struct event_filterer *f, struct event **list) {
     f->list = list;
     f->n = 0;
     f->from = -1;
     f->to = -1;
-    f->priv = false;
+    f->show_priv = false;
 }
 static int filter_events(void *f_p, void *e_p) {
     struct event_filterer *f = f_p;
@@ -166,7 +166,7 @@ static int filter_events(void *f_p, void *e_p) {
     do {
         if (f->from != -1 && !interval_overlap(f->from, f->to,
                 e->start.timestamp, e->end.timestamp)) continue;
-        if (f->priv && e->clas == ICAL_CLASS_PRIVATE) continue;
+        if (!f->show_priv && e->clas == ICAL_CLASS_PRIVATE) continue;
 
         f->list[f->n++] = e;
     } while (e = e->recur);
@@ -203,7 +203,7 @@ static void update_active_events() {
     init_event_filterer(&filterer, active);
     filterer.from = state.base,
     filterer.to = state.base + state.view_days * 3600 * 24;
-    filterer.priv = state.show_private_events;
+    filterer.show_priv = true; // state.show_private_events;
 
     for (int i = 0; i < state.n_cal; i++) {
         if (state.cal_info[i].visible) {
@@ -367,30 +367,32 @@ void paint_event(cairo_t *cr, int day_i, time_t day_base,
     cairo_rectangle(cr, x, y, w, h);
     cairo_fill(cr);
 
-    bool light = lightness < 0.9 ? true : false;
-    uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
-    cairo_set_source_argb(cr, fg);
+    if (state.show_private_events || ev->clas != ICAL_CLASS_PRIVATE) {
+        bool light = lightness < 0.9 ? true : false;
+        uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
+        cairo_set_source_argb(cr, fg);
 
-    if (ev->location) {
-        state.tr->p.width = w; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, ev->location);
-    }
-    int loc_h = ev->location ? min(h / 2, state.tr->p.height) : 0;
+        if (ev->location) {
+            state.tr->p.width = w; state.tr->p.height = -1;
+            text_get_size(cr, state.tr, ev->location);
+        }
+        int loc_h = ev->location ? min(h / 2, state.tr->p.height) : 0;
 
-    cairo_move_to(cr, x, y);
-    state.tr->p.width = w; state.tr->p.height = h - loc_h;
-    char *text = text_format("%02d:%02d-%02d:%02d %s",
-            ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
-            ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
-            ev->summary);
-    text_print_free(cr, state.tr, text);
+        cairo_move_to(cr, x, y);
+        state.tr->p.width = w; state.tr->p.height = h - loc_h;
+        char *text = text_format("%02d:%02d-%02d:%02d %s",
+                ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
+                ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
+                ev->summary);
+        text_print_free(cr, state.tr, text);
 
-    if (ev->location) {
-        cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
-        cairo_move_to(cr, x, y+h-loc_h);
+        if (ev->location) {
+            cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
+            cairo_move_to(cr, x, y+h-loc_h);
 
-        state.tr->p.width = w; state.tr->p.height = loc_h;
-        text_print_own(cr, state.tr, ev->location);
+            state.tr->p.width = w; state.tr->p.height = loc_h;
+            text_print_own(cr, state.tr, ev->location);
+        }
     }
 
     if (state.mode_select) {
@@ -415,6 +417,7 @@ void paint_sidebar(cairo_t *cr, box b) {
     for (int i = 0; i < state.n_cal; i++) {
         bool vis = state.cal_info[i].visible;
         const char *name = state.cal[i].name;
+        if (!state.show_private_events && state.cal[i].priv) continue;
 
         char *text = text_format("%i: %s", i + 1, name);
         state.tr->p.width = b.w;
