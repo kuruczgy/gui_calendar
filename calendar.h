@@ -30,6 +30,7 @@ struct event {
     char *location;
     bool tentative;
     char *desc;
+    enum icalproperty_class clas;
     struct event *recur;
 };
 

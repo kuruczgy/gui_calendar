@@ -7,6 +7,17 @@
 #include "gui.h"
 #include "keyboard.h"
 
+const char *usage =
+    "Usage:\r"
+    " h/l: next/prev\r"
+    " t: today\r"
+    " n: new event\r"
+    " e: edit event\r"
+    " v: cycle view modes\r"
+    " up/down: move 1 hour up/down\r"
+    " +/-: inc./dec. vertical scale\r"
+    " r: reload calendars\r";
+
 struct calendar_info {
     bool visible;
 };
@@ -44,6 +55,8 @@ struct state {
     char mode_select_code[33];
     int mode_select_code_n;
     int mode_select_len;
+
+    bool show_private_events;
 
     enum {
         VIEW_CALENDAR,
@@ -134,18 +147,28 @@ void mode_select_append_sym(char sym) {
     }
 }
 
-struct overlap_filterer {
+struct event_filterer {
     struct event **list;
     int n;
     time_t from, to;
+    bool priv;
 };
-static int filter_events_overlap(void *f_p, void *e_p) {
-    struct overlap_filterer *f = f_p;
+void init_event_filterer(struct event_filterer *f, struct event **list) {
+    f->list = list;
+    f->n = 0;
+    f->from = -1;
+    f->to = -1;
+    f->priv = false;
+}
+static int filter_events(void *f_p, void *e_p) {
+    struct event_filterer *f = f_p;
     struct event *e = e_p;
     do {
-        if (interval_overlap(f->from,f->to,e->start.timestamp,e->end.timestamp)) {
-            f->list[f->n++] = e;
-        }
+        if (f->from != -1 && !interval_overlap(f->from, f->to,
+                e->start.timestamp, e->end.timestamp)) continue;
+        if (f->priv && e->clas == ICAL_CLASS_PRIVATE) continue;
+
+        f->list[f->n++] = e;
     } while (e = e->recur);
     return MAP_OK;
 }
@@ -175,19 +198,19 @@ static void update_active_events() {
         n_all_events += state.cal[i].num_events;
         //hashmap_length(state.cal[i].events);
     struct event **active = malloc(sizeof(struct event*) * n_all_events);
-    struct overlap_filterer of = {
-        .list = active,
-        .n = 0,
-        .from = state.base,
-        .to = state.base + state.view_days * 3600 * 24
-    };
+    struct event_filterer filterer;
+
+    init_event_filterer(&filterer, active);
+    filterer.from = state.base,
+    filterer.to = state.base + state.view_days * 3600 * 24;
+    filterer.priv = state.show_private_events;
+
     for (int i = 0; i < state.n_cal; i++) {
         if (state.cal_info[i].visible) {
-            hashmap_iterate(state.cal[i].events,
-                    filter_events_overlap, &of);
+            hashmap_iterate(state.cal[i].events, filter_events, &filterer);
         }
     }
-    int active_n = of.n;
+    int active_n = filterer.n;
     state.active_events_tag = malloc(sizeof(struct event_tag) * active_n);
 
     struct layout_event **layout_events =
@@ -228,7 +251,8 @@ static void update_active_events() {
 static int count_active_todos(void *f_p, void *t_p) {
     struct todo *td = t_p;
     int *cnt = f_p;
-    if (td->is_active && td->clas != ICAL_CLASS_PRIVATE) {
+    if (td->is_active &&
+        (state.show_private_events || td->clas != ICAL_CLASS_PRIVATE)) {
         if (state.active_todos) state.active_todos[*cnt] = td;
         (*cnt)++;
     }
@@ -412,23 +436,20 @@ void paint_sidebar(cairo_t *cr, box b) {
         cairo_stroke(cr);
     }
 
+    cairo_set_source_argb(cr, 0xFF000000);
+    cairo_move_to(cr, 0, h += 5);
+    state.tr->p.width = b.w; state.tr->p.height = -1;
+    const char *str = state.show_private_events ?
+        "show private" : "hide private";
+    text_get_size(cr, state.tr, str);
+    h += state.tr->p.height;
+    text_print_own(cr, state.tr, str);
+
     cairo_set_source_rgba(cr, .3, .3, .3, 1);
     cairo_move_to(cr, 0, h += 5);
-    const char *usage =
-        "Usage:\r"
-        " n: next\r"
-        " p: previous\r"
-        " t: today\r"
-        " v: cycle view modes\r"
-        " up/down: move 1 hour up/down\r"
-        " +/-: inc./dec. vertical scale\r"
-        " c: create event\r"
-        " e: edit event\r"
-        " r: reload calendars\r";
     state.tr->p.width = b.w; state.tr->p.height = -1;
     text_get_size(cr, state.tr, usage);
     h += state.tr->p.height;
-
     text_print_own(cr, state.tr, usage);
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
@@ -676,37 +697,25 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
         if (key_sym(key, 'a')) {
             state.main_view = VIEW_CALENDAR;
             state.dirty = true;
-        }
-        else if (key_sym(key, 's')) {
+        } else if (key_sym(key, 's')) {
             state.main_view = VIEW_TODO;
             state.dirty = true;
-        }
-        else if (key_sym(key, 'n')) {
+        } else if (key_sym(key, 'l')) {
             timet_adjust_days(&state.base, state.zone, state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
-        }
-        else if (key_sym(key, 'p')) {
+        } else if (key_sym(key, 'h')) {
             timet_adjust_days(&state.base, state.zone, -state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
-        }
-        else if (key_sym(key, 't')) {
+        } else if (key_sym(key, 't')) {
             state.base = get_day_base(state.zone, state.view_days > 1);
             update_active_events();
             fit_events();
             state.dirty = true;
-        }
-        else if (key_sym(key, 'v')) {
-            if (state.view_days > 1) state.view_days = 1;
-            else state.view_days = 7;
-            update_active_events();
-            fit_events();
-            state.dirty = true;
-        }
-        else if (key_sym(key, 'c')) {
+        } else if (key_sym(key, 'n')) {
             if (!state.sp) {
                 time_t now = time(NULL);
                 struct tm t = *gmtime(&now);
@@ -722,13 +731,24 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
                 state.sp = subprocess_new_event_input(
                     state.editor[0], state.editor + 1, &template);
             }
-        }
-        else if (key_sym(key, 'e')) {
+        } else if (key_sym(key, 'e')) {
             switch_mode_select();
             state.dirty = true;
-        }
-        else if (key_sym(key, 'r')) {
+        } else if (key_sym(key, 'c')) {
+            //TODO: reset calendar visibility
+        } else if (key_sym(key, 'v')) {
+            if (state.view_days > 1) state.view_days = 1;
+            else state.view_days = 7;
+            update_active_events();
+            fit_events();
+            state.dirty = true;
+        } else if (key_sym(key, 'r')) {
             reload_calendars();
+        } else if (key_sym(key, 'p')) {
+            state.show_private_events = !state.show_private_events;
+            update_active_events();
+            update_active_todos();
+            state.dirty = true;
         }
     }
     int n;
@@ -802,7 +822,8 @@ main(int argc, char **argv) {
         .active_events = NULL,
         .active_todos = NULL,
         .layout_event_n = NULL,
-        .mode_select = false
+        .mode_select = false,
+        .show_private_events = true
     };
 
     const char *ed = getenv("EDITOR");

@@ -120,6 +120,7 @@ void libical_parse_event(icalcomponent *c, struct calendar *cal,
     ev->color = 0;
     ev->location = str_dup(icalcomponent_get_location(c));
     ev->desc = str_dup(icalcomponent_get_description(c));
+    ev->clas = icalcomponent_get_class(c);
 
     ev->tentative = false;
     icalproperty_status pstatus = icalcomponent_get_status(c);
