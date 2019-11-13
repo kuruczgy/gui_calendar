@@ -37,6 +37,7 @@ struct todo {
     char *uid, *summary, *desc;
     struct date start, due;
     bool is_active;
+    enum icalproperty_class clas;
 };
 
 struct calendar {

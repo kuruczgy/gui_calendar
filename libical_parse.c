@@ -7,6 +7,13 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
+enum icalproperty_class icalcomponent_get_class(icalcomponent *c) {
+    icalproperty *p =
+        icalcomponent_get_first_property(c, ICAL_CLASS_PROPERTY);
+    return p ? icalproperty_get_class(p) : ICAL_CLASS_NONE;
+}
+
+
 void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n) {
     icaltimetype tt = icaltime_from_timet_with_zone(*t, false, zone->impl);
     icaltime_adjust(&tt, n, 0, 0, 0);
@@ -176,6 +183,7 @@ void libical_parse_todo(icalcomponent *c, struct calendar *cal,
 
     icalproperty_status s = icalcomponent_get_status(c);
     td->is_active = s != ICAL_STATUS_COMPLETED && s != ICAL_STATUS_CANCELLED;
+    td->clas = icalcomponent_get_class(c);
 
     hashmap_put(cal->todos, td->uid, td); // TODO: memory leak
 }

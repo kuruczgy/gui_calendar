@@ -228,7 +228,7 @@ static void update_active_events() {
 static int count_active_todos(void *f_p, void *t_p) {
     struct todo *td = t_p;
     int *cnt = f_p;
-    if (td->is_active) {
+    if (td->is_active && td->clas != ICAL_CLASS_PRIVATE) {
         if (state.active_todos) state.active_todos[*cnt] = td;
         (*cnt)++;
     }
