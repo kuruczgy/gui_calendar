@@ -52,6 +52,7 @@ time_t get_day_base(struct cal_timezone *zone, bool week) {
 struct cal_timezone *new_timezone(const char *location) {
     struct cal_timezone *zone = malloc(sizeof(struct cal_timezone));
     zone->impl = icaltimezone_get_builtin_timezone(location);
+    assert(zone->impl, "icaltimezone_get_builtin_timezone failed\n");
 
     const char *tznames = icaltimezone_get_tznames(zone->impl);
     int l = strlen(location) + strlen(tznames) + 4;

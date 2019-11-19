@@ -5,11 +5,11 @@ MY_FLAGS=`pkg-config --cflags --libs cairo pango pangocairo libical`
 
 all: xdg_shell
 	$(CC) -g -o gui_calendar \
-		main.c util.c calendar.c pango.c gui.c subprocess.c colors.c \
+		main.c util.c calendar.c pango.c backend/wayland.c subprocess.c colors.c \
 		calendar_layout.c libical_parse.c keyboard.c algo.c \
 		util/hashmap.c \
 		xdg-shell-client-protocol.c \
 		-lwayland-client $(MY_FLAGS)
 xdg_shell:
-	wayland-scanner client-header $(XDG_SHELL_XML) xdg-shell-client-protocol.h
-	wayland-scanner private-code $(XDG_SHELL_XML) xdg-shell-client-protocol.c
+	wayland-scanner client-header $(XDG_SHELL_XML) backend/xdg-shell-client-protocol.h
+	wayland-scanner private-code $(XDG_SHELL_XML) backend/xdg-shell-client-protocol.c

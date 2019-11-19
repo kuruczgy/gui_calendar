@@ -15,20 +15,46 @@
 
 #include "xdg-shell-client-protocol.h"
 
-#include "util.h"
+#include "../util.h"
+
+struct display {
+    struct wl_display *display;
+    struct wl_registry *registry;
+    struct wl_compositor *compositor;
+    struct xdg_wm_base *wm_base;
+    struct wl_shm *wl_shm;
+    struct wl_shm_pool *pool;
+    int pool_size;
+    void *pool_data;
+    struct wl_seat *wl_seat;
+    struct wl_keyboard *keyboard;
+    paint_cb p_cb;
+    keyboard_cb k_cb;
+    child_cb c_cb;
+};
+
+struct buffer {
+    struct wl_buffer *buffer;
+    cairo_surface_t *cairo_surface;
+    void *shm_data;
+    int busy;
+};
+
+struct window {
+    struct display *display;
+    int width, height;
+    struct wl_surface *surface;
+    struct xdg_surface *xdg_surface;
+    struct xdg_toplevel *xdg_toplevel;
+    struct buffer buffers[2];
+    struct buffer *prev_buffer;
+    struct wl_callback *callback;
+    bool wait_for_configure;
+    bool running;
+};
 
 static void
 redraw(void *data, struct wl_callback *callback, uint32_t time);
-
-// helpers
-
-void
-assert(bool b, const char *msg) {
-    if (!b) {
-        fprintf(stderr, "assert error msg: %s\n", msg);
-        exit(1);
-    }
-}
 
 // wl_buffer_listener
 
@@ -464,4 +490,10 @@ gui_run(struct window *window) {
 			wl_display_dispatch_pending(display);
 		}
     }
+}
+
+void
+get_window_size(struct window *window, int *width, int *height) {
+    *width = window->width;
+    *height = window->height;
 }

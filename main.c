@@ -4,7 +4,7 @@
 #include "util.h"
 #include "calendar.h"
 #include "pango.h"
-#include "gui.h"
+#include "backend/gui.h"
 #include "keyboard.h"
 
 const char *usage =
@@ -631,7 +631,8 @@ void paint_todo_list(cairo_t *cr, box b) {
 
 static bool
 paint(struct window *window, cairo_t *cr) {
-    int w = window->width, h = window->height;
+    int w, h;
+    get_window_size(window, &w, &h);
     time_t now = time(NULL);
     if (state.now != now) {
         state.now = now;

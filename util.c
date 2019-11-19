@@ -116,3 +116,11 @@ void generate_uid(char buf[64]) {
         sprintf(buf + 2 * i, "%02x", (unsigned char)rnd[i]);
     buf[32] = '\0';
 }
+
+void
+assert(bool b, const char *msg) {
+    if (!b) {
+        fprintf(stderr, "assert error msg: %s\n", msg);
+        exit(1);
+    }
+}
