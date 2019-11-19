@@ -27,6 +27,10 @@ struct event_tag {
     char code[33];
 };
 
+typedef struct {
+    int from, to;
+} range;
+
 struct state {
     struct text_renderer *tr;
 
@@ -45,7 +49,9 @@ struct state {
     struct cal_timezone *zone;
     time_t base;
     int view_days;
-    int hour_from, hour_to;
+    range hours_view_events;
+    range hours_view;
+    range hours_view_manual;
     time_t now;
 
     int window_width, window_height;
@@ -276,6 +282,30 @@ static void update_active_todos() {
     priority_sort_todos(state.active_todos, state.active_todo_n);
 }
 
+static void update_actual_fit() { 
+    if (state.hours_view_manual.from != -1) {
+        state.hours_view = state.hours_view_manual;
+    } else {
+        int min_sec = state.hours_view_events.from * 3600,
+            max_sec = state.hours_view_events.to * 3600;
+        struct tm t = timet_to_tm_with_zone(state.now, state.zone);
+        int now_sec = day_sec(t);
+        time_t diff = time(NULL) - state.base;
+        if (!(diff > state.view_days * 3600 * 24 || diff < 0)) {
+            // fprintf(stderr, "fit now_sec: %f\n", now_sec / 3600.0);
+            if (now_sec < min_sec) min_sec = now_sec;
+            if (now_sec > max_sec) max_sec = now_sec;
+        }
+        range r;
+        r.from = max(0, min_sec / 3600);
+        r.to = min(24, (max_sec + 3599) / 3600);
+        state.hours_view = r;
+    }
+    assert(state.hours_view.to > state.hours_view.from
+            && state.hours_view.to <= 24
+            && state.hours_view.from >= 0, "wrong from/to hour");
+}
+
 static void fit_events() {
     int min_sec = 3600 * 24 + 1, max_sec = -1;
     for (int i = 0; i < state.active_n; ++i) {
@@ -295,18 +325,14 @@ static void fit_events() {
 
     if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
 
-    struct tm t = timet_to_tm_with_zone(state.now, state.zone);
-    int now_sec = day_sec(t);
-    time_t diff = time(NULL) - state.base;
-    if (!(diff > state.view_days * 3600 * 24 || diff < 0)) {
-        // fprintf(stderr, "fit now_sec: %f\n", now_sec / 3600.0);
-        if (now_sec < min_sec) min_sec = now_sec;
-        if (now_sec > max_sec) max_sec = now_sec;
-    }
+    range r;
+    r.from = max(0, min_sec / 3600);
+    r.to = min(24, (max_sec + 3599) / 3600);
+    if (r.to <= r.from) r = (range){ 0, 24 };
+    state.hours_view_events = r;
+    state.hours_view_manual = (range){ -1, -1 };
 
-    state.hour_from = max(0, min_sec / 3600);
-    state.hour_to = min(24, (max_sec + 3599) / 3600);
-    if (state.hour_to<=state.hour_from) state.hour_from = 0, state.hour_to = 24;
+    update_actual_fit();
 
     // fprintf(stderr, "fit: %f-%f\n", min_sec / 3600.0, max_sec / 3600.0);
 }
@@ -343,8 +369,8 @@ void paint_event(cairo_t *cr, int day_i, time_t day_base,
     int start_sec = max(0, ev->start.timestamp - day_base);
     int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
 
-    int from_sec = state.hour_from * 3600;
-    int to_sec = state.hour_to * 3600;
+    int from_sec = state.hours_view.from * 3600;
+    int to_sec = state.hours_view.to * 3600;
     int interval_sec = to_sec - from_sec;
 
     int pad = 2;
@@ -531,8 +557,9 @@ void paint_calendar(cairo_t *cr, box b) {
 
     cairo_set_line_width(cr, 1);
     cairo_set_source_argb(cr, 0xFF555555);
-    for (int i = state.hour_from + 1; i < state.hour_to; i++) {
-        int y = b.h * (i - state.hour_from) / (state.hour_to - state.hour_from);
+    range r = state.hours_view;
+    for (int i = r.from + 1; i < r.to; i++) {
+        int y = b.h * (i - r.from) / (r.to - r.from);
         cairo_move_to(cr, 0, y);
         cairo_line_to(cr, b.w - time_strip_w, y);
     }
@@ -541,8 +568,8 @@ void paint_calendar(cairo_t *cr, box b) {
 
     cairo_translate(cr, -time_strip_w, 0);
     char buf[64];
-    for (int i = state.hour_from + 1; i < state.hour_to; i++) {
-        int y = b.h * (i - state.hour_from) / (state.hour_to - state.hour_from);
+    for (int i = r.from + 1; i < r.to; i++) {
+        int y = b.h * (i - r.from) / (r.to - r.from);
         snprintf(buf, 64, "%02d", i);
         draw_text(cr, time_strip_w / 2, y, buf);
     }
@@ -555,10 +582,10 @@ void paint_calendar(cairo_t *cr, box b) {
     time_t now = state.now;
     struct tm t = timet_to_tm_with_zone(now, state.zone);
     int now_sec = day_sec(t);
-    int interval_sec = (state.hour_to - state.hour_from) * 3600;
+    int interval_sec = (r.to - r.from) * 3600;
     int day_sec = 24 * 3600;
     int day_i = (now - state.base) / day_sec;
-    int y = b.h * (now_sec - state.hour_from * 3600) / interval_sec;
+    int y = b.h * (now_sec - r.from * 3600) / interval_sec;
     if (now >= state.base) {
         cairo_move_to(cr, day_i * sw, y);
         cairo_line_to(cr, (day_i+1) * sw, y);
@@ -636,6 +663,7 @@ paint(struct window *window, cairo_t *cr) {
     time_t now = time(NULL);
     if (state.now != now) {
         state.now = now;
+        update_actual_fit();
         state.dirty = true;
     }
     if (state.window_width != w ||
@@ -767,30 +795,61 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
     }
     if (mods & 1) { // shift
         if (key == 13) { // KEY_EQUALS
-            if (state.hour_to > state.hour_from + 1) --state.hour_to;
-            state.dirty = true;
+            if (state.hours_view_manual.from == -1) {
+                state.hours_view_manual = state.hours_view_events;
+                update_actual_fit();
+                state.dirty = true;
+            }
+            if (state.hours_view_manual.to > state.hours_view_manual.from + 1) {
+                --state.hours_view_manual.to;
+                update_actual_fit();
+                state.dirty = true;
+            }
         }
         if (key == 12) { // KEY_MINUS
-            if (state.hour_to < 24) { ++state.hour_to; state.dirty = true; }
-            if (state.hour_from > 0) { --state.hour_from; state.dirty = true; }
+            if (state.hours_view_manual.from == -1) {
+                state.hours_view_manual = state.hours_view_events;
+                update_actual_fit();
+                state.dirty = true;
+            }
+            if (state.hours_view_manual.to < 24) {
+                ++state.hours_view_manual.to;
+                update_actual_fit();
+                state.dirty = true;
+            }
+            if (state.hours_view_manual.from > 0) {
+                --state.hours_view_manual.from;
+                update_actual_fit();
+                state.dirty = true;
+            }
         }
     }
     if (key == 103) { // up
-        if (state.hour_from > 0) {
-            --state.hour_from;
-            --state.hour_to;
+        if (state.hours_view_manual.from == -1) {
+            state.hours_view_manual = state.hours_view_events;
+            update_actual_fit();
+            state.dirty = true;
+        }
+        if (state.hours_view_manual.from > 0) {
+            --state.hours_view_manual.from;
+            --state.hours_view_manual.to;
+            update_actual_fit();
             state.dirty = true;
         }
     }
     if (key == 108) { // down
-        if (state.hour_to < 24) {
-            ++state.hour_from;
-            ++state.hour_to;
+        if (state.hours_view_manual.from == -1) {
+            state.hours_view_manual = state.hours_view_events;
+            update_actual_fit();
+            state.dirty = true;
+        }
+        if (state.hours_view_manual.to < 24) {
+            ++state.hours_view_manual.from;
+            ++state.hours_view_manual.to;
+            update_actual_fit();
             state.dirty = true;
         }
     }
-    assert(state.hour_to > state.hour_from && state.hour_to <= 24
-            && state.hour_from >= 0, "wrong from/to hour");
 }
 
 static void handle_child(struct display *display, pid_t pid) {
