@@ -524,7 +524,6 @@ void paint_header(cairo_t *cr, box b) {
 
 void paint_calendar_events(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
-    int sw = b.w / state.view_days;
     for (int d = 0; d < state.view_days; d++) {
         // TODO: what if day not 24h long?
         time_t day_base = state.base + 3600 * 24 * d;
@@ -607,7 +606,7 @@ static char* natural_date_format(const struct date *d) {
             lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min);
 }
 
-static int paint_todo_item(cairo_t *cr, struct todo *td, box b) {
+static void paint_todo_item(cairo_t *cr, struct todo *td, box b) {
     cairo_translate(cr, b.x, b.y);
     cairo_set_source_argb(cr, 0xFF000000);
 

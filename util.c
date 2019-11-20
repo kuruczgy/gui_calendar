@@ -44,6 +44,7 @@ char* create_tmpfile_template() {
 
     strcpy(name, path);
     strcat(name, template);
+    return name;
 }
 
 static int

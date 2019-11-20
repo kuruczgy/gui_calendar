@@ -115,7 +115,6 @@ void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
     char buf[1024], *p;
     int len;
     while (get_line(f, buf, 1024, &len) >= 0) {
-        icalproperty *prop = NULL;
         if (p = parse_prop(buf, "uid")) {
             if (*p) ev->uid = str_dup(p);
         } else if (p = parse_prop(buf, "summary")) {

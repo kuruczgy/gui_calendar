@@ -85,23 +85,3 @@ void calendar_layout(struct layout_event *e, int N) {
     free(component);
     free(points);
 }
-
-static int test_main() {
-    struct layout_event events[] = {
-        { 0, 10 },
-        { 0, 10 },
-        { 5, 20 },
-        { 15,30 },
-        { 25,40 },
-        { 50,60 },
-        { 55,65 },
-        { 70,80 }
-    };
-    int N = sizeof(events) / sizeof(struct layout_event);
-    calendar_layout(events, N);
-    for (int i = 0; i < N; i++) {
-        struct layout_event *ev = &events[i];
-        printf("event %d [%d,%d]: max_n=%d, col=%d\n", i, ev->start, ev->end,
-                ev->max_n, ev->col);
-    }
-}

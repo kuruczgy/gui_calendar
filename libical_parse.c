@@ -67,11 +67,6 @@ const char *get_timezone_desc(struct cal_timezone *zone) {
     return zone->desc;
 }
 
-static void set_local_time(struct date* date, icaltimezone *zone) {
-    icaltimetype tt = icaltime_from_timet_with_zone(date->timestamp, 0, zone);
-    date->local_time = tt_to_tm(tt);
-}
-
 char* read_stream(char *s, size_t size, void *d)
 {
     return fgets(s, size, (FILE*)d);
