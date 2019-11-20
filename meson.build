@@ -16,19 +16,23 @@ dir_wp_base = dep_wp.get_pkgconfig_variable('pkgdatadir')
 base_file = 'xdg-shell'
 xml_path = '@0@/stable/@1@/@1@.xml'.format(dir_wp_base, base_file)
 
-custom_target(
+xdg_shell_header_target = custom_target(
   'xdg_shell_header_target',
   command: [ prog_scanner, 'client-header', '@INPUT@', '@OUTPUT@' ],
   input: xml_path,
   output: '@0@-client-protocol.h'.format(base_file),
 )
 
-xdg_shell = custom_target(
+xdg_shell_private_target = custom_target(
   'xdg_shell_private_target',
   command: [ prog_scanner, 'private-code', '@INPUT@', '@OUTPUT@' ],
   input: xml_path,
   output: '@0@-client-protocol.c'.format(base_file),
 )
+
+incdir = include_directories('include')
+
+add_global_arguments('-Wno-parentheses', language : 'c')
 
 executable(
   'gui_calendar',
@@ -37,7 +41,9 @@ executable(
   'libical_parse.c', 'keyboard.c', 'algo.c',
   'util/hashmap.c',
   'backend/wayland.c',
-  xdg_shell,
+  xdg_shell_header_target,
+  xdg_shell_private_target,
+  include_directories: incdir,
   dependencies: [
     wayland_client, cairo, pango, pangocairo, libical
   ]

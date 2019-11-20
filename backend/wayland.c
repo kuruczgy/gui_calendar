@@ -15,7 +15,7 @@
 
 #include "xdg-shell-client-protocol.h"
 
-#include "../util.h"
+#include "util.h"
 
 struct display {
     struct wl_display *display;

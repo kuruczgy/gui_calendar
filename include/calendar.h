@@ -8,7 +8,7 @@
 #include <libical/ical.h>
 #undef assert
 #include "date.h"
-#include "util/hashmap.h"
+#include "hashmap.h"
 
 struct cal_timezone {
     icaltimezone *impl;

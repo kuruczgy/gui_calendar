@@ -5,7 +5,7 @@
 #include "util.h"
 #include "calendar.h"
 #include "pango.h"
-#include "backend/gui.h"
+#include "gui.h"
 #include "keyboard.h"
 
 const char *usage =
