@@ -61,32 +61,32 @@ redraw(void *data, struct wl_callback *callback, uint32_t time);
 static void
 handle_wl_buffer_release(void *data, struct wl_buffer *buffer)
 {
-	struct buffer *mybuf = data;
-	mybuf->busy = 0;
+    struct buffer *mybuf = data;
+    mybuf->busy = 0;
 }
 
 static const struct wl_buffer_listener wl_buffer_listener = {
-	handle_wl_buffer_release
+    handle_wl_buffer_release
 };
 
 static int
 create_shm_pool(struct display *display, int size) {
-	int fd = os_create_anonymous_file(size);
+    int fd = os_create_anonymous_file(size);
     assert(fd >= 0, "anon file");
-	if (fd < 0) {
-		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
-			size, strerror(errno));
-		return -1;
-	}
+    if (fd < 0) {
+        fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
+            size, strerror(errno));
+        return -1;
+    }
 
-	void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	if (data == MAP_FAILED) {
-		fprintf(stderr, "mmap failed: %s\n", strerror(errno));
-		close(fd);
-		return -1;
-	}
+    void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (data == MAP_FAILED) {
+        fprintf(stderr, "mmap failed: %s\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
 
-	display->pool = wl_shm_create_pool(display->wl_shm, fd, size);
+    display->pool = wl_shm_create_pool(display->wl_shm, fd, size);
     display->pool_data = data;
     display->pool_size = size;
     close(fd);
@@ -95,9 +95,9 @@ create_shm_pool(struct display *display, int size) {
 
 static int
 create_shm_buffer(struct display *display, struct buffer *buffer,
-		  int width, int height, uint32_t format)
+          int width, int height, uint32_t format)
 {
-	int size, stride;
+    int size, stride;
 
     cairo_format_t cairo_format;
     if (format == WL_SHM_FORMAT_XRGB8888) {
@@ -108,15 +108,15 @@ create_shm_buffer(struct display *display, struct buffer *buffer,
     }
 
     stride = cairo_format_stride_for_width(cairo_format, width);
-	size = stride * height;
+    size = stride * height;
     if (size > display->pool_size) return -1;
 
-	buffer->buffer = wl_shm_pool_create_buffer(display->pool, 0,
-						   width, height,
-						   stride, format);
-	wl_buffer_add_listener(buffer->buffer, &wl_buffer_listener, buffer);
+    buffer->buffer = wl_shm_pool_create_buffer(display->pool, 0,
+                           width, height,
+                           stride, format);
+    wl_buffer_add_listener(buffer->buffer, &wl_buffer_listener, buffer);
 
-	buffer->shm_data = display->pool_data;
+    buffer->shm_data = display->pool_data;
     buffer->cairo_surface = cairo_image_surface_create_for_data(
         display->pool_data,
         cairo_format,
@@ -125,7 +125,7 @@ create_shm_buffer(struct display *display, struct buffer *buffer,
         stride
     );
 
-	return 0;
+    return 0;
 }
 
 void
@@ -145,16 +145,16 @@ static void
 handle_xdg_surface_configure(void *data, struct xdg_surface *surface,
         uint32_t serial)
 {
-	struct window *window = data;
-	xdg_surface_ack_configure(surface, serial);
-	if (window->wait_for_configure) {
-		redraw(window, NULL, 0);
-		window->wait_for_configure = false;
-	}
+    struct window *window = data;
+    xdg_surface_ack_configure(surface, serial);
+    if (window->wait_for_configure) {
+        redraw(window, NULL, 0);
+        window->wait_for_configure = false;
+    }
 }
 
 static const struct xdg_surface_listener xdg_surface_listener = {
-	handle_xdg_surface_configure,
+    handle_xdg_surface_configure,
 };
 
 // xdg_toplevel_listener
@@ -184,23 +184,23 @@ handle_xdg_toplevel_close(void *data, struct xdg_toplevel *xdg_toplevel)
 }
 
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
-	handle_xdg_toplevel_configure,
-	handle_xdg_toplevel_close,
+    handle_xdg_toplevel_configure,
+    handle_xdg_toplevel_close,
 };
 
 struct window *
 create_window(struct display *display, int width, int height) {
-	struct window *window;
+    struct window *window;
 
-	window = malloc(sizeof(struct window));
+    window = malloc(sizeof(struct window));
     assert(window, "oom");
 
-	window->callback = NULL;
+    window->callback = NULL;
     window->running = true;
-	window->display = display;
-	window->width = width;
-	window->height = height;
-	window->surface = wl_compositor_create_surface(display->compositor);
+    window->display = display;
+    window->width = width;
+    window->height = height;
+    window->surface = wl_compositor_create_surface(display->compositor);
     window->buffers[0] = (struct buffer){ NULL, NULL, NULL, 0 };
     window->buffers[1] = (struct buffer){ NULL, NULL, NULL, 0 };
 
@@ -219,7 +219,7 @@ create_window(struct display *display, int width, int height) {
     wl_surface_commit(window->surface);
     window->wait_for_configure = true;
 
-	return window;
+    return window;
 }
 
 void
@@ -230,41 +230,41 @@ destroy_window(struct window *window)
     destroy_buffer(&window->buffers[1]);
     if (window->xdg_toplevel) xdg_toplevel_destroy(window->xdg_toplevel);
     if (window->xdg_surface) xdg_surface_destroy(window->xdg_surface);
-	if (window->surface) wl_surface_destroy(window->surface);
-	free(window);
+    if (window->surface) wl_surface_destroy(window->surface);
+    free(window);
 }
 
 static struct buffer *
 window_next_buffer(struct window *window)
 {
-	struct buffer *buffer;
-	int ret = 0;
+    struct buffer *buffer;
+    int ret = 0;
 
     if (!window->buffers[0].busy) buffer = &window->buffers[0];
     else if (!window->buffers[1].busy) buffer = &window->buffers[1];
     else return NULL;
 
-	if (!buffer->buffer) {
-		ret = create_shm_buffer(window->display, buffer,
-					window->width, window->height,
-					WL_SHM_FORMAT_XRGB8888);
+    if (!buffer->buffer) {
+        ret = create_shm_buffer(window->display, buffer,
+                    window->width, window->height,
+                    WL_SHM_FORMAT_XRGB8888);
         if (ret < 0) return NULL;
 
-		/* paint the padding */
+        /* paint the padding */
         memset(buffer->shm_data, 0xff, window->width * window->height * 4);
-	}
+    }
 
-	return buffer;
+    return buffer;
 }
 
 static const struct wl_callback_listener frame_listener;
 static void
 redraw(void *data, struct wl_callback *callback, uint32_t time)
 {
-	struct window *window = data;
-	struct buffer *buffer;
+    struct window *window = data;
+    struct buffer *buffer;
 
-	buffer = window_next_buffer(window);
+    buffer = window_next_buffer(window);
     assert(buffer, !callback ? "Failed to create the first buffer.\n" :
             "Both buffers busy at redraw(). Server bug?\n");
 
@@ -272,16 +272,16 @@ redraw(void *data, struct wl_callback *callback, uint32_t time)
     bool damage = window->display->p_cb(window, cr);
     cairo_destroy(cr);
 
-	wl_surface_attach(window->surface, buffer->buffer, 0, 0);
+    wl_surface_attach(window->surface, buffer->buffer, 0, 0);
     if (damage)
         wl_surface_damage(window->surface, 0, 0, window->width, window->height);
 
     if (callback) wl_callback_destroy(callback);
 
-	window->callback = wl_surface_frame(window->surface);
-	wl_callback_add_listener(window->callback, &frame_listener, window);
-	wl_surface_commit(window->surface);
-	buffer->busy = 1;
+    window->callback = wl_surface_frame(window->surface);
+    wl_callback_add_listener(window->callback, &frame_listener, window);
+    wl_surface_commit(window->surface);
+    buffer->busy = 1;
 }
 static const struct wl_callback_listener frame_listener = { redraw };
 
@@ -290,32 +290,32 @@ static const struct wl_callback_listener frame_listener = { redraw };
 static void
 handle_xdg_wm_base_ping(void *data, struct xdg_wm_base *shell, uint32_t serial)
 {
-	xdg_wm_base_pong(shell, serial);
+    xdg_wm_base_pong(shell, serial);
 }
 
 static const struct xdg_wm_base_listener xdg_wm_base_listener = {
-	handle_xdg_wm_base_ping,
+    handle_xdg_wm_base_ping,
 };
 
 // wl_keyboard_listener
 
 static void keyboard_keymap(void *data, struct wl_keyboard *wl_keyboard,
-		uint32_t format, int32_t fd, uint32_t size) {
+        uint32_t format, int32_t fd, uint32_t size) {
 }
 
 static void keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
-		uint32_t serial, struct wl_surface *surface, struct wl_array *keys) {
-	// Who cares
+        uint32_t serial, struct wl_surface *surface, struct wl_array *keys) {
+    // Who cares
 }
 
 static void keyboard_leave(void *data, struct wl_keyboard *wl_keyboard,
-		uint32_t serial, struct wl_surface *surface) {
-	// Who cares
+        uint32_t serial, struct wl_surface *surface) {
+    // Who cares
 }
 
 static uint32_t mods_state = 0;
 static void keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
-		uint32_t serial, uint32_t time, uint32_t key, uint32_t _key_state) {
+        uint32_t serial, uint32_t time, uint32_t key, uint32_t _key_state) {
     struct display *d = data;
     enum wl_keyboard_key_state key_state = _key_state;
     if (key_state == WL_KEYBOARD_KEY_STATE_PRESSED) {
@@ -325,48 +325,48 @@ static void keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
 }
 
 static void keyboard_modifiers(void *data, struct wl_keyboard *wl_keyboard,
-		uint32_t serial, uint32_t mods_depressed, uint32_t mods_latched,
-		uint32_t mods_locked, uint32_t group) {
+        uint32_t serial, uint32_t mods_depressed, uint32_t mods_latched,
+        uint32_t mods_locked, uint32_t group) {
     /* printf("keyboard_modifiers: dep: %x, lat: %x, loc: %x\n",
             mods_depressed, mods_latched, mods_locked); */
     mods_state = mods_depressed;
 }
 
 static void keyboard_repeat_info(void *data, struct wl_keyboard *wl_keyboard,
-		int32_t rate, int32_t delay) {
+        int32_t rate, int32_t delay) {
 }
 
 static const struct wl_keyboard_listener keyboard_listener = {
-	.keymap = keyboard_keymap,
-	.enter = keyboard_enter,
-	.leave = keyboard_leave,
-	.key = keyboard_key,
-	.modifiers = keyboard_modifiers,
-	.repeat_info = keyboard_repeat_info,
+    .keymap = keyboard_keymap,
+    .enter = keyboard_enter,
+    .leave = keyboard_leave,
+    .key = keyboard_key,
+    .modifiers = keyboard_modifiers,
+    .repeat_info = keyboard_repeat_info,
 };
 
 // wl_seat_listener
 
 static void seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
-		enum wl_seat_capability caps) {
-	struct display *d = data;
-	if (d->keyboard) {
-		wl_keyboard_release(d->keyboard);
-		d->keyboard = NULL;
-	}
-	if ((caps & WL_SEAT_CAPABILITY_KEYBOARD)) {
-		d->keyboard = wl_seat_get_keyboard(wl_seat);
-		wl_keyboard_add_listener(d->keyboard, &keyboard_listener, d);
-	}
+        enum wl_seat_capability caps) {
+    struct display *d = data;
+    if (d->keyboard) {
+        wl_keyboard_release(d->keyboard);
+        d->keyboard = NULL;
+    }
+    if ((caps & WL_SEAT_CAPABILITY_KEYBOARD)) {
+        d->keyboard = wl_seat_get_keyboard(wl_seat);
+        wl_keyboard_add_listener(d->keyboard, &keyboard_listener, d);
+    }
 }
 
 static void seat_handle_name(void *data, struct wl_seat *wl_seat,
-		const char *name) {
+        const char *name) {
 }
 
 const struct wl_seat_listener seat_listener = {
-	.capabilities = seat_handle_capabilities,
-	.name = seat_handle_name,
+    .capabilities = seat_handle_capabilities,
+    .name = seat_handle_name,
 };
 
 // wl_registry_listener
@@ -375,15 +375,15 @@ static void
 handle_wl_registry_global(void *data, struct wl_registry *registry, uint32_t
         id, const char *interface, uint32_t version)
 {
-	struct display *d = data;
+    struct display *d = data;
 
-	if (strcmp(interface, "wl_compositor") == 0) {
+    if (strcmp(interface, "wl_compositor") == 0) {
         d->compositor = wl_registry_bind(registry, id,
                 &wl_compositor_interface, 1);
-	} else if (strcmp(interface, "xdg_wm_base") == 0) {
+    } else if (strcmp(interface, "xdg_wm_base") == 0) {
         d->wm_base = wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
-		xdg_wm_base_add_listener(d->wm_base, &xdg_wm_base_listener, d);
-	} else if (strcmp(interface, "wl_shm") == 0) {
+        xdg_wm_base_add_listener(d->wm_base, &xdg_wm_base_listener, d);
+    } else if (strcmp(interface, "wl_shm") == 0) {
         d->wl_shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
     } else if (strcmp(interface, "wl_seat") == 0) {
         if (!d->wl_seat) {
@@ -391,7 +391,7 @@ handle_wl_registry_global(void *data, struct wl_registry *registry, uint32_t
                     registry, id, &wl_seat_interface, 3);
             wl_seat_add_listener(d->wl_seat, &seat_listener, d);
         }
-	} else {
+    } else {
         // fprintf(stderr, "reg: %s\n", interface);
     }
 }
@@ -403,18 +403,18 @@ handle_wl_registry_global_remove(void *data, struct wl_registry *registry,
 }
 
 static const struct wl_registry_listener wl_registry_listener = {
-	handle_wl_registry_global,
-	handle_wl_registry_global_remove
+    handle_wl_registry_global,
+    handle_wl_registry_global_remove
 };
 
 struct display *
 create_display(paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb) {
-	struct display *display;
+    struct display *display;
 
-	display = malloc(sizeof *display);
+    display = malloc(sizeof *display);
     assert(display, "oom");
-	display->display = wl_display_connect(NULL);
-	assert(display->display, "wl_display_connect");
+    display->display = wl_display_connect(NULL);
+    assert(display->display, "wl_display_connect");
 
     display->wl_seat = NULL;
     display->keyboard = NULL;
@@ -423,9 +423,9 @@ create_display(paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb) {
     display->p_cb = p_cb;
     display->c_cb = c_cb;
 
-	display->registry = wl_display_get_registry(display->display);
+    display->registry = wl_display_get_registry(display->display);
     wl_registry_add_listener(display->registry, &wl_registry_listener, display);
-	wl_display_roundtrip(display->display);
+    wl_display_roundtrip(display->display);
     assert(display->wl_shm, "wl_shm");
     assert(display->wm_base, "xdg_wm_base");
     assert(display->compositor, "wl_compositor");
@@ -433,7 +433,7 @@ create_display(paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb) {
     assert(create_shm_pool(display, 1366 * 1024 * 4) == 0, "create_shm_pool");
     assert(display->pool, "pool");
 
-	wl_display_roundtrip(display->display);
+    wl_display_roundtrip(display->display);
     return display;
 }
 
@@ -446,9 +446,9 @@ destroy_display(struct display *display)
     if (display->wl_shm) wl_shm_destroy(display->wl_shm);
     if (display->wm_base) xdg_wm_base_destroy(display->wm_base);
     if (display->compositor) wl_compositor_destroy(display->compositor);
-	wl_registry_destroy(display->registry);
-	wl_display_flush(display->display);
-	wl_display_disconnect(display->display);
+    wl_registry_destroy(display->registry);
+    wl_display_flush(display->display);
+    wl_display_disconnect(display->display);
     free(display);
 }
 
@@ -487,8 +487,8 @@ gui_run(struct window *window) {
         if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
         if (fds[0].revents & POLLIN) {
             if (wl_display_read_events(display) < 0) break;
-			wl_display_dispatch_pending(display);
-		}
+            wl_display_dispatch_pending(display);
+        }
     }
 }
 

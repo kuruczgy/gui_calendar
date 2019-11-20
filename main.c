@@ -676,8 +676,8 @@ paint(struct window *window, cairo_t *cr) {
     static int frame_counter = 0;
     ++frame_counter;
 
-	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
-	cairo_paint(cr);
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+    cairo_paint(cr);
 
     int time_strip_w = 30;
     int sidebar_w = 120;
@@ -927,7 +927,7 @@ main(int argc, char **argv) {
 
     struct display *display =
         create_display(&paint, &handle_key, &handle_child);
-	struct window *window = create_window(display, 900, 700);
+    struct window *window = create_window(display, 900, 700);
     if (!window) return 1;
 
     state.tr = text_renderer_new("Monospace 8");
@@ -942,7 +942,7 @@ main(int argc, char **argv) {
     free_timezone(state.zone);
     text_renderer_free(state.tr);
 
-	destroy_window(window);
-	destroy_display(display);
+    destroy_window(window);
+    destroy_display(display);
     return 0;
 }

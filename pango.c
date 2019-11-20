@@ -12,7 +12,7 @@
 
 struct text_renderer* text_renderer_new(const char *font) {
     struct text_renderer *tr = malloc(sizeof(struct text_renderer));
-	tr->desc = pango_font_description_from_string(font);
+    tr->desc = pango_font_description_from_string(font);
     tr->p.scale = 1.0;
     tr->p.hyphens = false;
     tr->p.wrap_char = true;
@@ -47,10 +47,10 @@ static PangoLayout *create_pango_layout(cairo_t *cr, struct text_renderer *tr) {
     /* pango_layout_set_alignment(l, tr->p.center ?
             PANGO_ALIGN_CENTER : PANGO_ALIGN_LEFT); */
 
-	/* cairo_get_font_options(cairo, fo);
-	pango_cairo_context_set_font_options(pango_layout_get_context(layout), fo);
-	cairo_font_options_destroy(fo); */
-	pango_cairo_update_layout(cr, l);
+    /* cairo_get_font_options(cairo, fo);
+    pango_cairo_context_set_font_options(pango_layout_get_context(layout), fo);
+    cairo_font_options_destroy(fo); */
+    pango_cairo_update_layout(cr, l);
 
     return l;
 }
@@ -58,8 +58,8 @@ static PangoLayout *create_pango_layout(cairo_t *cr, struct text_renderer *tr) {
 void text_get_size(cairo_t *cr, struct text_renderer *tr, const char *text) {
     tr->p.text = text;
     PangoLayout *l = create_pango_layout(cr, tr);
-	pango_layout_get_pixel_size(l, &tr->p.width, &tr->p.height);
-	g_object_unref(l);
+    pango_layout_get_pixel_size(l, &tr->p.width, &tr->p.height);
+    g_object_unref(l);
 }
 
 void text_print_free(cairo_t *cr, struct text_renderer *tr, char *text) {
@@ -69,24 +69,24 @@ void text_print_free(cairo_t *cr, struct text_renderer *tr, char *text) {
 void text_print_own(cairo_t *cr, struct text_renderer *tr, const char *text) {
     tr->p.text = text;
     PangoLayout *l = create_pango_layout(cr, tr);
-	pango_layout_get_pixel_size(l, &tr->p.width, &tr->p.height);
-	pango_cairo_show_layout(cr, l);
+    pango_layout_get_pixel_size(l, &tr->p.width, &tr->p.height);
+    pango_cairo_show_layout(cr, l);
     g_object_unref(l);
     tr->p.text = NULL;
 }
 
 char* text_format(const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	// Add one since vsnprintf excludes null terminator.
-	int length = vsnprintf(NULL, 0, fmt, args) + 1;
-	va_end(args);
+    va_list args;
+    va_start(args, fmt);
+    // Add one since vsnprintf excludes null terminator.
+    int length = vsnprintf(NULL, 0, fmt, args) + 1;
+    va_end(args);
 
-	char *buf = malloc(length);
+    char *buf = malloc(length);
     assert(buf, "malloc error");
-	va_start(args, fmt);
-	vsnprintf(buf, length, fmt, args);
-	va_end(args);
+    va_start(args, fmt);
+    vsnprintf(buf, length, fmt, args);
+    va_end(args);
 
     return buf;
 }

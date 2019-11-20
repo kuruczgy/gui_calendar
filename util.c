@@ -12,73 +12,73 @@
 int
 os_fd_set_cloexec(int fd)
 {
-	long flags;
+    long flags;
     if (fd == -1) return -1;
-	flags = fcntl(fd, F_GETFD);
+    flags = fcntl(fd, F_GETFD);
     if (flags == -1) return -1;
     if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == -1) return -1;
-	return 0;
+    return 0;
 }
 
 int set_cloexec_or_close(int fd) {
-	if (os_fd_set_cloexec(fd) != 0) {
-		close(fd);
-		return -1;
-	}
-	return fd;
+    if (os_fd_set_cloexec(fd) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
 }
 
 char* create_tmpfile_template() {
-	static const char template[] = "/tmpfile-XXXXXX";
-	const char *path;
-	char *name;
+    static const char template[] = "/tmpfile-XXXXXX";
+    const char *path;
+    char *name;
 
-	path = getenv("XDG_RUNTIME_DIR");
-	if (!path) {
-		errno = ENOENT;
-		return NULL;
-	}
+    path = getenv("XDG_RUNTIME_DIR");
+    if (!path) {
+        errno = ENOENT;
+        return NULL;
+    }
 
-	name = malloc(strlen(path) + sizeof(template));
-	if (!name) return NULL;
+    name = malloc(strlen(path) + sizeof(template));
+    if (!name) return NULL;
 
-	strcpy(name, path);
-	strcat(name, template);
+    strcpy(name, path);
+    strcat(name, template);
 }
 
 static int
 create_tmpfile_cloexec(char *tmpname)
 {
     int fd = mkstemp(tmpname);
-	if (fd >= 0) {
-		fd = set_cloexec_or_close(fd);
-		unlink(tmpname);
-	}
+    if (fd >= 0) {
+        fd = set_cloexec_or_close(fd);
+        unlink(tmpname);
+    }
     return fd;
 }
 
 int
 os_create_anonymous_file(off_t size)
 {
-	int fd;
-	int ret;
+    int fd;
+    int ret;
 
     char *name = create_tmpfile_template();
     if (!name) return -1;
-	fd = create_tmpfile_cloexec(name);
-	free(name);
+    fd = create_tmpfile_cloexec(name);
+    free(name);
 
-	if (fd < 0) return -1;
+    if (fd < 0) return -1;
 
-	do {
-		ret = ftruncate(fd, size);
-	} while (ret < 0 && errno == EINTR);
-	if (ret < 0) {
-		close(fd);
-		return -1;
-	}
+    do {
+        ret = ftruncate(fd, size);
+    } while (ret < 0 && errno == EINTR);
+    if (ret < 0) {
+        close(fd);
+        return -1;
+    }
 
-	return fd;
+    return fd;
 }
 
 int min(int a, int b) { return a < b ? a : b; }
