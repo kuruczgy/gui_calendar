@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <cairo.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include "util.h"
 #include "calendar.h"
 #include "pango.h"
@@ -873,8 +874,6 @@ static void handle_child(struct display *display, pid_t pid) {
 
 int
 main(int argc, char **argv) {
-    setenv("TZ", "UTC", 1); // fucking C time handling...
-
     state = (struct state){
         .n_cal = 0,
         .view_days = 7,
@@ -885,18 +884,58 @@ main(int argc, char **argv) {
         .active_todos = NULL,
         .layout_event_n = NULL,
         .mode_select = false,
-        .show_private_events = true
+        .show_private_events = false
     };
 
-    const char *ed = getenv("EDITOR");
-    assert(ed, "please set EDITOR env variable");
-    const char *editor[] = { "st", "st", ed, "{file}", NULL }; // TODO: config
+    for (int i = 0; i < 16; ++i) {
+        // init cal_info
+        state.cal_info[i] = (struct calendar_info) {
+            .visible = false
+        };
+    }
+
+    char editor_buffer[128], term_buffer[128];
+    editor_buffer[0] = term_buffer[0] = '\0';
+    const char *editor_env = getenv("EDITOR");
+    if (editor_env) snprintf(editor_buffer, 128, "%s", editor_env);
+    snprintf(term_buffer, 128, "st");
+
+    int opt, d;
+    while ((opt = getopt(argc, argv, "pd:e:")) != -1) {
+        switch (opt) {
+        case 'p':
+            fprintf(stderr, "setting show_private_events = true\n");
+            state.show_private_events = true;
+            break;
+        case 'd':
+            d = atoi(optarg) - 1;
+            if (d < 0 || d >= 16) {
+                fprintf(stderr, "bad -d option index");
+                exit(1);
+            }
+            state.cal_info[d].visible = true;
+            break;
+        case 'e':
+            snprintf(editor_buffer, 128, "%s", optarg);
+            break;
+        case 't':
+            snprintf(term_buffer, 128, "%s", optarg);
+            break;
+        }
+    }
+
+    assert(editor_buffer[0], "please set editor!");
+    assert(term_buffer[0], "please set terminal emulator!");
+    const char *editor[] = { term_buffer, term_buffer,
+        editor_buffer, "{file}", NULL };
+    fprintf(stderr, "editor command: %s, term command: %s\n",
+        editor_buffer, term_buffer);
     state.editor = editor;
 
     state.zone = new_timezone("Europe/Budapest");
     state.base = get_day_base(state.zone, state.view_days > 1);
 
-    for (int i = 1; i < argc; i++) {
+    for (int i = optind; i < argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
 
         // init
@@ -904,17 +943,12 @@ main(int argc, char **argv) {
 
         // read
         cal->storage = str_dup(argv[i]);
-        fprintf(stderr, "loading %s\n", argv[i]);
+        fprintf(stderr, "loading %s\n", cal->storage);
         update_calendar_from_storage(cal, state.zone->impl);
 
         // set metadata
-        if (!cal->name) cal->name = str_dup(argv[i]);
+        if (!cal->name) cal->name = str_dup(cal->storage);
         cal->storage = str_dup(argv[i]);
-
-        // init cal_info
-        state.cal_info[state.n_cal] = (struct calendar_info) {
-            .visible = (i == 1) // default to only the first being visible
-        };
 
         // next
         if (++state.n_cal >= 16) break;
