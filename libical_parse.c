@@ -13,6 +13,22 @@ enum icalproperty_class icalcomponent_get_class(icalcomponent *c) {
     return p ? icalproperty_get_class(p) : ICAL_CLASS_NONE;
 }
 
+void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v) {
+    icalproperty *p =
+        icalcomponent_get_first_property(c, ICAL_CLASS_PROPERTY);
+    if (v != ICAL_CLASS_NONE) {
+        if (!p) {
+            p = icalproperty_new_class(v);
+            icalcomponent_add_property(c, p);
+        } else {
+            icalproperty_set_class(p, v);
+        }
+    } else {
+        if (p) {
+            icalcomponent_remove_property(c, p);
+        }
+    }
+}
 
 void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n) {
     icaltimetype tt = icaltime_from_timet_with_zone(*t, false, zone->impl);
@@ -179,7 +195,7 @@ void libical_parse_todo(icalcomponent *c, struct calendar *cal,
     td->desc = str_dup(icalcomponent_get_description(c));
 
     icalproperty_status s = icalcomponent_get_status(c);
-    td->is_active = s != ICAL_STATUS_COMPLETED && s != ICAL_STATUS_CANCELLED;
+    td->status = s;
     td->clas = icalcomponent_get_class(c);
 
     hashmap_put(cal->todos, td->uid, td); // TODO: memory leak

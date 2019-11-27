@@ -37,7 +37,7 @@ struct event {
 struct todo {
     char *uid, *summary, *desc;
     struct date start, due;
-    bool is_active;
+    enum icalproperty_status status;
     enum icalproperty_class clas;
 };
 
@@ -69,11 +69,22 @@ void init_calendar(struct calendar* cal);
 void free_calendar(struct calendar *cal);
 void free_event(struct event *e);
 
-void print_event_template(FILE *f, const struct event *ev);
-void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
-        bool *del);
+void init_event(struct event *ev);
+void init_todo(struct todo *td);
 int save_event(struct event *ev, struct calendar *cal, bool del,
         icaltimezone *local_zone);
+
+/* missing libical stuff */
+enum icalproperty_class icalcomponent_get_class(icalcomponent *c);
+void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v);
+
+/* editor stuff */
+void print_event_template(FILE *f, const struct event *ev);
+void print_todo_template(FILE *f, const struct todo *td);
+int parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
+        bool *del);
+int parse_todo_template(FILE *f, struct todo *td, icaltimezone *zone,
+        bool *del);
 
 void priority_sort_todos(struct todo **todos, int n);
 

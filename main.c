@@ -258,7 +258,8 @@ static void update_active_events() {
 static int count_active_todos(void *f_p, void *t_p) {
     struct todo *td = t_p;
     int *cnt = f_p;
-    if (td->is_active &&
+    if (td->status != ICAL_STATUS_COMPLETED &&
+        td->status != ICAL_STATUS_CANCELLED &&
         (state.show_private_events || td->clas != ICAL_CLASS_PRIVATE)) {
         if (state.active_todos) state.active_todos[*cnt] = td;
         (*cnt)++;
@@ -858,11 +859,13 @@ static void handle_child(struct display *display, pid_t pid) {
 
     struct event ev;
     int res;
-    bool del;
-    parse_event_template(f, &ev, state.zone->impl, &del);
-    assert(state.n_cal > 0, "no calendar to save to");
-    struct calendar *cal = &(state.cal[0]);
-    res = save_event(&ev, cal, del, state.zone->impl);
+    bool del = false;
+    res = parse_event_template(f, &ev, state.zone->impl, &del);
+    if (res >= 0) {
+        assert(state.n_cal > 0, "no calendar to save to");
+        struct calendar *cal = &(state.cal[0]);
+        res = save_event(&ev, cal, del, state.zone->impl);
+    }
     if (res >= 0) {
         update_active_events();
         fit_events();

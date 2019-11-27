@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <stdio.h>
 #include <errno.h>
 
@@ -22,8 +21,33 @@ void init_calendar(struct calendar *cal) {
     cal->loaded.tv_sec = 0; // should work...
 }
 
+static const struct date default_date = { .timestamp = -1 };
+static const struct event default_event = {
+    .uid = NULL,
+    .summary = NULL,
+    .start = default_date,
+    .end = default_date,
+    .color = 0,
+    .location = NULL,
+    .tentative = false,
+    .desc = NULL,
+    .clas = ICAL_CLASS_NONE,
+    .recur = NULL
+};
+static const struct todo default_todo = {
+    .uid = NULL,
+    .summary = NULL,
+    .desc = NULL,
+    .start = default_date,
+    .due = default_date,
+    .status = ICAL_STATUS_NONE,
+    .clas = ICAL_CLASS_NONE
+};
+
+void init_event(struct event *ev) { *ev = default_event; }
+void init_todo(struct todo *td) { *td = default_todo; }
+
 static void free_event_props(struct event *ev) {
-    free(ev->uid); ev->uid = NULL;
     free(ev->summary); ev->summary = NULL;
     free(ev->location); ev->location = NULL;
     free(ev->desc); ev->desc = NULL;
@@ -55,86 +79,6 @@ void free_calendar(struct calendar *cal) {
     free(cal->storage);
 }
 
-static int parse_datetime_prop(char *s, struct date *res,
-        icaltimezone *local_zone) {
-    int year, month, day, hour, minute;
-    int n = sscanf(s, "%d-%d-%d %d:%d", &year, &month, &day, &hour, &minute);
-    if (n < 5) return -1;
-    struct icaltimetype tt = {
-        .year = year,
-        .month = month,
-        .day = day,
-        .hour = hour,
-        .minute = minute,
-        .second = 0,
-        .is_date = 0,
-        .is_daylight = 0, // TODO: is this ok like this?
-        .zone = local_zone
-    };
-    *res = date_from_icaltime(tt, local_zone);
-    return 0;
-}
-
-static char *trim_start(char *s) {
-    while (isspace(*s)) s++;
-    return s;
-}
-
-static void print_time_prop(FILE *f, const struct tm *tim) {
-    fprintf(f, "%04d-%02d-%02d %02d:%02d", tim->tm_year + 1900,
-            tim->tm_mon + 1, tim->tm_mday, tim->tm_hour, tim->tm_min);
-}
-void print_event_template(FILE *f, const struct event *ev) {
-    fprintf(f, "summary: %s\n", ev->summary ? ev->summary : "");
-    fprintf(f, "start: ");
-    print_time_prop(f, &ev->start.local_time);
-    fprintf(f, "\nend: ");
-    print_time_prop(f, &ev->end.local_time);
-    fprintf(f, "\nlocation: %s\n", ev->location ? ev->location : "");
-    fprintf(f, "desc: %s\n", ev->desc ? ev->desc : "");
-    if (ev->uid) {
-        fprintf(f, "uid: %s\n", ev->uid);
-    }
-    fprintf(f, "delete: \n");
-}
-
-static char* parse_prop(char *buf, const char *name) {
-    int l = strlen(name);
-    if (strncmp(name, buf, l) == 0) {
-        char *c = strchr(buf + l, ':');
-        if (!c) return NULL;
-        return trim_start(c + 1);
-    }
-    return NULL;
-}
-
-void parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
-        bool *del) {
-    *del = false;
-    ev->summary = ev->location = ev->desc = ev->uid = NULL;
-    char buf[1024], *p;
-    int len;
-    while (get_line(f, buf, 1024, &len) >= 0) {
-        if (p = parse_prop(buf, "uid")) {
-            if (*p) ev->uid = str_dup(p);
-        } else if (p = parse_prop(buf, "summary")) {
-            if (*p) ev->summary = str_dup(p);
-        } else if (p = parse_prop(buf, "location")) {
-            if (*p) ev->location = str_dup(p);
-        } else if (p = parse_prop(buf, "desc")) {
-            if (*p) ev->desc = str_dup(p);
-        } else if (p = parse_prop(buf, "start")) {
-            if (parse_datetime_prop(p, &ev->start, zone) < 0)
-                ev->start.timestamp = -1;
-        } else if (p = parse_prop(buf, "end")) {
-            if (parse_datetime_prop(p, &ev->end, zone) < 0)
-                ev->end.timestamp = -1;
-        } else if (p = parse_prop(buf, "delete")) {
-            if (strcmp(p, "true") == 0) *del = true;
-            else *del = false;
-        }
-    }
-}
 
 static void ev_to_comp(struct event *ev, icalcomponent *event) {
     if (ev->uid) {
@@ -147,6 +91,7 @@ static void ev_to_comp(struct event *ev, icalcomponent *event) {
     icalcomponent_set_dtend(event,
             icaltime_from_timet_with_zone(ev->end.timestamp, 0,
                 icaltimezone_get_utc_timezone()));
+    icalcomponent_set_class(event, ev->clas);
     if (ev->location) icalcomponent_set_location(event, ev->location);
     if (ev->desc) icalcomponent_set_description(event, ev->desc);
 }
@@ -207,12 +152,12 @@ int save_event(struct event *ev, struct calendar *cal, bool del,
         assert(hashmap_get(cal->events, uid, (void**)&e) == MAP_OK,
                 "uid not found");
         free_event_props(e);
-        e->uid = ev->uid;
         e->summary = ev->summary;
-        e->location = ev->location;
-        e->desc = ev->desc;
         e->start = ev->start;
         e->end = ev->end;
+        e->location = ev->location;
+        e->desc = ev->desc;
+        e->clas = ev->clas;
     } else {
         if (ev->uid) {
             fprintf(stderr, "uid specified, but not found. aborting.\n");

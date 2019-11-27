@@ -31,20 +31,43 @@ xdg_shell_private_target = custom_target(
 )
 
 incdir = include_directories('include')
+sources = files(
+  'util.c',
+  'calendar.c',
+  'editor.c',
+  'pango.c',
+  'subprocess.c',
+  'colors.c',
+  'calendar_layout.c',
+  'libical_parse.c',
+  'keyboard.c',
+  'algo.c',
+  'util/hashmap.c',
+  'backend/wayland.c',
+)
+dependencies = [
+  wayland_client, cairo, pango, pangocairo, libical
+]
 
 add_global_arguments('-Wno-parentheses', language : 'c')
 
 executable(
   'gui_calendar',
-  'main.c', 'util.c', 'calendar.c', 'pango.c',
-  'subprocess.c', 'colors.c', 'calendar_layout.c',
-  'libical_parse.c', 'keyboard.c', 'algo.c',
-  'util/hashmap.c',
-  'backend/wayland.c',
+  'main.c',
+  sources,
   xdg_shell_header_target,
   xdg_shell_private_target,
   include_directories: incdir,
-  dependencies: [
-    wayland_client, cairo, pango, pangocairo, libical
-  ]
+  dependencies: dependencies
 )
+
+test_editor = executable(
+  'test_editor',
+  'tests/test_editor.c',
+  sources,
+  xdg_shell_header_target,
+  xdg_shell_private_target,
+  include_directories: incdir,
+  dependencies: dependencies
+)
+test('test editor', test_editor)
