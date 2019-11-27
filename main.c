@@ -25,6 +25,13 @@ struct calendar_info {
 
 struct event_tag {
     struct event *ev;
+    struct calendar *cal;
+    char code[33];
+};
+
+struct todo_tag {
+    struct todo *td;
+    struct calendar *cal;
     char code[33];
 };
 
@@ -45,6 +52,7 @@ struct state {
     int n_cal;
 
     struct todo **active_todos;
+    struct todo_tag *active_todos_tag;
     int active_todo_n;
 
     struct cal_timezone *zone;
@@ -56,7 +64,11 @@ struct state {
     time_t now;
 
     int window_width, window_height;
+
     struct subprocess_handle *sp;
+    struct calendar *sp_calendar;
+    enum icalcomponent_kind sp_type;
+
     const char **editor;
     bool mode_select;
     char mode_select_code[33];
@@ -115,53 +127,108 @@ static bool different_day(struct tm a, struct tm b) {
         b.tm_year;
 }
 
+void switch_mode_select() {
+    state.mode_select_code_n = 0;
+    if (state.mode_select) return;
+
+    if (state.main_view == VIEW_CALENDAR) {
+        state.mode_select = true;
+        struct key_gen g;
+        key_gen_init(state.active_n, &g);
+        state.mode_select_len = g.k;
+        for (int i = 0; i < state.active_n; ++i) {
+            const char *code = key_gen_get(&g);
+            assert(code, "not enough codes");
+            strcpy(state.active_events_tag[i].code, code);
+        }
+    } else if (state.main_view == VIEW_TODO) {
+        state.mode_select = true;
+        struct key_gen g;
+        key_gen_init(state.active_todo_n, &g);
+        state.mode_select_len = g.k;
+        for (int i = 0; i < state.active_todo_n; ++i) {
+            const char *code = key_gen_get(&g);
+            assert(code, "not enough codes");
+            strcpy(state.active_todos_tag[i].code, code);
+        }
+    }
+}
+
+void print_event_template_callback(void *ud, FILE *f) {
+    print_event_template(f, (struct event *)ud);
+}
+void print_todo_template_callback(void *ud, FILE *f) {
+    print_todo_template(f, (struct todo *)ud);
+}
+void launch_event_editor(struct event *ev, struct calendar *cal) {
+    if (!state.sp) {
+        state.sp_calendar = cal;
+        state.sp_type = ICAL_VEVENT_COMPONENT;
+        state.sp = subprocess_new_input(state.editor[0],
+                state.editor + 1, &print_event_template_callback, (void *)ev);
+    }
+}
+void launch_todo_editor(struct todo *td, struct calendar *cal) {
+    if (!state.sp) {
+        state.sp_calendar = cal;
+        state.sp_type = ICAL_VTODO_COMPONENT;
+        state.sp = subprocess_new_input(state.editor[0],
+                state.editor + 1, &print_todo_template_callback, (void *)td);
+    }
+}
+
 void disable_mode_select() {
     state.mode_select = false;
 }
 
-void switch_mode_select() {
-    state.mode_select_code_n = 0;
-    if (state.mode_select) return;
-    state.mode_select = true;
-    struct key_gen g;
-    key_gen_init(state.active_n, &g);
-    state.mode_select_len = g.k;
-    for (int i = 0; i < state.active_n; ++i) {
-        const char *code = key_gen_get(&g);
-        assert(code, "not enough codes");
-        strcpy(state.active_events_tag[i].code, code);
-    }
-}
-
-void mode_select_append_sym(char sym) {
-    state.mode_select_code[state.mode_select_code_n++] = sym;
-    if (state.mode_select_code_n >= state.mode_select_len) {
-        disable_mode_select();
-        state.dirty = true;
+void mode_select_finish() {
+    disable_mode_select();
+    state.dirty = true;
+    if (state.main_view == VIEW_CALENDAR) {
         for (int i = 0; i < state.active_n; ++i) {
             if (strncmp(
                     state.active_events_tag[i].code, state.mode_select_code,
                     state.mode_select_code_n) == 0) {
                 fprintf(stderr, "selected event: %s\n",
                         state.active_events[i]->summary);
-                if (!state.sp) {
-                    state.sp = subprocess_new_event_input(state.editor[0],
-                            state.editor + 1, state.active_events[i]);
-                }
+                launch_event_editor(
+                        state.active_events[i], state.active_events_tag[i].cal);
+                break;
+            }
+        }
+    } else if (state.main_view == VIEW_TODO) {
+        for (int i = 0; i < state.active_todo_n; ++i) {
+            if (strncmp(
+                    state.active_todos_tag[i].code, state.mode_select_code,
+                    state.mode_select_code_n) == 0) {
+                fprintf(stderr, "selected todo: %s\n",
+                        state.active_todos[i]->summary);
+                launch_todo_editor(
+                        state.active_todos[i], state.active_todos_tag[i].cal);
                 break;
             }
         }
     }
 }
 
+void mode_select_append_sym(char sym) {
+    state.mode_select_code[state.mode_select_code_n++] = sym;
+    if (state.mode_select_code_n >= state.mode_select_len) {
+        mode_select_finish();
+    }
+}
+
 struct event_filterer {
     struct event **list;
+    struct event_tag *tags;
     int n;
     time_t from, to;
     bool show_priv;
+    struct calendar *cal; /* used for assigning tags */
 };
-void init_event_filterer(struct event_filterer *f, struct event **list) {
-    f->list = list;
+void init_event_filterer(struct event_filterer *f) {
+    f->list = NULL;
+    f->tags = NULL;
     f->n = 0;
     f->from = -1;
     f->to = -1;
@@ -175,7 +242,16 @@ static int filter_events(void *f_p, void *e_p) {
                 e->start.timestamp, e->end.timestamp)) continue;
         if (!f->show_priv && e->clas == ICAL_CLASS_PRIVATE) continue;
 
-        f->list[f->n++] = e;
+        if (f->list) {
+            f->list[f->n] = e;
+            if (f->tags) {
+                f->tags[f->n] = (struct event_tag){
+                    .ev = e,
+                    .cal = f->cal
+                };
+            }
+        }
+        f->n++;
     } while (e = e->recur);
     return MAP_OK;
 }
@@ -200,26 +276,35 @@ static void update_active_events() {
     // clear any modes that depend on current event structures
     disable_mode_select();
 
-    int n_all_events = 0;
-    for (int i = 0; i < state.n_cal; i++)
-        n_all_events += state.cal[i].num_events;
-        //hashmap_length(state.cal[i].events);
-    struct event **active = malloc(sizeof(struct event*) * n_all_events);
+    /* count active events */
     struct event_filterer filterer;
-
-    init_event_filterer(&filterer, active);
+    init_event_filterer(&filterer);
     filterer.from = state.base,
     filterer.to = state.base + state.view_days * 3600 * 24;
-    filterer.show_priv = true; // state.show_private_events;
-
+    filterer.show_priv = true;
     for (int i = 0; i < state.n_cal; i++) {
         if (state.cal_info[i].visible) {
             hashmap_iterate(state.cal[i].events, filter_events, &filterer);
         }
     }
-    int active_n = filterer.n;
-    state.active_events_tag = malloc(sizeof(struct event_tag) * active_n);
 
+    /* allocate memory based on counts */
+    state.active_n = filterer.n;
+    state.active_events_tag = malloc(sizeof(struct event_tag) * state.active_n);
+    struct event **active = malloc(sizeof(struct event*) * state.active_n);
+
+    /* populate the lists */
+    filterer.n = 0;
+    filterer.list = active;
+    filterer.tags = state.active_events_tag;
+    for (int i = 0; i < state.n_cal; i++) {
+        filterer.cal = &state.cal[i];
+        if (state.cal_info[i].visible) {
+            hashmap_iterate(state.cal[i].events, filter_events, &filterer);
+        }
+    }
+
+    /* create the 2D layout */
     struct layout_event **layout_events =
         malloc(sizeof(struct layout_event*) * state.view_days);
     int *layout_event_n = malloc(sizeof(int) * (state.view_days + 1));
@@ -229,8 +314,8 @@ static void update_active_events() {
         time_t day_base = state.base + 3600 * 24 * d;
         int l = 0;
         struct layout_event *la = layout_events[d]
-            = malloc(sizeof(struct layout_event) * active_n);
-        for (int k = 0; k < active_n; k++) {
+            = malloc(sizeof(struct layout_event) * state.active_n);
+        for (int k = 0; k < state.active_n; k++) {
             struct event *ev = active[k];
             if ( ! interval_overlap(
                     day_base, day_base + 3600 * 24,
@@ -238,7 +323,7 @@ static void update_active_events() {
                 ) continue;
             int start_sec = max(0, ev->start.timestamp - day_base);
             int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
-            assert(l < active_n, "too many events");
+            assert(l < state.active_n, "too many events");
             la[l++] = (struct layout_event){
                 .start = start_sec,
                 .end = end_sec,
@@ -250,37 +335,60 @@ static void update_active_events() {
     }
 
     state.active_events = active;
-    state.active_n = active_n;
     state.layout_events = layout_events;
     state.layout_event_n = layout_event_n;
 }
 
+struct todo_filterer {
+    int n;
+    struct calendar *cal;
+};
 static int count_active_todos(void *f_p, void *t_p) {
     struct todo *td = t_p;
-    int *cnt = f_p;
+    struct todo_filterer *f = f_p;
     if (td->status != ICAL_STATUS_COMPLETED &&
         td->status != ICAL_STATUS_CANCELLED &&
         (state.show_private_events || td->clas != ICAL_CLASS_PRIVATE)) {
-        if (state.active_todos) state.active_todos[*cnt] = td;
-        (*cnt)++;
+        if (state.active_todos) {
+            state.active_todos[f->n] = td;
+            state.active_todos_tag[f->n] = (struct todo_tag) {
+                .td = td,
+                .cal = f->cal
+            };
+        }
+        f->n++;
     }
     return MAP_OK;
 }
 
 static void update_active_todos() {
+    /* free up existing structures */
     if (state.active_todos) {
         free(state.active_todos);
+        free(state.active_todos_tag);
         state.active_todos = NULL;
+        state.active_todos_tag = NULL;
     }
-    int n = 0;
-    for (int i = 0; i < state.n_cal; ++i)
-        hashmap_iterate(state.cal[i].todos, count_active_todos, &n);
+
+    /* count the matching todos */
+    struct todo_filterer f = { .n = 0 };
+    for (int i = 0; i < state.n_cal; ++i) {
+        hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
+    }
+    int n = f.n;
+
+    /* use the counts to allocate data structures */
     state.active_todos = malloc(sizeof(struct todo*) * n);
-    state.active_todo_n = 0;
-    for (int i = 0; i < state.n_cal; ++i)
-        hashmap_iterate(state.cal[i].todos, count_active_todos,
-                &state.active_todo_n);
-    assert(n == state.active_todo_n, "todo count mismatch");
+    state.active_todos_tag = malloc(sizeof(struct todo_tag) * n);
+    state.active_todo_n = n;
+
+    /* populate the data structures */
+    f.n = 0;
+    for (int i = 0; i < state.n_cal; ++i) {
+        f.cal = &state.cal[i];
+        hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
+    }
+    assert(n == f.n, "todo count mismatch");
     priority_sort_todos(state.active_todos, state.active_todo_n);
 }
 
@@ -608,9 +716,10 @@ static char* natural_date_format(const struct date *d) {
             lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min);
 }
 
-static void paint_todo_item(cairo_t *cr, struct todo *td, box b) {
+static void paint_todo_item(cairo_t *cr, struct todo *td, int index, box b) {
     cairo_translate(cr, b.x, b.y);
     cairo_set_source_argb(cr, 0xFF000000);
+    struct todo_tag *todo_tag = &state.active_todos_tag[index];
 
     int w = b.w;
     if (td->due.timestamp != -1) {
@@ -641,6 +750,20 @@ static void paint_todo_item(cairo_t *cr, struct todo *td, box b) {
         cairo_stroke(cr);
     }
 
+    if (state.mode_select) {
+        uint32_t c = 0xFFFF00FF;
+        cairo_set_source_argb(cr, c);
+        char *text = todo_tag->code;
+        state.tr->p.scale = 3.0;
+        state.tr->p.width = b.w; state.tr->p.height = -1;
+        text_get_size(cr, state.tr, text);
+        cairo_move_to(cr, b.w/2 - state.tr->p.width/2,
+                          b.h/2 - state.tr->p.height/2);
+        text_print_own(cr, state.tr, todo_tag->code);
+        state.tr->p.scale = 1.0;
+    }
+
+    cairo_set_source_argb(cr, 0xFF000000);
     cairo_set_line_width(cr, 2);
     cairo_move_to(cr, 0, b.h);
     cairo_line_to(cr, b.w, b.h);
@@ -651,7 +774,7 @@ static void paint_todo_item(cairo_t *cr, struct todo *td, box b) {
 void paint_todo_list(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
     for (int i = 0; i < state.active_todo_n; ++i) {
-        paint_todo_item(cr, state.active_todos[i], (box){ 0, i*40, b.w, 40 });
+        paint_todo_item(cr, state.active_todos[i], i, (box){0,i*40,b.w,40});
         if (i*40 > b.h) break;
     }
     cairo_identity_matrix(cr);
@@ -752,17 +875,22 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
             if (!state.sp) {
                 time_t now = time(NULL);
                 struct tm t = *gmtime(&now);
-                struct event template = {
-                    .uid = NULL,
-                    .summary = NULL,
-                    .start = { .local_time = t },
-                    .end = { .local_time = t },
-                    .location = NULL,
-                    .desc = NULL
-                };
 
-                state.sp = subprocess_new_event_input(
-                    state.editor[0], state.editor + 1, &template);
+                if (state.main_view == VIEW_CALENDAR) {
+                    struct event template;
+                    init_event(&template);
+                    template.start.local_time = t;
+                    template.end.local_time = t;
+                    assert(state.n_cal > 0, "no calendars");
+                    launch_event_editor(&template, &state.cal[0]);
+                } else if (state.main_view == VIEW_TODO) {
+                    struct todo template;
+                    init_todo(&template);
+                    template.due.local_time = t;
+                    template.start.local_time = t;
+                    assert(state.n_cal > 0, "no calendars");
+                    launch_todo_editor(&template, &state.cal[0]);
+                }
             }
         } else if (key_sym(key, 'e')) {
             switch_mode_select();
@@ -854,24 +982,38 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
 }
 
 static void handle_child(struct display *display, pid_t pid) {
-    FILE *f = subprocess_get_result(&(state.sp), pid);
-    if (!f) return;
-
-    struct event ev;
     int res;
     bool del = false;
-    res = parse_event_template(f, &ev, state.zone->impl, &del);
-    if (res >= 0) {
-        assert(state.n_cal > 0, "no calendar to save to");
-        struct calendar *cal = &(state.cal[0]);
-        res = save_event(&ev, cal, del, state.zone->impl);
-    }
-    if (res >= 0) {
-        update_active_events();
-        fit_events();
-        state.dirty = true;
-    } else {
-        fprintf(stderr, "event creation failed\n");
+    struct calendar *cal = state.sp_calendar;
+    FILE *f = subprocess_get_result(&(state.sp), pid);
+    if (!state.sp) state.sp_calendar = NULL;
+    if (!f) return;
+
+    if (state.sp_type == ICAL_VEVENT_COMPONENT) {
+        struct event ev;
+        res = parse_event_template(f, &ev, state.zone->impl, &del);
+        if (res >= 0) {
+            res = save_event(ev, cal, del);
+        }
+        if (res >= 0) {
+            update_active_events();
+            fit_events();
+            state.dirty = true;
+        } else {
+            fprintf(stderr, "event creation failed\n");
+        }
+    } else if (state.sp_type == ICAL_VTODO_COMPONENT) {
+        struct todo td;
+        res = parse_todo_template(f, &td, state.zone->impl, &del);
+        if (res >= 0) {
+            res = save_todo(td, cal, del);
+        }
+        if (res >= 0) {
+            update_active_todos();
+            state.dirty = true;
+        } else {
+            fprintf(stderr, "todo saving failed\n");
+        }
     }
 }
 

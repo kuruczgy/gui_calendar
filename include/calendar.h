@@ -71,8 +71,10 @@ void free_event(struct event *e);
 
 void init_event(struct event *ev);
 void init_todo(struct todo *td);
-int save_event(struct event *ev, struct calendar *cal, bool del,
-        icaltimezone *local_zone);
+
+/* takes ownership of event */
+int save_event(struct event ev, struct calendar *cal, bool del);
+int save_todo(struct todo td, struct calendar *cal, bool del);
 
 /* missing libical stuff */
 enum icalproperty_class icalcomponent_get_class(icalcomponent *c);
@@ -90,8 +92,8 @@ void priority_sort_todos(struct todo **todos, int n);
 
 // subprocess stuff
 struct subprocess_handle;
-struct subprocess_handle* subprocess_new_event_input(
-        const char *file, const char *argv[], const struct event *template_ev);
+struct subprocess_handle* subprocess_new_input(const char *file,
+        const char *argv[], void (*cb)(void*, FILE*), void *ud);
 FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
 
 #endif

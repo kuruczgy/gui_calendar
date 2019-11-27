@@ -10,14 +10,14 @@ struct subprocess_handle {
     char *name;
 };
 
-struct subprocess_handle* subprocess_new_event_input(
-        const char *file, const char *argv[], const struct event *template_ev) {
+struct subprocess_handle* subprocess_new_input(const char *file,
+        const char *argv[], void (*cb)(void*, FILE*), void *ud) {
     char *name = create_tmpfile_template();
     int fd = set_cloexec_or_close(mkstemp(name));
     struct subprocess_handle *res = NULL;
     if (fd >= 0) {
         FILE *f = fdopen(fd, "w");
-        print_event_template(f, template_ev);
+        cb(ud, f);
         fclose(f);
         pid_t pid = fork();
         if (pid > 0) { // parent

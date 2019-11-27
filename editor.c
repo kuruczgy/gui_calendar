@@ -218,12 +218,12 @@ void print_event_template(FILE *f, const struct event *ev) {
 }
 void print_todo_template(FILE *f, const struct todo *td) {
     fprintf(f, "summary: %s\n", td->summary ? td->summary : "");
-    fprintf(f, "status: %s", td->status == ICAL_STATUS_COMPLETED ? "1" : "0");
-    fprintf(f, "\ndue: ");
+    fprintf(f, "status: %s\n", td->status == ICAL_STATUS_COMPLETED ? "1" : "0");
+    fprintf(f, "due: ");
     print_time_prop(f, &td->due.local_time);
-    fprintf(f, "start: ");
+    fprintf(f, "\n# start: ");
     print_time_prop(f, &td->start.local_time);
-    fprintf(f, "desc: %s\n", td->desc ? td->desc : "");
+    fprintf(f, "\ndesc: %s\n", td->desc ? td->desc : "");
     fprintf(f, "class: %s\n", td->clas == ICAL_CLASS_PRIVATE ? "private" : "");
     if (td->uid) {
         fprintf(f, "uid: %s\n", td->uid);
