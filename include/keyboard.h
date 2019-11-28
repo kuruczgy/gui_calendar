@@ -11,6 +11,7 @@ struct key_gen {
 
 bool key_sym(uint32_t code, char sym);
 bool key_is_sym(uint32_t code);
+bool key_is_gen(uint32_t code);
 char key_get_sym(uint32_t code);
 int key_num(uint32_t code);
 void key_gen_init(int n, struct key_gen *g);

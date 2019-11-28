@@ -54,6 +54,13 @@ bool key_is_sym(uint32_t code) {
     return 'a' <= sym && 'z' >= sym;
 }
 
+bool key_is_gen(uint32_t code) {
+    for (int i = 0; i < gen_len; ++i) {
+        if (code == gen[i]) return true;
+    }
+    return false;
+}
+
 char key_get_sym(uint32_t code) {
     return lut[code];
 }

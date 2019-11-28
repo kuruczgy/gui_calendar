@@ -71,7 +71,6 @@ struct state {
     enum icalcomponent_kind sp_type;
 
     const char **editor;
-    bool mode_select;
     char mode_select_code[33];
     int mode_select_code_n;
     int mode_select_len;
@@ -82,6 +81,11 @@ struct state {
         VIEW_CALENDAR,
         VIEW_TODO
     } main_view;
+    enum {
+        KEYSTATE_BASE,
+        KEYSTATE_VIEW_SWITCH,
+        KEYSTATE_SELECT
+    } keystate;
 
     bool dirty;
 };
@@ -129,12 +133,13 @@ static bool different_day(struct tm a, struct tm b) {
 }
 
 void switch_mode_select() {
+    struct key_gen g;
+
+    if (state.keystate == KEYSTATE_SELECT) return;
     state.mode_select_code_n = 0;
-    if (state.mode_select) return;
+    state.keystate = KEYSTATE_SELECT;
 
     if (state.main_view == VIEW_CALENDAR) {
-        state.mode_select = true;
-        struct key_gen g;
         key_gen_init(state.active_n, &g);
         state.mode_select_len = g.k;
         for (int i = 0; i < state.active_n; ++i) {
@@ -143,7 +148,6 @@ void switch_mode_select() {
             strcpy(state.active_events_tag[i].code, code);
         }
     } else if (state.main_view == VIEW_TODO) {
-        state.mode_select = true;
         struct key_gen g;
         key_gen_init(state.active_todo_n, &g);
         state.mode_select_len = g.k;
@@ -152,6 +156,8 @@ void switch_mode_select() {
             assert(code, "not enough codes");
             strcpy(state.active_todos_tag[i].code, code);
         }
+    } else {
+        assert(false, "unknown view");
     }
 }
 
@@ -178,12 +184,8 @@ void launch_todo_editor(struct todo *td, struct calendar *cal) {
     }
 }
 
-void disable_mode_select() {
-    state.mode_select = false;
-}
-
 void mode_select_finish() {
-    disable_mode_select();
+    state.keystate = KEYSTATE_BASE;
     state.dirty = true;
     if (state.main_view == VIEW_CALENDAR) {
         for (int i = 0; i < state.active_n; ++i) {
@@ -209,6 +211,8 @@ void mode_select_finish() {
                 break;
             }
         }
+    } else {
+        assert(false, "unknown mode");
     }
 }
 
@@ -274,8 +278,8 @@ static void discard_temp_structures() {
 static void update_active_events() {
     discard_temp_structures();
 
-    // clear any modes that depend on current event structures
-    disable_mode_select();
+    /* clear any modes that depend on current event structures */
+    if (state.keystate == KEYSTATE_SELECT) state.keystate = KEYSTATE_BASE;
 
     /* count active events */
     struct event_filterer filterer;
@@ -532,7 +536,7 @@ void paint_event(cairo_t *cr, int day_i, time_t day_base,
         }
     }
 
-    if (state.mode_select) {
+    if (state.keystate == KEYSTATE_SELECT) {
         uint32_t c = (color ^ 0x00FFFFFF) | 0xFF000000;
         cairo_set_source_argb(cr, c);
         char *text = event_tag->code;
@@ -751,7 +755,7 @@ static void paint_todo_item(cairo_t *cr, struct todo *td, int index, box b) {
         cairo_stroke(cr);
     }
 
-    if (state.mode_select) {
+    if (state.keystate == KEYSTATE_SELECT) {
         uint32_t c = 0xFFFF00FF;
         cairo_set_source_argb(cr, c);
         char *text = todo_tag->code;
@@ -846,33 +850,46 @@ paint(struct window *window, cairo_t *cr) {
 
 static void
 handle_key(struct display *display, uint32_t key, uint32_t mods) {
-    if (key_is_sym(key)) {
-        if (state.mode_select) {
+    int n;
+    char sym = key_get_sym(key);
+    switch (state.keystate) {
+    case KEYSTATE_SELECT:
+        if (key_is_gen(key)) {
             mode_select_append_sym(key_get_sym(key));
-            return;
+        } else {
+            state.keystate = KEYSTATE_BASE;
+            state.dirty = true;
         }
-        if (key_sym(key, 'a')) {
+        break;
+    case KEYSTATE_BASE:
+        switch (sym) {
+        case 'a':
             state.main_view = VIEW_CALENDAR;
             state.dirty = true;
-        } else if (key_sym(key, 's')) {
+            break;
+        case 's':
             state.main_view = VIEW_TODO;
             state.dirty = true;
-        } else if (key_sym(key, 'l')) {
+            break;
+        case 'l':
             timet_adjust_days(&state.base, state.zone, state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
-        } else if (key_sym(key, 'h')) {
+            break;
+        case 'h':
             timet_adjust_days(&state.base, state.zone, -state.view_days);
             update_active_events();
             fit_events();
             state.dirty = true;
-        } else if (key_sym(key, 't')) {
+            break;
+        case 't':
             state.base = get_day_base(state.zone, state.view_days > 1);
             update_active_events();
             fit_events();
             state.dirty = true;
-        } else if (key_sym(key, 'n')) {
+            break;
+        case 'n':
             if (!state.sp) {
                 time_t now = time(NULL);
                 struct tm t = *gmtime(&now);
@@ -893,97 +910,128 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
                     launch_todo_editor(&template, &state.cal[0]);
                 }
             }
-        } else if (key_sym(key, 'e')) {
+            break;
+        case 'e':
             switch_mode_select();
             state.dirty = true;
-        } else if (key_sym(key, 'c')) {
+            break;
+        case 'c':
             for (int i = 0; i < state.n_cal; ++i) {
                 state.cal_info[i].visible = state.cal_default_visible[i];
             }
             update_active_events();
             fit_events();
             state.dirty = true;
-        } else if (key_sym(key, 'v')) {
-            if (state.view_days > 1) state.view_days = 1;
-            else state.view_days = 7;
-            update_active_events();
-            fit_events();
-            state.dirty = true;
-        } else if (key_sym(key, 'r')) {
+            break;
+        case 'r':
             reload_calendars();
-        } else if (key_sym(key, 'p')) {
+            break;
+        case 'p':
             state.show_private_events = !state.show_private_events;
             update_active_events();
             update_active_todos();
             state.dirty = true;
+            break;
+        case 'i':
+            state.keystate = KEYSTATE_VIEW_SWITCH;
+            break;
+        case '\0':
+            if ((n = key_num(key)) >= 0) { /* numeric key */
+                --n; /* key 1->0 .. key 9->8 */
+                if (n < state.n_cal) {
+                    state.cal_info[n].visible = ! state.cal_info[n].visible;
+                    update_active_events();
+                    fit_events();
+                    state.dirty = true;
+                }
+            } else if (mods & 1) { /* shift modifier */
+                if (key == 13) { /* KEY_EQUALS */
+                    if (state.hours_view_manual.from == -1) {
+                        state.hours_view_manual = state.hours_view_events;
+                        update_actual_fit();
+                        state.dirty = true;
+                    }
+                    if (state.hours_view_manual.to > state.hours_view_manual.from + 1) {
+                        --state.hours_view_manual.to;
+                        update_actual_fit();
+                        state.dirty = true;
+                    }
+                }
+                if (key == 12) { /* KEY_MINUS */
+                    if (state.hours_view_manual.from == -1) {
+                        state.hours_view_manual = state.hours_view_events;
+                        update_actual_fit();
+                        state.dirty = true;
+                    }
+                    if (state.hours_view_manual.to < 24) {
+                        ++state.hours_view_manual.to;
+                        update_actual_fit();
+                        state.dirty = true;
+                    }
+                    if (state.hours_view_manual.from > 0) {
+                        --state.hours_view_manual.from;
+                        update_actual_fit();
+                        state.dirty = true;
+                    }
+                }
+            } else if (key == 103) { /* KEY_UP */
+                if (state.hours_view_manual.from == -1) {
+                    state.hours_view_manual = state.hours_view_events;
+                    update_actual_fit();
+                    state.dirty = true;
+                }
+                if (state.hours_view_manual.from > 0) {
+                    --state.hours_view_manual.from;
+                    --state.hours_view_manual.to;
+                    update_actual_fit();
+                    state.dirty = true;
+                }
+            } else if (key == 108) { /* KEY_DOWN */
+                if (state.hours_view_manual.from == -1) {
+                    state.hours_view_manual = state.hours_view_events;
+                    update_actual_fit();
+                    state.dirty = true;
+                }
+                if (state.hours_view_manual.to < 24) {
+                    ++state.hours_view_manual.from;
+                    ++state.hours_view_manual.to;
+                    update_actual_fit();
+                    state.dirty = true;
+                }
+            }
+            break;
+        default:
+            assert(key_is_sym(key), "bad key symbol");
+            break;
         }
-    }
-    int n;
-    if ((n = key_num(key)) >= 0) {
-        --n; /* key 1->0 .. key 9->8 */
-        if (n < state.n_cal) {
-            state.cal_info[n].visible = ! state.cal_info[n].visible;
+        break;
+    case KEYSTATE_VIEW_SWITCH: {
+        bool update = false;
+        switch(sym) {
+        case 'h':
+            state.view_days = 30;
+            update = true;
+            break;
+        case 'j':
+            state.view_days = 7;
+            update = true;
+            break;
+        case 'k':
+            state.view_days = 1;
+            update = true;
+            break;
+        }
+        if (update) {
             update_active_events();
             fit_events();
             state.dirty = true;
         }
+        state.keystate = KEYSTATE_BASE;
+        break;
     }
-    if (mods & 1) { // shift
-        if (key == 13) { // KEY_EQUALS
-            if (state.hours_view_manual.from == -1) {
-                state.hours_view_manual = state.hours_view_events;
-                update_actual_fit();
-                state.dirty = true;
-            }
-            if (state.hours_view_manual.to > state.hours_view_manual.from + 1) {
-                --state.hours_view_manual.to;
-                update_actual_fit();
-                state.dirty = true;
-            }
-        }
-        if (key == 12) { // KEY_MINUS
-            if (state.hours_view_manual.from == -1) {
-                state.hours_view_manual = state.hours_view_events;
-                update_actual_fit();
-                state.dirty = true;
-            }
-            if (state.hours_view_manual.to < 24) {
-                ++state.hours_view_manual.to;
-                update_actual_fit();
-                state.dirty = true;
-            }
-            if (state.hours_view_manual.from > 0) {
-                --state.hours_view_manual.from;
-                update_actual_fit();
-                state.dirty = true;
-            }
-        }
-    }
-    if (key == 103) { // up
-        if (state.hours_view_manual.from == -1) {
-            state.hours_view_manual = state.hours_view_events;
-            update_actual_fit();
-            state.dirty = true;
-        }
-        if (state.hours_view_manual.from > 0) {
-            --state.hours_view_manual.from;
-            --state.hours_view_manual.to;
-            update_actual_fit();
-            state.dirty = true;
-        }
-    }
-    if (key == 108) { // down
-        if (state.hours_view_manual.from == -1) {
-            state.hours_view_manual = state.hours_view_events;
-            update_actual_fit();
-            state.dirty = true;
-        }
-        if (state.hours_view_manual.to < 24) {
-            ++state.hours_view_manual.from;
-            ++state.hours_view_manual.to;
-            update_actual_fit();
-            state.dirty = true;
-        }
+    default:
+        assert(false, "bad keystate");
+        break;
     }
 }
 
@@ -1034,8 +1082,8 @@ main(int argc, char **argv) {
         .active_events = NULL,
         .active_todos = NULL,
         .layout_event_n = NULL,
-        .mode_select = false,
-        .show_private_events = false
+        .show_private_events = false,
+        .keystate = KEYSTATE_BASE
     };
 
     for (int i = 0; i < 16; ++i) {
