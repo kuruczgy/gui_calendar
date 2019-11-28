@@ -31,7 +31,7 @@ xdg_shell_private_target = custom_target(
 )
 
 incdir = include_directories('include')
-sources = files(
+sources = [
   'util.c',
   'calendar.c',
   'editor.c',
@@ -42,9 +42,13 @@ sources = files(
   'libical_parse.c',
   'keyboard.c',
   'algo.c',
+  'render.c',
+  'application.c',
   'util/hashmap.c',
   'backend/wayland.c',
-)
+  xdg_shell_header_target,
+  xdg_shell_private_target,
+]
 dependencies = [
   wayland_client, cairo, pango, pangocairo, libical
 ]
@@ -55,8 +59,6 @@ executable(
   'gui_calendar',
   'main.c',
   sources,
-  xdg_shell_header_target,
-  xdg_shell_private_target,
   include_directories: incdir,
   dependencies: dependencies
 )
@@ -65,8 +67,6 @@ test_editor = executable(
   'test_editor',
   'tests/test_editor.c',
   sources,
-  xdg_shell_header_target,
-  xdg_shell_private_target,
   include_directories: incdir,
   dependencies: dependencies
 )

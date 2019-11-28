@@ -125,3 +125,11 @@ assert(bool b, const char *msg) {
         exit(1);
     }
 }
+
+bool interval_overlap(int a1, int a2, int b1, int b2) {
+    return a1 <= b2 && a2 >= b1;
+}
+
+int day_sec(struct tm t) {
+    return 3600 * t.tm_hour + 60 * t.tm_min + t.tm_sec;
+}

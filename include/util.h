@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <time.h>
 
 struct layout_event {
     int start, end;
@@ -28,5 +29,8 @@ int min(int a, int b);
 int max(int a, int b);
 
 void generate_uid(char buf[64]);
+
+bool interval_overlap(int a1, int a2, int b1, int b2);
+int day_sec(struct tm t);
 
 #endif
