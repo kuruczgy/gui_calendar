@@ -44,6 +44,7 @@ struct state {
 
     struct calendar cal[16];
     struct calendar_info cal_info[16];
+    bool cal_default_visible[16];
     struct event **active_events;
     struct event_tag *active_events_tag;
     struct layout_event **layout_events;
@@ -896,7 +897,12 @@ handle_key(struct display *display, uint32_t key, uint32_t mods) {
             switch_mode_select();
             state.dirty = true;
         } else if (key_sym(key, 'c')) {
-            //TODO: reset calendar visibility
+            for (int i = 0; i < state.n_cal; ++i) {
+                state.cal_info[i].visible = state.cal_default_visible[i];
+            }
+            update_active_events();
+            fit_events();
+            state.dirty = true;
         } else if (key_sym(key, 'v')) {
             if (state.view_days > 1) state.view_days = 1;
             else state.view_days = 7;
@@ -1033,10 +1039,11 @@ main(int argc, char **argv) {
     };
 
     for (int i = 0; i < 16; ++i) {
-        // init cal_info
+        /* init cal_info */
         state.cal_info[i] = (struct calendar_info) {
             .visible = false
         };
+        state.cal_default_visible[i] = false;
     }
 
     char editor_buffer[128], term_buffer[128];
@@ -1059,6 +1066,7 @@ main(int argc, char **argv) {
                 exit(1);
             }
             state.cal_info[d].visible = true;
+            state.cal_default_visible[d] = true;
             break;
         case 'e':
             snprintf(editor_buffer, 128, "%s", optarg);
