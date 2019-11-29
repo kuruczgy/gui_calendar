@@ -33,6 +33,7 @@ static int parse_datetime_prop(const char *s, struct date *res,
         .is_daylight = 0, // TODO: is this ok like this?
         .zone = local_zone
     };
+    tt = icaltime_normalize(tt);
     *res = date_from_icaltime(tt, local_zone);
     return 0;
 }
