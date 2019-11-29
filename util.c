@@ -82,8 +82,9 @@ os_create_anonymous_file(off_t size)
     return fd;
 }
 
-int min(int a, int b) { return a < b ? a : b; }
-int max(int a, int b) { return a < b ? b : a; }
+
+time_t min(time_t a, time_t b) { return a < b ? a : b; }
+time_t max(time_t a, time_t b) { return a < b ? b : a; }
 
 char *str_dup(const char *s) {
     if (!s) return NULL;
@@ -126,8 +127,13 @@ assert(bool b, const char *msg) {
     }
 }
 
-bool interval_overlap(int a1, int a2, int b1, int b2) {
-    return a1 <= b2 && a2 >= b1;
+/* From the iCalendar RFC: The "DTEND" property for a "VEVENT" calendar
+ * component specifies the non-inclusive end of the event.
+ *
+ * To reflect this, we assumes [a1, a2) and [b1, b2) intervals.
+ */
+bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
+    return a1 < b2 && a2 > b1;
 }
 
 int day_sec(struct tm t) {

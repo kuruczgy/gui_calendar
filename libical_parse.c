@@ -91,6 +91,9 @@ char* read_stream(char *s, size_t size, void *d)
 struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone) {
     if (icaltime_is_null_time(tt)) return (struct date){ .timestamp = -1 };
     time_t t = icaltime_as_timet_with_zone(tt, icaltime_get_timezone(tt));
+    if (t < 0 || t > (time_t)(1LL << 60)) { /* sanity check */
+        return (struct date){ .timestamp = -1 };
+    }
     struct tm tm = *gmtime(&t);
     icaltimetype tt2 = icaltime_from_timet_with_zone(t, 0, local_zone);
     return (struct date) {
@@ -115,20 +118,32 @@ static int cal_append(struct calendar *cal, struct event *ev) {
     return res;
 }
 
-void libical_parse_event(icalcomponent *c, struct calendar *cal,
+int libical_parse_event(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone) {
     struct event *ev = malloc(sizeof(struct event));
     ev->recur = NULL;
-
     struct icaltimetype
         dtstart = icalcomponent_get_dtstart(c),
         dtend = icalcomponent_get_dtend(c);
     ev->start = date_from_icaltime(dtstart, local_zone);
     ev->end = date_from_icaltime(dtend, local_zone);
-    assert(ev->start.timestamp <= ev->end.timestamp,
-            "event ends before it begins");
-    ev->summary = str_dup(icalcomponent_get_summary(c));
     ev->uid = str_dup(icalcomponent_get_uid(c));
+    if (!ev->uid) {
+        free(ev);
+        fprintf(stderr, "warning: event missing uid!\n");
+        return -1;
+    }
+    if (ev->start.timestamp < 0 || ev->end.timestamp < 0) {
+        free(ev);
+        fprintf(stderr, "warning: invalid start or end date\n");
+        return -1;
+    }
+    if (!(ev->start.timestamp < ev->end.timestamp)) {
+        free(ev);
+        fprintf(stderr, "warning: event ends before it begins\n");
+        return -1;
+    }
+    ev->summary = str_dup(icalcomponent_get_summary(c));
     ev->color = 0;
     ev->location = str_dup(icalcomponent_get_location(c));
     ev->desc = str_dup(icalcomponent_get_description(c));
@@ -178,9 +193,10 @@ void libical_parse_event(icalcomponent *c, struct calendar *cal,
     } else {
         cal->num_events += cal_append(cal, ev);
     }
+    return 0;
 }
 
-void libical_parse_todo(icalcomponent *c, struct calendar *cal,
+int libical_parse_todo(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone) {
     struct todo *td = malloc(sizeof(struct todo));
 
@@ -191,6 +207,11 @@ void libical_parse_todo(icalcomponent *c, struct calendar *cal,
     td->due = date_from_icaltime(due, local_zone);
 
     td->uid = str_dup(icalcomponent_get_uid(c));
+    if (!td->uid) {
+        free(td);
+        fprintf(stderr, "warning: todo missing uid!\n");
+        return -1;
+    }
     td->summary = str_dup(icalcomponent_get_summary(c));
     td->desc = str_dup(icalcomponent_get_description(c));
 
@@ -199,6 +220,7 @@ void libical_parse_todo(icalcomponent *c, struct calendar *cal,
     td->clas = icalcomponent_get_class(c);
 
     hashmap_put(cal->todos, td->uid, td); // TODO: memory leak
+    return 0;
 }
 
 icalcomponent* libical_component_from_file(FILE *f) {
@@ -209,23 +231,22 @@ icalcomponent* libical_component_from_file(FILE *f) {
     return root;
 }
 
-void libical_parse_ics(FILE *f, struct calendar *cal,
+int libical_parse_ics(FILE *f, struct calendar *cal,
         icaltimezone *local_zone) {
     icalcomponent *root = libical_component_from_file(f);
-    assert(root, "parsing fucked up");
+    if (!root) return -1;
     icalcomponent *c = icalcomponent_get_first_component(
         root, ICAL_ANY_COMPONENT);
     while(c) {
-        if (icalcomponent_isa(c) == ICAL_VEVENT_COMPONENT)
-            libical_parse_event(c, cal, local_zone);
-        else if (icalcomponent_isa(c) == ICAL_VTODO_COMPONENT)
-            libical_parse_todo(c, cal, local_zone);
-
-        c = icalcomponent_get_next_component(
-            root, ICAL_ANY_COMPONENT);
+        if (icalcomponent_isa(c) == ICAL_VEVENT_COMPONENT) {
+            if (libical_parse_event(c, cal, local_zone) < 0) return -1;
+        } else if (icalcomponent_isa(c) == ICAL_VTODO_COMPONENT) {
+            if (libical_parse_todo(c, cal, local_zone) < 0) return -1;
+        }
+        c = icalcomponent_get_next_component(root, ICAL_ANY_COMPONENT);
     }
-
     icalcomponent_free(root);
+    return 0;
 }
 
 void free_timezone(struct cal_timezone *zone) {
@@ -248,7 +269,9 @@ void update_calendar_from_storage(struct calendar *cal,
     clock_gettime(CLOCK_REALTIME, &cal->loaded);
     if (S_ISREG(sb.st_mode)) { // file
         FILE *f = fopen(path, "rb");
-        libical_parse_ics(f, cal, local_zone);
+        if (libical_parse_ics(f, cal, local_zone) < 0) {
+            fprintf(stderr, "warning: could not parse %s\n", path);
+        }
         fclose(f);
     } else {
         assert(S_ISDIR(sb.st_mode), "not dir");
@@ -287,7 +310,9 @@ void update_calendar_from_storage(struct calendar *cal,
                 memcpy(cal->name, buf, cnt);
                 cal->name[cnt] = '\0';
             } else {
-                libical_parse_ics(f, cal, local_zone);
+                if (libical_parse_ics(f, cal, local_zone) < 0) {
+                    fprintf(stderr, "warning: could not parse %s\n", buf);
+                }
             }
             fclose(f);
         }

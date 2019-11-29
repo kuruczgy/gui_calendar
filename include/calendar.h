@@ -61,9 +61,11 @@ struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone);
 
 void update_calendar_from_storage(struct calendar *cal,
         icaltimezone *local_zone);
-void libical_parse_event(icalcomponent *c, struct calendar *cal,
+int libical_parse_event(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone);
-void libical_parse_ics(FILE *f, struct calendar *cal, icaltimezone *local_zone);
+int libical_parse_todo(icalcomponent *c, struct calendar *cal,
+        icaltimezone *local_zone);
+int libical_parse_ics(FILE *f, struct calendar *cal, icaltimezone *local_zone);
 icalcomponent* libical_component_from_file(FILE *f);
 void init_calendar(struct calendar* cal);
 void free_calendar(struct calendar *cal);

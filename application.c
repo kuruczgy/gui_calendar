@@ -205,8 +205,9 @@ static void update_active_events() {
                     day_base, day_base + 3600 * 24,
                     ev->start.timestamp, ev->end.timestamp)
                 ) continue;
-            int start_sec = max(0, ev->start.timestamp - day_base);
-            int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
+            time_t start_sec = max(0, ev->start.timestamp - day_base);
+            time_t end_sec = min(3600 * 24, ev->end.timestamp - day_base);
+            assert(start_sec < end_sec, "bad layout start and end times");
             assert(l < state.active_n, "too many events");
             la[l++] = (struct layout_event){
                 .start = start_sec,

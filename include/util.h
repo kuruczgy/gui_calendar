@@ -25,12 +25,12 @@ void assert(bool, const char *);
 char *str_dup(const char *s);
 int get_line(FILE *f, char *buf, int s, int *n);
 
-int min(int a, int b);
-int max(int a, int b);
+time_t min(time_t a, time_t b);
+time_t max(time_t a, time_t b);
 
 void generate_uid(char buf[64]);
 
-bool interval_overlap(int a1, int a2, int b1, int b2);
+bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2);
 int day_sec(struct tm t);
 
 #endif
