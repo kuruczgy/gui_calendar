@@ -45,6 +45,8 @@ sources = [
   'render.c',
   'application.c',
   'util/hashmap.c',
+]
+wayland_sources = [
   'backend/wayland.c',
   xdg_shell_header_target,
   xdg_shell_private_target,
@@ -55,19 +57,55 @@ dependencies = [
 
 add_global_arguments('-Wno-parentheses', language : 'c')
 
-executable(
-  'gui_calendar',
-  'main.c',
+lib_gui_calendar_common = static_library(
+  'gui-calendar-common',
   sources,
   include_directories: incdir,
   dependencies: dependencies
 )
 
-test_editor = executable(
-  'test_editor',
-  'tests/test_editor.c',
-  sources,
+executable(
+  'gui-calendar',
+  'main.c',
+  wayland_sources,
   include_directories: incdir,
-  dependencies: dependencies
+  dependencies: dependencies,
+  link_with: lib_gui_calendar_common
 )
-test('test editor', test_editor)
+
+test_editor = executable(
+  'test-editor',
+  'tests/test_editor.c',
+  'backend/dummy.c',
+  include_directories: incdir,
+  dependencies: dependencies,
+  link_with: lib_gui_calendar_common
+)
+test('test-editor', test_editor)
+
+executable(
+  'fuzz-editor',
+  'tests/fuzz_editor.c',
+  'backend/dummy.c',
+  include_directories: incdir,
+  dependencies: dependencies,
+  link_with: lib_gui_calendar_common
+)
+
+executable(
+  'fuzz-parse-ics',
+  'tests/fuzz_parse_ics.c',
+  'backend/dummy.c',
+  include_directories: incdir,
+  dependencies: dependencies,
+  link_with: lib_gui_calendar_common
+)
+
+executable(
+  'fuzz-image',
+  'main.c',
+  'backend/dummy.c',
+  include_directories: incdir,
+  dependencies: dependencies,
+  link_with: lib_gui_calendar_common
+)
