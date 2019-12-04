@@ -30,6 +30,23 @@ void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v) {
     }
 }
 
+void icalcomponent_set_color(icalcomponent *c, const char *v) {
+    icalproperty *p =
+        icalcomponent_get_first_property(c, ICAL_COLOR_PROPERTY);
+    if (v) {
+        if (!p) {
+            p = icalproperty_new_color(v);
+            icalcomponent_add_property(c, p);
+        } else {
+            icalproperty_set_color(p, v);
+        }
+    } else {
+        if (p) {
+            icalcomponent_remove_property(c, p);
+        }
+    }
+}
+
 void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n) {
     icaltimetype tt = icaltime_from_timet_with_zone(*t, false, zone->impl);
     icaltime_adjust(&tt, n, 0, 0, 0);
@@ -121,6 +138,8 @@ static int cal_append(struct calendar *cal, struct event *ev) {
 int libical_parse_event(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone) {
     struct event *ev = malloc(sizeof(struct event));
+    init_event(ev);
+
     ev->recur = NULL;
     struct icaltimetype
         dtstart = icalcomponent_get_dtstart(c),
@@ -158,6 +177,7 @@ int libical_parse_event(icalcomponent *c, struct calendar *cal,
         icalvalue *v = icalproperty_get_value(p);
         const char *text = icalvalue_get_text(v);
         ev->color = lookup_color(text);
+        ev->color_str = str_dup(text);
     }
 
     icalproperty *rrule=icalcomponent_get_first_property(c,ICAL_RRULE_PROPERTY);

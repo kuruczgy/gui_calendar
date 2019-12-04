@@ -27,6 +27,7 @@ struct event {
     char *uid, *summary;
     struct date start, end;
     uint32_t color;
+    char *color_str;
     char *location;
     char *desc;
     enum icalproperty_status status;
@@ -81,6 +82,7 @@ int save_todo(struct todo td, struct calendar *cal, bool del);
 /* missing libical stuff */
 enum icalproperty_class icalcomponent_get_class(icalcomponent *c);
 void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v);
+void icalcomponent_set_color(icalcomponent *c, const char *v);
 
 /* editor stuff */
 void print_event_template(FILE *f, const struct event *ev);

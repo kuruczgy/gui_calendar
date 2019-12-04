@@ -92,7 +92,7 @@ static void render_event(cairo_t *cr, int day_i, time_t day_base,
     int h = b.h * (end_sec - start_sec) / interval_sec;
 
     uint32_t color = ev->color;
-    if (!color) color = 0xFF00FF00;
+    if (!color) color = 0xFF20D0D0;
     if (ev->status == ICAL_STATUS_TENTATIVE ||
             ev->status == ICAL_STATUS_CANCELLED) {
         color = (color & 0x00FFFFFF) | 0x30000000;

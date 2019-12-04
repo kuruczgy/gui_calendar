@@ -28,6 +28,7 @@ static const struct event default_event = {
     .start = default_date,
     .end = default_date,
     .color = 0,
+    .color_str = NULL,
     .location = NULL,
     .desc = NULL,
     .status = ICAL_STATUS_NONE,
@@ -51,6 +52,7 @@ static void free_event_props(struct event *ev) {
     free(ev->summary); ev->summary = NULL;
     free(ev->location); ev->location = NULL;
     free(ev->desc); ev->desc = NULL;
+    free(ev->color_str); ev->color_str = NULL;
 }
 
 void free_event(struct event *e) {
@@ -90,6 +92,7 @@ static void ev_to_comp(void *obj, icalcomponent *event) {
     icalcomponent_set_dtend(event,
             icaltime_from_timet_with_zone(ev->end.timestamp, 0,
                 icaltimezone_get_utc_timezone()));
+    icalcomponent_set_color(event, ev->color_str);
     icalcomponent_set_class(event, ev->clas);
     icalcomponent_set_status(event, ev->status);
     if (ev->location) icalcomponent_set_location(event, ev->location);
@@ -224,6 +227,8 @@ int save_event(struct event ev, struct calendar *cal, bool del) {
         e->summary = ev.summary;
         e->start = ev.start;
         e->end = ev.end;
+        e->color = ev.color;
+        e->color_str = ev.color_str;
         e->location = ev.location;
         e->desc = ev.desc;
         e->status = ev.status;

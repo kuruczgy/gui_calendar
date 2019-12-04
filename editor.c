@@ -105,6 +105,16 @@ static void assign_event_class(void *ud, void *val) {
     ((struct event *)ud)->clas = *(enum icalproperty_class*)val; }
 static void assign_event_status(void *ud, void *val) {
     ((struct event *)ud)->status = *(enum icalproperty_status*)val; }
+static void assign_event_color_str(void *ud, void *val) {
+    struct event *ev = ud;
+    if (val) {
+        ev->color = lookup_color((char *)val);
+        if (ev->color) ev->color_str = (char *)val;
+        else ev->color_str = NULL;
+    } else {
+        ev->color_str = NULL;
+    }
+}
 
 static void assign_todo_summary(void *ud, void *val) {
     ((struct todo *)ud)->summary = (char*)val; }
@@ -127,6 +137,7 @@ static struct prop_parser event_parsers[] = {
     { "summary", &parse_identity, &assign_event_summary },
     { "location", &parse_identity, &assign_event_location },
     { "desc", &parse_identity, &assign_event_desc },
+    { "color", &parse_identity, &assign_event_color_str },
     { "start", &parse_datetime, &assign_event_start },
     { "end", &parse_datetime, &assign_event_end },
     { "class", &parse_class, &assign_event_class },
@@ -224,6 +235,7 @@ void print_event_template(FILE *f, const struct event *ev) {
     print_time_prop(f, &ev->end.local_time);
     fprintf(f, "\nlocation: %s\n", ev->location ? ev->location : "");
     fprintf(f, "desc: %s\n", ev->desc ? ev->desc : "");
+    fprintf(f, "color: %s\n", ev->color_str ? ev->color_str : "");
     fprintf(f, "class: %s\n", ev->clas == ICAL_CLASS_PRIVATE ? "private" : "");
     const char *s_status;
     switch (ev->status) {
