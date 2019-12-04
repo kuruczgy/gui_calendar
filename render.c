@@ -93,7 +93,8 @@ static void render_event(cairo_t *cr, int day_i, time_t day_base,
 
     uint32_t color = ev->color;
     if (!color) color = 0xFF00FF00;
-    if (ev->tentative) {
+    if (ev->status == ICAL_STATUS_TENTATIVE ||
+            ev->status == ICAL_STATUS_CANCELLED) {
         color = (color & 0x00FFFFFF) | 0x30000000;
     }
     double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)

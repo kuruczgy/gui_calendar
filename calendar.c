@@ -29,8 +29,8 @@ static const struct event default_event = {
     .end = default_date,
     .color = 0,
     .location = NULL,
-    .tentative = false,
     .desc = NULL,
+    .status = ICAL_STATUS_NONE,
     .clas = ICAL_CLASS_NONE,
     .recur = NULL
 };
@@ -91,6 +91,7 @@ static void ev_to_comp(void *obj, icalcomponent *event) {
             icaltime_from_timet_with_zone(ev->end.timestamp, 0,
                 icaltimezone_get_utc_timezone()));
     icalcomponent_set_class(event, ev->clas);
+    icalcomponent_set_status(event, ev->status);
     if (ev->location) icalcomponent_set_location(event, ev->location);
     if (ev->desc) icalcomponent_set_description(event, ev->desc);
 }
@@ -225,6 +226,7 @@ int save_event(struct event ev, struct calendar *cal, bool del) {
         e->end = ev.end;
         e->location = ev.location;
         e->desc = ev.desc;
+        e->status = ev.status;
         e->clas = ev.clas;
     } else if (res == 2) {
         assert(ev.uid, "did not get an uid");

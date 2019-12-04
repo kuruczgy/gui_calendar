@@ -28,8 +28,8 @@ struct event {
     struct date start, end;
     uint32_t color;
     char *location;
-    bool tentative;
     char *desc;
+    enum icalproperty_status status;
     enum icalproperty_class clas;
     struct event *recur;
 };

@@ -77,6 +77,16 @@ int parse_status(struct prop_parser *parser, struct parser_param *p,
     }
     return 0;
 }
+int parse_event_status(struct prop_parser *parser, struct parser_param *p,
+        const char *val) {
+    enum icalproperty_status status = ICAL_STATUS_NONE;
+    if (strcmp(val, "tentative") == 0) status = ICAL_STATUS_TENTATIVE;
+    if (strcmp(val, "confirmed") == 0) status = ICAL_STATUS_CONFIRMED;
+    if (strcmp(val, "cancelled") == 0) status = ICAL_STATUS_CANCELLED;
+
+    parser->assign(p->obj, &status);
+    return 0;
+}
 
 /* assignment functions */
 static void assign_event_summary(void *ud, void *val) {
@@ -93,6 +103,8 @@ static void assign_event_end(void *ud, void *val) {
     ((struct event *)ud)->end = *(struct date*)val; }
 static void assign_event_class(void *ud, void *val) {
     ((struct event *)ud)->clas = *(enum icalproperty_class*)val; }
+static void assign_event_status(void *ud, void *val) {
+    ((struct event *)ud)->status = *(enum icalproperty_status*)val; }
 
 static void assign_todo_summary(void *ud, void *val) {
     ((struct todo *)ud)->summary = (char*)val; }
@@ -118,6 +130,7 @@ static struct prop_parser event_parsers[] = {
     { "start", &parse_datetime, &assign_event_start },
     { "end", &parse_datetime, &assign_event_end },
     { "class", &parse_class, &assign_event_class },
+    { "status", &parse_event_status, &assign_event_status },
     { "delete", &parse_delete, NULL },
     { NULL, NULL, NULL }
 };
@@ -212,6 +225,15 @@ void print_event_template(FILE *f, const struct event *ev) {
     fprintf(f, "\nlocation: %s\n", ev->location ? ev->location : "");
     fprintf(f, "desc: %s\n", ev->desc ? ev->desc : "");
     fprintf(f, "class: %s\n", ev->clas == ICAL_CLASS_PRIVATE ? "private" : "");
+    const char *s_status;
+    switch (ev->status) {
+    case ICAL_STATUS_TENTATIVE: s_status = "tentative"; break;
+    case ICAL_STATUS_CONFIRMED: s_status = "confirmed"; break;
+    case ICAL_STATUS_CANCELLED: s_status = "cancelled"; break;
+    default: s_status = ""; break;
+    }
+    fprintf(f, "# status: tentative / confirmed / cancelled\n");
+    fprintf(f, "status: %s\n", s_status);
     if (ev->uid) {
         fprintf(f, "uid: %s\n", ev->uid);
     }
