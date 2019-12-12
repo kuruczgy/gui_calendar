@@ -86,9 +86,21 @@ void test_parse_todo(
         "status");
 }
 
+void test_lookup_color() {
+    assert(lookup_color("cornflowerblue") == 0xFF6495ED, "");
+    assert(lookup_color("yellowgreen") == 0xFF9ACD32, "");
+    assert(lookup_color("aliceblue") == 0xFFF0F8FF, "");
+    assert(lookup_color("black") == 0xFF000000, "");
+    assert(lookup_color("aaa") == 0, "");
+    assert(lookup_color("eee") == 0, "");
+    assert(lookup_color("zzz") == 0, "");
+}
+
 int main() {
     test_parse_event("sum1", "loc1", "desc1", "swso0jltwsx", "private", "true");
     test_parse_event("sum2", "asdfg", "desff", "swso0jltwsx2zpoows", "asd", "");
     test_parse_todo("sum1", "desc1", "swso0jltwsx2zpo", "private", "1", "true");
     test_parse_todo("sum2", "desff", "swso0jltwsx2zpoows5r", "pub", "0", "asd");
+
+    test_lookup_color();
 }

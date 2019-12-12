@@ -73,15 +73,15 @@ executable(
   link_with: lib_gui_calendar_common
 )
 
-test_editor = executable(
+test_main = executable(
   'test-editor',
-  'tests/test_editor.c',
+  'tests/test_main.c',
   'backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common
 )
-test('test-editor', test_editor)
+test('test-main', test_main)
 
 executable(
   'fuzz-editor',
