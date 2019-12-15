@@ -96,9 +96,9 @@ char *str_dup(const char *s) {
 }
 
 int get_line(FILE *f, char *buf, int s, int *n) {
-    int i = 0, c, e = 0;
+    int i = 0, c;
     while((c = fgetc(f)) != EOF) {
-        if (c == '\r') { e = 1; continue; }
+        if (c == '\r') continue;
         if (c == '\n') {
             *n = min(s-1, i);
             buf[*n] = '\0';

@@ -47,12 +47,6 @@ static void text_print_center(cairo_t *cr, box b, char *text) {
     state.tr->p.wrap_char = true;
 }
 
-static void draw_text_scale(cairo_t *cr, int x, int y, char *text, double scale) {
-    state.tr->p.scale = scale;
-    draw_text(cr, x, y, text);
-    state.tr->p.scale = 1.0;
-}
-
 static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
     cairo_set_source_rgba(cr,
             ((c >> 16) & 0xFF) / 255.0,
