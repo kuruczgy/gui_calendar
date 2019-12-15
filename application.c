@@ -615,7 +615,7 @@ int application_main(struct application_options opts, struct backend *backend) {
     state.editor = editor;
 
     state.zone = new_timezone("Europe/Budapest");
-    state.base = get_day_base(state.zone, state.view_days > 1);
+    state.base = get_day_base(state.zone, state.view_days == 7);
 
     for (int i = 0; i < opts.argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
