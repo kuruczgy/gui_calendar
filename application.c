@@ -6,7 +6,7 @@
 #include "application.h"
 #include "util.h"
 #include "keyboard.h"
-#include "gui.h"
+#include "backend.h"
 #include "render.h"
 
 struct state state = { 0 };
@@ -346,8 +346,7 @@ static void reload_calendars() {
     state.dirty = true;
 }
 
-void application_handle_key(struct display *display,
-        uint32_t key, uint32_t mods) {
+static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
     int n;
     char sym = key_get_sym(key);
     switch (state.keystate) {
@@ -533,7 +532,7 @@ void application_handle_key(struct display *display,
     }
 }
 
-static void application_handle_child(struct display *display, pid_t pid) {
+static void application_handle_child(void *ud, pid_t pid) {
     int res;
     bool del = false;
     struct calendar *cal = state.sp_calendar;
@@ -569,7 +568,7 @@ static void application_handle_child(struct display *display, pid_t pid) {
     }
 }
 
-int application_main(int argc, char **argv) {
+int application_main(int argc, char **argv, struct backend *backend) {
     state = (struct state){
         .n_cal = 0,
         .view_days = 7,
@@ -656,15 +655,18 @@ int application_main(int argc, char **argv) {
     fit_events();
     update_active_todos();
 
-    struct display *display = create_display(&render_application,
-            &application_handle_key, &application_handle_child);
-    struct window *window = create_window(display, 900, 700);
-    if (!window) return 1;
+    state.backend = backend;
+    state.backend->vptr->set_callbacks(state.backend,
+        &render_application,
+        &application_handle_key,
+        &application_handle_child,
+        NULL
+    );
 
     state.tr = text_renderer_new("Monospace 8");
 
     state.dirty = true;
-    gui_run(window);
+    backend->vptr->run(backend);
 
     discard_temp_structures();
     for (int i = 0; i < state.n_cal; i++) {
@@ -673,7 +675,6 @@ int application_main(int argc, char **argv) {
     free_timezone(state.zone);
     text_renderer_free(state.tr);
 
-    destroy_window(window);
-    destroy_display(display);
+    backend->vptr->destroy(backend);
     return 0;
 }

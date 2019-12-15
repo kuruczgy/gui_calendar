@@ -10,56 +10,23 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
-#include "gui.h"
+#include "backend.h"
 #include "util.h"
 
-struct display;
-struct window {
-    struct display *display;
-};
 struct display {
-    struct window window;
     paint_cb p_cb;
-    keyboard_cb k_cb;
-    child_cb c_cb;
+    void *ud;
     int width, height;
 };
 
-struct display *
-create_display(paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb) {
-    fprintf(stderr, "creating dummy display\n");
-    struct display *display;
-    display = malloc(sizeof *display);
-    assert(display, "oom");
-
-    display->k_cb = k_cb;
-    display->p_cb = p_cb;
-    display->c_cb = c_cb;
-
-    return display;
-}
-
-void
-destroy_display(struct display *display) {
+static void destroy_display(struct backend *backend) {
+    struct display *display = backend->self;
     fprintf(stderr, "destroying dummy display\n");
     free(display);
 }
 
-struct window *
-create_window(struct display *display, int width, int height) {
-    display->width = width;
-    display->height = height;
-    display->window.display = display;
-    return &(display->window);
-}
-
-void
-destroy_window(struct window *window) {
-    // no-op
-}
-
-void gui_run(struct window *window) {
-    struct display *display = window->display;
+static void gui_run(struct backend *backend) {
+    struct display *display = backend->self;
     cairo_surface_t *surface;
     cairo_t *cr;
 
@@ -68,7 +35,8 @@ void gui_run(struct window *window) {
     surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, 0, 0);
     cr = cairo_create(surface);
 
-    display->p_cb(window, cr);
+    assert(display->p_cb, "no paint callback!");
+    display->p_cb(display->ud, cr);
     // cairo_surface_write_to_png(surface, "out.png");
 
     /* Destroy and release all cairo related contexts */
@@ -76,8 +44,34 @@ void gui_run(struct window *window) {
     cairo_surface_destroy(surface);
 }
 
-void
-get_window_size(struct window *window, int *width, int *height) {
-    *width = window->display->width;
-    *height = window->display->height;
+static void get_window_size(struct backend *backend, int *width, int *height) {
+    struct display *display = backend->self;
+    *width = display->width;
+    *height = display->height;
+}
+
+static void set_callbacks(struct backend *backend, 
+        paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb, void *ud) {
+    struct display *display = backend->self;
+    display->p_cb = p_cb;
+    display->ud = ud;
+}
+
+static struct backend_methods methods = {
+    .destroy = &destroy_display,
+    .run = &gui_run,
+    .get_window_size = &get_window_size,
+    .set_callbacks = &set_callbacks
+};
+
+struct backend backend_init_dummy(paint_cb p_cb, void *ud) {
+    fprintf(stderr, "creating dummy display\n");
+    struct display *display;
+    display = malloc(sizeof *display);
+    assert(display, "oom");
+
+    display->p_cb = NULL;
+    display->ud = NULL;
+
+    return (struct backend){ .vptr = &methods, .self = display };
 }

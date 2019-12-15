@@ -1,4 +1,4 @@
-#include "gui.h"
+#include "backend.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +17,8 @@
 
 #include "util.h"
 
+struct window;
+
 struct display {
     struct wl_display *display;
     struct wl_registry *registry;
@@ -31,6 +33,9 @@ struct display {
     paint_cb p_cb;
     keyboard_cb k_cb;
     child_cb c_cb;
+    void *ud;
+
+    struct window *window;
 };
 
 struct buffer {
@@ -269,7 +274,8 @@ redraw(void *data, struct wl_callback *callback, uint32_t time)
             "Both buffers busy at redraw(). Server bug?\n");
 
     cairo_t *cr = cairo_create(buffer->cairo_surface);
-    bool damage = window->display->p_cb(window, cr);
+    assert(window->display->p_cb, "no paint callback!");
+    bool damage = window->display->p_cb(window->display->ud, cr);
     cairo_destroy(cr);
 
     wl_surface_attach(window->surface, buffer->buffer, 0, 0);
@@ -320,7 +326,7 @@ static void keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
     enum wl_keyboard_key_state key_state = _key_state;
     if (key_state == WL_KEYBOARD_KEY_STATE_PRESSED) {
         // fprintf(stderr, "pressed: %d\n", key);
-        d->k_cb(d, key, mods_state);
+        if (d->k_cb) d->k_cb(d->ud, key, mods_state);
     }
 }
 
@@ -407,39 +413,11 @@ static const struct wl_registry_listener wl_registry_listener = {
     handle_wl_registry_global_remove
 };
 
-struct display *
-create_display(paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb) {
-    struct display *display;
-
-    display = malloc(sizeof *display);
-    assert(display, "oom");
-    display->display = wl_display_connect(NULL);
-    assert(display->display, "wl_display_connect");
-
-    display->wl_seat = NULL;
-    display->keyboard = NULL;
-
-    display->k_cb = k_cb;
-    display->p_cb = p_cb;
-    display->c_cb = c_cb;
-
-    display->registry = wl_display_get_registry(display->display);
-    wl_registry_add_listener(display->registry, &wl_registry_listener, display);
-    wl_display_roundtrip(display->display);
-    assert(display->wl_shm, "wl_shm");
-    assert(display->wm_base, "xdg_wm_base");
-    assert(display->compositor, "wl_compositor");
-
-    assert(create_shm_pool(display, 1366 * 1024 * 4) == 0, "create_shm_pool");
-    assert(display->pool, "pool");
-
-    wl_display_roundtrip(display->display);
-    return display;
-}
-
-void
-destroy_display(struct display *display)
+void destroy_display(struct backend *backend)
 {
+    struct display *display = backend->self;
+    destroy_window(display->window);
+
     if (display->keyboard) wl_keyboard_destroy(display->keyboard);
     if (display->wl_seat) wl_seat_destroy(display->wl_seat);
     if (display->pool) wl_shm_pool_destroy(display->pool);
@@ -456,17 +434,16 @@ static void handle_children(struct display *display) {
     pid_t pid;
     while((pid = waitpid(-1, NULL, WNOHANG)) > 0) {
         fprintf(stderr, "handle_children got pid: %d\n", pid);
-        display->c_cb(display, pid);
+        if (display->c_cb) display->c_cb(display->ud, pid);
     }
 }
 
-void
-gui_run(struct window *window) {
+void gui_run(struct backend *backend) {
+    struct window *window = ((struct display*)backend->self)->window;
     wl_surface_damage(window->surface, 0, 0, window->width, window->height);
     if (!window->wait_for_configure) redraw(window, NULL, 0);
 
     struct wl_display *display = window->display->display;
-
 
     int ret = 0;
     // polling code from
@@ -492,8 +469,56 @@ gui_run(struct window *window) {
     }
 }
 
-void
-get_window_size(struct window *window, int *width, int *height) {
+void get_window_size(struct backend *backend, int *width, int *height) {
+    struct window *window = ((struct display*)backend->self)->window;
     *width = window->width;
     *height = window->height;
+}
+
+static void set_callbacks(struct backend *backend, 
+        paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb, void *ud) {
+    struct display *display = backend->self;
+    display->k_cb = k_cb;
+    display->p_cb = p_cb;
+    display->c_cb = c_cb;
+    display->ud = ud;
+}
+
+static struct backend_methods methods = {
+    .destroy = &destroy_display,
+    .run = &gui_run,
+    .get_window_size = &get_window_size,
+    .set_callbacks = &set_callbacks };
+
+struct backend backend_init_wayland() {
+    struct display *display;
+
+    display = malloc(sizeof *display);
+    assert(display, "oom");
+    display->display = wl_display_connect(NULL);
+    assert(display->display, "wl_display_connect");
+
+    display->wl_seat = NULL;
+    display->keyboard = NULL;
+
+    display->k_cb = NULL;
+    display->p_cb = NULL;
+    display->c_cb = NULL;
+    display->ud = NULL;
+
+    display->registry = wl_display_get_registry(display->display);
+    wl_registry_add_listener(display->registry, &wl_registry_listener, display);
+    wl_display_roundtrip(display->display);
+    assert(display->wl_shm, "wl_shm");
+    assert(display->wm_base, "xdg_wm_base");
+    assert(display->compositor, "wl_compositor");
+
+    assert(create_shm_pool(display, 1366 * 1024 * 4) == 0, "create_shm_pool");
+    assert(display->pool, "pool");
+
+    wl_display_roundtrip(display->display);
+
+    display->window = create_window(display, 100, 100);
+
+    return (struct backend){ .vptr = &methods, .self = display };
 }

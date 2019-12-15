@@ -73,13 +73,24 @@ executable(
   link_with: lib_gui_calendar_common
 )
 
+executable(
+  'gui-calendar-fbdev',
+  'main.c',
+  'backend/fbdev.c',
+  include_directories: incdir,
+  dependencies: dependencies,
+  link_with: lib_gui_calendar_common,
+  c_args : '-DBACKEND_FBDEV'
+)
+
 test_main = executable(
   'test-editor',
   'tests/test_main.c',
   'backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
-  link_with: lib_gui_calendar_common
+  link_with: lib_gui_calendar_common,
+  c_args : '-DBACKEND_DUMMY'
 )
 test('test-main', test_main)
 
@@ -89,7 +100,8 @@ executable(
   'backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
-  link_with: lib_gui_calendar_common
+  link_with: lib_gui_calendar_common,
+  c_args : '-DBACKEND_DUMMY'
 )
 
 executable(
@@ -98,7 +110,8 @@ executable(
   'backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
-  link_with: lib_gui_calendar_common
+  link_with: lib_gui_calendar_common,
+  c_args : '-DBACKEND_DUMMY'
 )
 
 executable(
@@ -107,5 +120,6 @@ executable(
   'backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
-  link_with: lib_gui_calendar_common
+  link_with: lib_gui_calendar_common,
+  c_args : '-DBACKEND_DUMMY'
 )

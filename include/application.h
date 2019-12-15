@@ -1,7 +1,7 @@
 #ifndef _APPLICATION_H_
 #define _APPLICATION_H_
 #include "calendar.h"
-#include "gui.h"
+#include "backend.h"
 #include "pango.h"
 
 struct calendar_info {
@@ -62,6 +62,8 @@ struct state {
 
     bool show_private_events;
 
+    struct backend *backend;
+
     enum {
         VIEW_CALENDAR,
         VIEW_TODO
@@ -78,6 +80,6 @@ struct state {
 extern struct state state;
 
 void update_actual_fit();
-int application_main(int argc, char **argv);
+int application_main(int argc, char **argv, struct backend *backend);
 
 #endif

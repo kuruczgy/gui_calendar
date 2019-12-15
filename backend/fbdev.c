@@ -15,8 +15,8 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
-#include "gui.h"
-#include "../util.h"
+#include "backend.h"
+#include "util.h"
 
 typedef struct _cairo_linuxfb_device {
     int fb_fd;
@@ -26,20 +26,15 @@ typedef struct _cairo_linuxfb_device {
     struct fb_fix_screeninfo fb_finfo;
 } cairo_linuxfb_device_t;
 
-struct display;
-struct window {
-    struct display *display;
-};
 struct display {
     cairo_linuxfb_device_t *dev;
     cairo_surface_t *fbsurface;
     cairo_t *fbcr;
-    struct window window;
-    paint_cb p_cb;
-    keyboard_cb k_cb;
-    child_cb c_cb;
     bool rotate;
     int width, height;
+
+    paint_cb p_cb;
+    void *ud;
 };
 
 /* Destroy a cairo surface */
@@ -108,63 +103,18 @@ handle_allocate_error:
     exit(1);
 }
 
-struct display *
-create_display(paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb) {
-    fprintf(stderr, "fbdev::create_display called\n");
-    struct display *display;
-    display = malloc(sizeof *display);
-    assert(display, "oom");
-
-    display->dev = malloc(sizeof(cairo_linuxfb_device_t));
-    assert(display->dev, "oom");
-    char fb_node[16] = "/dev/fb0";
-    display->fbsurface = cairo_linuxfb_surface_create(display->dev, fb_node);
-    display->fbcr = cairo_create(display->fbsurface);
-
-    display->k_cb = k_cb;
-    display->p_cb = p_cb;
-    display->c_cb = c_cb;
-
-    display->rotate = true;
-
-    if (!display->rotate) {
-        display->width = display->dev->fb_vinfo.xres;
-        display->height = display->dev->fb_vinfo.yres;
-    } else {
-        display->width = display->dev->fb_vinfo.yres;
-        display->height = display->dev->fb_vinfo.xres;
-    }
-
-    fprintf(stderr, "dev: %s, x: %d, y: %d, bits per pixel: %d\n",
-        fb_node,
-        display->dev->fb_vinfo.xres, display->dev->fb_vinfo.yres,
-        display->dev->fb_vinfo.bits_per_pixel);
-    return display;
-}
-
 void
-destroy_display(struct display *display) {
+destroy_display(struct backend *backend) {
+    struct display *display = backend->self;
     cairo_destroy(display->fbcr);
     cairo_surface_destroy(display->fbsurface);
     free(display->dev);
     free(display);
 }
 
-struct window *
-create_window(struct display *display, int width, int height) {
-    fprintf(stderr, "fbdev::create_window called\n");
-    display->window.display = display;
-    return &(display->window);
-}
-
-void
-destroy_window(struct window *window) {
-    // no-op
-}
-
-void gui_run(struct window *window) {
+void gui_run(struct backend *backend) {
     fprintf(stderr, "fbdev::gui_run called\n");
-    struct display *display = window->display;
+    struct display *display = backend->self;
     int fbsizex = display->width;
     int fbsizey = display->height;
     cairo_surface_t *surface;
@@ -174,9 +124,8 @@ void gui_run(struct window *window) {
             fbsizex, fbsizey);
     cr = cairo_create(surface);
 
-    int ret = 0;
     while (true) {
-        display->p_cb(window, cr);
+        display->p_cb(display->ud, cr);
 
         if (display->rotate) {
             cairo_identity_matrix(display->fbcr);
@@ -194,8 +143,55 @@ void gui_run(struct window *window) {
     cairo_surface_destroy(surface);
 }
 
-void
-get_window_size(struct window *window, int *width, int *height) {
-    *width = window->display->width;
-    *height = window->display->height;
+static void get_window_size(struct backend *backend, int *width, int *height) {
+    struct display *display = backend->self;
+    *width = display->width;
+    *height = display->height;
+}
+
+static void set_callbacks(struct backend *backend, 
+        paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb, void *ud) {
+    struct display *display = backend->self;
+    display->p_cb = p_cb;
+    display->ud = ud;
+}
+
+static struct backend_methods methods = {
+    .destroy = &destroy_display,
+    .run = &gui_run,
+    .get_window_size = &get_window_size,
+    .set_callbacks = &set_callbacks
+};
+
+struct backend backend_init_fbdev() {
+    fprintf(stderr, "fbdev::create_display called\n");
+    struct display *display;
+    display = malloc(sizeof *display);
+    assert(display, "oom");
+
+    display->dev = malloc(sizeof(cairo_linuxfb_device_t));
+    assert(display->dev, "oom");
+    char fb_node[16] = "/dev/fb0";
+    display->fbsurface = cairo_linuxfb_surface_create(display->dev, fb_node);
+    display->fbcr = cairo_create(display->fbsurface);
+
+    display->p_cb = NULL;
+    display->ud = NULL;
+
+    display->rotate = true;
+
+    if (!display->rotate) {
+        display->width = display->dev->fb_vinfo.xres;
+        display->height = display->dev->fb_vinfo.yres;
+    } else {
+        display->width = display->dev->fb_vinfo.yres;
+        display->height = display->dev->fb_vinfo.xres;
+    }
+
+    fprintf(stderr, "dev: %s, x: %d, y: %d, bits per pixel: %d\n",
+        fb_node,
+        display->dev->fb_vinfo.xres, display->dev->fb_vinfo.yres,
+        display->dev->fb_vinfo.bits_per_pixel);
+
+    return (struct backend){ .vptr = &methods, .self = display };
 }

@@ -19,10 +19,6 @@ static const char *usage =
     " +/-: inc./dec. vertical scale\r"
     " up/down: move 1 hour up/down\r";
 
-typedef struct {
-    int x, y, w, h;
-} box;
-
 static char* natural_date_format(const struct date *d) {
     time_t now = state.now;
     struct tm t = timet_to_tm_with_zone(now, state.zone);
@@ -248,7 +244,7 @@ static void render_calendar_events(cairo_t *cr, box b) {
     cairo_translate(cr, -b.x, -b.y);
 }
 
-static void render_calendar(cairo_t *cr, box b) {
+void render_calendar(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
 
     int num_days = state.view_days;
@@ -370,9 +366,9 @@ static void render_todo_list(cairo_t *cr, box b) {
     cairo_identity_matrix(cr);
 }
 
-bool render_application(struct window *window, cairo_t *cr) {
+bool render_application(void *ud, cairo_t *cr) {
     int w, h;
-    get_window_size(window, &w, &h);
+    state.backend->vptr->get_window_size(state.backend, &w, &h);
     time_t now = time(NULL);
     if (state.now != now) {
         state.now = now;

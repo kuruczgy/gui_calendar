@@ -1,8 +1,13 @@
 #ifndef _RENDER_H_
 #define _RENDER_H_
 #include <cairo.h>
-#include "gui.h"
+#include "backend.h"
 
-bool render_application(struct window *window, cairo_t *cr);
+typedef struct {
+    int x, y, w, h;
+} box;
+
+bool render_application(void *ud, cairo_t *cr);
+void render_calendar(cairo_t *cr, box b);
 
 #endif
