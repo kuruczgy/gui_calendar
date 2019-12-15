@@ -568,6 +568,10 @@ static void application_handle_child(void *ud, pid_t pid) {
     }
 }
 
+static char * get_event_color(void * p) {
+    return ((struct event *)p)->color_str;
+}
+
 int application_main(struct application_options opts, struct backend *backend) {
     state = (struct state){
         .n_cal = 0,
@@ -620,18 +624,24 @@ int application_main(struct application_options opts, struct backend *backend) {
     for (int i = 0; i < opts.argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
 
-        // init
+        /* init */
         init_calendar(cal);
 
-        // read
+        /* read */
         cal->storage = str_dup(opts.argv[i]);
         fprintf(stderr, "loading %s\n", cal->storage);
         update_calendar_from_storage(cal, state.zone->impl);
 
-        // set metadata
+        /* set metadata */
         if (!cal->name) cal->name = str_dup(cal->storage);
 
-        // next
+        /* calculate most frequent color */
+        const char *fc = most_frequent(cal->events, &get_event_color);
+        uint32_t color = lookup_color(fc);
+        if (!color) color = 0xFF20D0D0;
+        state.cal_info[state.n_cal].color = color;
+
+        /* next */
         if (++state.n_cal >= 16) break;
     }
 

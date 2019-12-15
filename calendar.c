@@ -64,7 +64,7 @@ void free_event(struct event *e) {
             r = next;
         }
     }
-    free_event_props(e);
+    free_event_props(e); //TODO: somehow free uid too...
     free(e);
 }
 static int free_event_iter(void *u, void *ev) {

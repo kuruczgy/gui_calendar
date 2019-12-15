@@ -158,6 +158,7 @@ static struct color colors[] = {
 };
 
 uint32_t lookup_color(const char *name) {
+    if (!name) return 0;
     int from = 0, to = sizeof(colors) / sizeof(struct color) - 1, mid, res;
     while (to >= from) {
         mid = (from + to) / 2;

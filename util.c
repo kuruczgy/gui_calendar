@@ -144,4 +144,43 @@ int day_sec(struct tm t) {
     return 3600 * t.tm_hour + 60 * t.tm_min + t.tm_sec;
 }
 
+struct iter_cl {
+    map_t map;
+    int cnt[150];
+    const char * key[150];
+    int cnt_n;
+    char *(*cb)(void*);
+};
+static int iter(void *_cl, void *data) {
+    struct iter_cl *cl = _cl;
+    char *key = cl->cb(data);
+    int *out;
+    if (!key) return MAP_OK;
+    if (hashmap_get(cl->map, key, (void**)&out) == MAP_OK) {
+        ++(*out);
+    } else {
+        if (cl->cnt_n < 150) {
+            out = &cl->cnt[cl->cnt_n];
+            cl->key[cl->cnt_n] = key;
+            ++cl->cnt_n;
+            *out = 1;
+            hashmap_put(cl->map, key, out);
+        }
+    }
+    return MAP_OK;
+}
+
+const char * most_frequent(map_t source, char *(*cb)(void*)) {
+    struct iter_cl cl = { .map = hashmap_new(), .cnt_n = 0, .cb = cb };
+    hashmap_iterate(source, &iter, &cl);
+    hashmap_free(cl.map);
+
+    if (cl.cnt_n == 0) return NULL;
+    int maxi = 0;
+    for (int i = 1; i < cl.cnt_n; ++i) {
+        if (cl.cnt[maxi] < cl.cnt[i]) maxi = i;
+    }
+    return cl.key[maxi];
+}
+
 extern inline void * malloc_check(size_t size);

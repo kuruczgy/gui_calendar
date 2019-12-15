@@ -143,6 +143,7 @@ static void render_sidebar(cairo_t *cr, box b) {
     int pad = 6;
     for (int i = 0; i < state.n_cal; i++) {
         bool vis = state.cal_info[i].visible;
+        uint32_t cal_color = state.cal_info[i].color;
         const char *name = state.cal[i].name;
         if (!state.show_private_events && state.cal[i].priv) continue;
 
@@ -151,7 +152,7 @@ static void render_sidebar(cairo_t *cr, box b) {
         text_get_size(cr, state.tr, text);
         int height = state.tr->p.height;
 
-        cairo_set_source_argb(cr, vis ? 0xFF00FF00 : 0xFFFFFFFF);
+        cairo_set_source_argb(cr, vis ? cal_color : 0xFFFFFFFF);
         cairo_rectangle(cr, 0, h, b.w, height + pad);
         cairo_fill(cr);
 

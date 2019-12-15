@@ -6,6 +6,7 @@
 
 struct calendar_info {
     bool visible;
+    uint32_t color;
 };
 
 struct event_tag {
