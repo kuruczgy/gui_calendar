@@ -80,6 +80,7 @@ struct state {
 struct application_options {
     bool show_private_events;
     unsigned int default_vis;
+    int view_days;
     char *editor;
     char *terminal;
     int argc;

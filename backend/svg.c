@@ -32,6 +32,7 @@ static void gui_run(struct backend *backend) {
 
     surface = cairo_svg_surface_create(self->filename,
             self->width, self->height);
+    cairo_svg_surface_set_document_unit(surface, CAIRO_SVG_UNIT_PX);
     cr = cairo_create(surface);
     self->p_cb(self->ud, cr);
 

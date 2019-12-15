@@ -571,7 +571,7 @@ static void application_handle_child(void *ud, pid_t pid) {
 int application_main(struct application_options opts, struct backend *backend) {
     state = (struct state){
         .n_cal = 0,
-        .view_days = 7,
+        .view_days = -1,
         .window_width = -1,
         .window_height = -1,
         .sp = NULL,
@@ -581,6 +581,8 @@ int application_main(struct application_options opts, struct backend *backend) {
         .show_private_events = false,
         .keystate = KEYSTATE_BASE
     };
+
+    state.view_days = opts.view_days;
 
     for (int i = 0; i < 16; ++i) {
         /* init cal_info */

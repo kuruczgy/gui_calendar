@@ -17,11 +17,11 @@ struct self {
     paint_cb p_cb;
     void *ud;
     int width, height;
+    const char *filename;
 };
 
 static void destroy(struct backend *backend) {
     struct self *self = backend->self;
-    fprintf(stderr, "destroying dummy display\n");
     free(self);
 }
 
@@ -30,11 +30,13 @@ static void gui_run(struct backend *backend) {
     cairo_surface_t *surface;
     cairo_t *cr;
 
-    surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, 0, 0);
+    surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24,
+            self->width, self->height);
     cr = cairo_create(surface);
 
     assert(self->p_cb, "no paint callback!");
     self->p_cb(self->ud, cr);
+    cairo_surface_write_to_png(surface, self->filename);
 
     /* Destroy and release all cairo related contexts */
     cairo_destroy(cr);
@@ -61,14 +63,14 @@ static struct backend_methods methods = {
     .set_callbacks = &set_callbacks
 };
 
-struct backend backend_init_dummy() {
-    fprintf(stderr, "creating dummy display\n");
-    struct self *self;
-    self = malloc(sizeof(struct self));
-    assert(self, "oom");
-
-    self->p_cb = NULL;
-    self->ud = NULL;
-
+struct backend backend_init_image(const char *filename, int width, int height) {
+    struct self *self = malloc_check(sizeof(struct self));
+    *self = (struct self){
+        .p_cb = NULL,
+        .ud = NULL,
+        .width = width,
+        .height = height,
+        .filename = filename
+    };
     return (struct backend){ .vptr = &methods, .self = self };
 }

@@ -71,13 +71,15 @@ executable(
   wayland_sources,
   'backend/fbdev.c',
   'backend/svg.c',
+  'backend/image.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
   c_args : [
     '-DCONFIG_BACKEND_WAYLAND',
     '-DCONFIG_BACKEND_FBDEV',
-    '-DCONFIG_BACKEND_SVG'
+    '-DCONFIG_BACKEND_SVG',
+    '-DCONFIG_BACKEND_IMAGE'
   ]
 )
 
