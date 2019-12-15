@@ -77,9 +77,18 @@ struct state {
     bool dirty;
 };
 
+struct application_options {
+    bool show_private_events;
+    unsigned int default_vis;
+    char *editor;
+    char *terminal;
+    int argc;
+    char **argv;
+};
+
 extern struct state state;
 
 void update_actual_fit();
-int application_main(int argc, char **argv, struct backend *backend);
+int application_main(struct application_options opts, struct backend *backend);
 
 #endif

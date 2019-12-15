@@ -193,7 +193,7 @@ static const struct xdg_toplevel_listener xdg_toplevel_listener = {
     handle_xdg_toplevel_close,
 };
 
-struct window *
+static struct window *
 create_window(struct display *display, int width, int height) {
     struct window *window;
 
@@ -227,7 +227,7 @@ create_window(struct display *display, int width, int height) {
     return window;
 }
 
-void
+static void
 destroy_window(struct window *window)
 {
     if (window->callback) wl_callback_destroy(window->callback);
@@ -413,7 +413,7 @@ static const struct wl_registry_listener wl_registry_listener = {
     handle_wl_registry_global_remove
 };
 
-void destroy_display(struct backend *backend)
+static void destroy_display(struct backend *backend)
 {
     struct display *display = backend->self;
     destroy_window(display->window);
@@ -438,7 +438,7 @@ static void handle_children(struct display *display) {
     }
 }
 
-void gui_run(struct backend *backend) {
+static void gui_run(struct backend *backend) {
     struct window *window = ((struct display*)backend->self)->window;
     wl_surface_damage(window->surface, 0, 0, window->width, window->height);
     if (!window->wait_for_configure) redraw(window, NULL, 0);
@@ -469,7 +469,7 @@ void gui_run(struct backend *backend) {
     }
 }
 
-void get_window_size(struct backend *backend, int *width, int *height) {
+static void get_window_size(struct backend *backend, int *width, int *height) {
     struct window *window = ((struct display*)backend->self)->window;
     *width = window->width;
     *height = window->height;

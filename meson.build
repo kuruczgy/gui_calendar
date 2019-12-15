@@ -1,4 +1,4 @@
-project('gui_calendar', 'c')
+project('gui_calendar', 'c', default_options : [ 'c_std=c11' ])
 
 wayland_client = dependency('wayland-client')
 cairo          = dependency('cairo')
@@ -56,6 +56,7 @@ dependencies = [
 ]
 
 add_global_arguments('-Wno-parentheses', language : 'c')
+add_global_arguments('-D_XOPEN_SOURCE=700', language : 'c')
 
 lib_gui_calendar_common = static_library(
   'gui-calendar-common',
@@ -68,19 +69,16 @@ executable(
   'gui-calendar',
   'main.c',
   wayland_sources,
-  include_directories: incdir,
-  dependencies: dependencies,
-  link_with: lib_gui_calendar_common
-)
-
-executable(
-  'gui-calendar-fbdev',
-  'main.c',
   'backend/fbdev.c',
+  'backend/svg.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
-  c_args : '-DBACKEND_FBDEV'
+  c_args : [
+    '-DCONFIG_BACKEND_WAYLAND',
+    '-DCONFIG_BACKEND_FBDEV',
+    '-DCONFIG_BACKEND_SVG'
+  ]
 )
 
 test_main = executable(
@@ -90,7 +88,7 @@ test_main = executable(
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
-  c_args : '-DBACKEND_DUMMY'
+  c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 test('test-main', test_main)
 
@@ -101,7 +99,7 @@ executable(
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
-  c_args : '-DBACKEND_DUMMY'
+  c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 
 executable(
@@ -111,7 +109,7 @@ executable(
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
-  c_args : '-DBACKEND_DUMMY'
+  c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 
 executable(
@@ -121,5 +119,5 @@ executable(
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
-  c_args : '-DBACKEND_DUMMY'
+  c_args : '-DCONFIG_BACKEND_DUMMY'
 )

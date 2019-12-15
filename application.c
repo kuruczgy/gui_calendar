@@ -568,7 +568,7 @@ static void application_handle_child(void *ud, pid_t pid) {
     }
 }
 
-int application_main(int argc, char **argv, struct backend *backend) {
+int application_main(struct application_options opts, struct backend *backend) {
     state = (struct state){
         .n_cal = 0,
         .view_days = 7,
@@ -590,36 +590,19 @@ int application_main(int argc, char **argv, struct backend *backend) {
         state.cal_default_visible[i] = false;
     }
 
-    char editor_buffer[128], term_buffer[128];
-    editor_buffer[0] = term_buffer[0] = '\0';
+    const char *editor_buffer, *term_buffer = "st";
     const char *editor_env = getenv("EDITOR");
-    if (editor_env) snprintf(editor_buffer, 128, "%s", editor_env);
-    snprintf(term_buffer, 128, "st");
+    if (editor_env) editor_buffer = editor_env;
 
-    int opt, d;
-    while ((opt = getopt(argc, argv, "pd:e:")) != -1) {
-        switch (opt) {
-        case 'p':
-            fprintf(stderr, "setting show_private_events = true\n");
-            state.show_private_events = true;
-            break;
-        case 'd':
-            d = atoi(optarg) - 1;
-            if (d < 0 || d >= 16) {
-                fprintf(stderr, "bad -d option index");
-                exit(1);
-            }
-            state.cal_info[d].visible = true;
-            state.cal_default_visible[d] = true;
-            break;
-        case 'e':
-            snprintf(editor_buffer, 128, "%s", optarg);
-            break;
-        case 't':
-            snprintf(term_buffer, 128, "%s", optarg);
-            break;
-        }
+    state.show_private_events = opts.show_private_events;
+    for (int i = 0; i < 16; ++i) {
+        bool v = opts.default_vis & (1U << i);
+        state.cal_info[i].visible = v;
+        state.cal_default_visible[i] = v;
     }
+
+    if (opts.editor) editor_buffer = opts.editor;
+    if (opts.terminal) term_buffer = opts.terminal;
 
     assert(editor_buffer[0], "please set editor!");
     assert(term_buffer[0], "please set terminal emulator!");
@@ -632,20 +615,19 @@ int application_main(int argc, char **argv, struct backend *backend) {
     state.zone = new_timezone("Europe/Budapest");
     state.base = get_day_base(state.zone, state.view_days > 1);
 
-    for (int i = optind; i < argc; i++) {
+    for (int i = 0; i < opts.argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
 
         // init
         init_calendar(cal);
 
         // read
-        cal->storage = str_dup(argv[i]);
+        cal->storage = str_dup(opts.argv[i]);
         fprintf(stderr, "loading %s\n", cal->storage);
         update_calendar_from_storage(cal, state.zone->impl);
 
         // set metadata
         if (!cal->name) cal->name = str_dup(cal->storage);
-        cal->storage = str_dup(argv[i]);
 
         // next
         if (++state.n_cal >= 16) break;

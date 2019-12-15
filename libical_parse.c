@@ -299,8 +299,8 @@ void update_calendar_from_storage(struct calendar *cal,
         assert(d = opendir(path), "opendir");
         dir_fd = dirfd(d);
         while(dir = readdir(d)) {
-            if (dir->d_type != DT_REG) continue;
             assert(fstatat(dir_fd, dir->d_name, &sb, 0) == 0, "stat");
+            if (!S_ISREG(sb.st_mode)) continue;
             if (!timespec_leq(loaded, sb.st_mtim)) continue;
             int l = strlen(dir->d_name);
             bool displayname = false;

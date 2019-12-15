@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <time.h>
+#include <stdlib.h>
 
 struct layout_event {
     int start, end;
@@ -32,5 +33,11 @@ void generate_uid(char buf[64]);
 
 bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2);
 int day_sec(struct tm t);
+
+inline void * malloc_check(size_t size) {
+    void *p = malloc(size);
+    assert(p, "oom");
+    return p;
+}
 
 #endif

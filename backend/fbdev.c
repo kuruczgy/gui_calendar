@@ -103,8 +103,7 @@ handle_allocate_error:
     exit(1);
 }
 
-void
-destroy_display(struct backend *backend) {
+static void destroy_display(struct backend *backend) {
     struct display *display = backend->self;
     cairo_destroy(display->fbcr);
     cairo_surface_destroy(display->fbsurface);
@@ -112,7 +111,7 @@ destroy_display(struct backend *backend) {
     free(display);
 }
 
-void gui_run(struct backend *backend) {
+static void gui_run(struct backend *backend) {
     fprintf(stderr, "fbdev::gui_run called\n");
     struct display *display = backend->self;
     int fbsizex = display->width;
@@ -135,7 +134,8 @@ void gui_run(struct backend *backend) {
         }
         cairo_set_source_surface(display->fbcr, surface, 0, 0);
         cairo_paint(display->fbcr);
-        usleep(2000);
+        struct timespec req = { .tv_sec = 0, .tv_nsec = 2000000L };
+        nanosleep(&req, NULL);
     }
 
     /* Destroy and release all cairo related contexts */

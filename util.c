@@ -143,3 +143,5 @@ bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
 int day_sec(struct tm t) {
     return 3600 * t.tm_hour + 60 * t.tm_min + t.tm_sec;
 }
+
+extern inline void * malloc_check(size_t size);

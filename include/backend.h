@@ -27,4 +27,5 @@ struct backend {
 struct backend backend_init_wayland();
 struct backend backend_init_dummy();
 struct backend backend_init_fbdev();
+struct backend backend_init_svg(const char *filename, int width, int height);
 #endif
