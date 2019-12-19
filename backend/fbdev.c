@@ -156,11 +156,16 @@ static void set_callbacks(struct backend *backend,
     display->ud = ud;
 }
 
+static bool is_interactive(struct backend *backend) {
+    return false;
+}
+
 static struct backend_methods methods = {
     .destroy = &destroy_display,
     .run = &gui_run,
     .get_window_size = &get_window_size,
-    .set_callbacks = &set_callbacks
+    .set_callbacks = &set_callbacks,
+    .is_interactive = &is_interactive
 };
 
 struct backend backend_init_fbdev() {

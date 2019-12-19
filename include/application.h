@@ -77,6 +77,7 @@ struct state {
     bool show_private_events;
 
     struct backend *backend;
+    bool interactive;
 
     enum {
         VIEW_CALENDAR,

@@ -17,6 +17,7 @@ struct backend_methods {
     void (*get_window_size)(struct backend*, int *width, int *height);
     void (*set_callbacks)(struct backend*,
             paint_cb, keyboard_cb, child_cb, void*);
+    bool (*is_interactive)(struct backend*);
 };
 
 struct backend {

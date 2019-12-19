@@ -198,7 +198,12 @@ static void render_sidebar(cairo_t *cr, box b) {
         const char *name = state.cal[i].name;
         if (!state.show_private_events && state.cal[i].priv) continue;
 
-        char *text = text_format("%i: %s", i + 1, name);
+        char *text;
+        if (state.interactive) {
+            text = text_format("%i: %s", i + 1, name);
+        } else {
+            text = text_format("%s", name);
+        }
         state.tr->p.width = b.w; state.tr->p.height = -1;
         text_get_size(cr, state.tr, text);
         int height = state.tr->p.height;
@@ -218,21 +223,23 @@ static void render_sidebar(cairo_t *cr, box b) {
         cairo_stroke(cr);
     }
 
-    cairo_set_source_argb(cr, 0xFF000000);
-    cairo_move_to(cr, 0, h += 5);
-    state.tr->p.width = b.w; state.tr->p.height = -1;
-    const char *str = state.show_private_events ?
-        "show private" : "hide private";
-    text_get_size(cr, state.tr, str);
-    h += state.tr->p.height;
-    text_print_own(cr, state.tr, str);
+    if (state.interactive) {
+        cairo_set_source_argb(cr, 0xFF000000);
+        cairo_move_to(cr, 0, h += 5);
+        state.tr->p.width = b.w; state.tr->p.height = -1;
+        const char *str = state.show_private_events ?
+            "show private" : "hide private";
+        text_get_size(cr, state.tr, str);
+        h += state.tr->p.height;
+        text_print_own(cr, state.tr, str);
 
-    cairo_set_source_rgba(cr, .3, .3, .3, 1);
-    cairo_move_to(cr, 0, h += 5);
-    state.tr->p.width = b.w; state.tr->p.height = -1;
-    text_get_size(cr, state.tr, usage);
-    h += state.tr->p.height;
-    text_print_own(cr, state.tr, usage);
+        cairo_set_source_rgba(cr, .3, .3, .3, 1);
+        cairo_move_to(cr, 0, h += 5);
+        state.tr->p.width = b.w; state.tr->p.height = -1;
+        text_get_size(cr, state.tr, usage);
+        h += state.tr->p.height;
+        text_print_own(cr, state.tr, usage);
+    }
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
     cairo_move_to(cr, b.w, 0);
@@ -506,7 +513,7 @@ bool render_application(void *ud, cairo_t *cr) {
     }
     render_sidebar(cr, (box){ 0, header_h, sidebar_w, h-header_h });
 
-    if (state.n_cal > 0) {
+    if (state.n_cal > 0 && state.interactive) {
         cairo_move_to(cr, 0, 0);
 
         struct tm t = timet_to_tm_with_zone(state.now, state.zone->impl);

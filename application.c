@@ -633,7 +633,8 @@ int application_main(struct application_options opts, struct backend *backend) {
         .active_todos = NULL,
         .show_private_events = false,
         .keystate = KEYSTATE_BASE,
-        .now = time(NULL)
+        .now = time(NULL),
+        .interactive = backend->vptr->is_interactive(backend)
     };
 
     state.view_days = opts.view_days;
