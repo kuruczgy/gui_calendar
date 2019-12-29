@@ -55,19 +55,19 @@ static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
             ((c >> 24) & 0xFF) / 255.0);
 }
 
-static void render_event(cairo_t *cr, int day_i, time_t day_base,
-        box b, int max_n, int col, int idx) {
-    struct event *ev = state.active_events[idx];
-    struct event_tag *event_tag = &state.active_events_tag[idx];
+static void render_event(cairo_t *cr, time_t day_base,
+        box b, struct active_event_layout *ael) {
+    struct active_event *aev = ael->aev;
     assert(interval_overlap(
-                ev->start.timestamp, ev->end.timestamp,
+                aev->start.timestamp, aev->end.timestamp,
                 day_base, day_base + 3600 * 24
     ), "event does not overlap with day");
 
+    struct event *ev = aev->ev;
     int num_days = state.view_days;
 
-    int start_sec = max(0, ev->start.timestamp - day_base);
-    int end_sec = min(3600 * 24, ev->end.timestamp - day_base);
+    int start_sec = max(0, aev->start.timestamp - day_base);
+    int end_sec = min(3600 * 24, aev->end.timestamp - day_base);
 
     int from_sec = state.hours_view.from * 3600;
     int to_sec = state.hours_view.to * 3600;
@@ -75,8 +75,8 @@ static void render_event(cairo_t *cr, int day_i, time_t day_base,
 
     int pad = 2;
     int sw = b.w / num_days;
-    int dw = sw / max_n;
-    int x = sw * day_i + dw * col + pad;
+    int dw = sw / ael->max_n;
+    int x = sw * ael->day_i + dw * ael->col + pad;
     int y = b.h * (start_sec - from_sec) / interval_sec;
     int w = dw - 2*pad;
     int h = b.h * (end_sec - start_sec) / interval_sec;
@@ -125,13 +125,13 @@ static void render_event(cairo_t *cr, int day_i, time_t day_base,
     if (state.keystate == KEYSTATE_SELECT) {
         uint32_t c = (color ^ 0x00FFFFFF) | 0xFF000000;
         cairo_set_source_argb(cr, c);
-        char *text = event_tag->code;
+        char *text = aev->tag.code;
         state.tr->p.scale = 3.0;
         state.tr->p.width = w; state.tr->p.height = -1;
         text_get_size(cr, state.tr, text);
         cairo_move_to(cr, x + w/2 - state.tr->p.width/2,
                           y + h/2 - state.tr->p.height/2);
-        text_print_own(cr, state.tr, event_tag->code);
+        text_print_own(cr, state.tr, aev->tag.code);
         state.tr->p.scale = 1.0;
     }
 }
@@ -226,15 +226,11 @@ static void render_header(cairo_t *cr, box b) {
 
 static void render_calendar_events(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
-    for (int d = 0; d < state.view_days; d++) {
+    for (int i = 0; i < state.active_event_layout_n; ++i) {
+        struct active_event_layout *ael = &state.active_event_layouts[i];
         // TODO: what if day not 24h long?
-        time_t day_base = state.base + 3600 * 24 * d;
-        int n = state.layout_event_n[d];
-        struct layout_event *la = state.layout_events[d];
-        for (int k = 0; k < n; k++) {
-            struct layout_event *le = &la[k];
-            render_event(cr, d, day_base, b, le->max_n, le->col, le->idx);
-        }
+        time_t day_base = state.base + 3600 * 24 * ael->day_i;
+        render_event(cr, day_base, b, ael);
     }
     cairo_translate(cr, -b.x, -b.y);
 }

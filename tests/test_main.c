@@ -26,15 +26,16 @@ void test_parse_event(
     sprintf(buf, a, summary, location, desc, uid, class, delete);
 
     struct event ev;
+    char *uid_out;
     bool del = (bool)123;
-    parse_event_template(f, &ev, NULL, &del);
+    parse_event_template(f, &ev, NULL, &del, &uid_out);
 
     fprintf(stderr, "testing with:\n%s\n", buf);
 
     assert(strcmp(ev.summary, summary) == 0, "summary");
     assert(strcmp(ev.location, location) == 0, "location");
     assert(strcmp(ev.desc, desc) == 0, "desc");
-    assert(strcmp(ev.uid, uid) == 0, "uid");
+    assert(strcmp(uid_out, uid) == 0, "uid");
 
     assert(ev.start.utc_time.tm_year == 223, "start year");
     assert(ev.end.utc_time.tm_hour == 10, "end hour");

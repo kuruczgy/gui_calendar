@@ -10,9 +10,20 @@ struct calendar_info {
 };
 
 struct event_tag {
-    struct event *ev;
     struct calendar *cal;
     char code[33];
+};
+
+struct active_event {
+    struct event_recur_set *ers;
+    struct date start, end;
+    struct event *ev;
+    struct event_tag tag;
+};
+
+struct active_event_layout {
+    struct active_event *aev;
+    int start, end, max_n, col, day_i;
 };
 
 struct todo_tag {
@@ -31,12 +42,11 @@ struct state {
     struct calendar cal[16];
     struct calendar_info cal_info[16];
     bool cal_default_visible[16];
-    struct event **active_events;
-    struct event_tag *active_events_tag;
-    struct layout_event **layout_events;
-    int *layout_event_n;
-    int active_n;
     int n_cal;
+
+    struct active_event *active_events;
+    struct active_event_layout *active_event_layouts;
+    int active_event_n, active_event_layout_n;
 
     struct todo **active_todos;
     struct todo_tag *active_todos_tag;

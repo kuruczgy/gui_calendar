@@ -6,5 +6,6 @@
 int main() {
     struct event ev;
     bool del = (bool)123;
-    parse_event_template(stdin, &ev, NULL, &del);
+    char *uid;
+    parse_event_template(stdin, &ev, NULL, &del, &uid);
 }

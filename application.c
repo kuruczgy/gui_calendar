@@ -19,12 +19,12 @@ static void switch_mode_select() {
     state.keystate = KEYSTATE_SELECT;
 
     if (state.main_view == VIEW_CALENDAR) {
-        key_gen_init(state.active_n, &g);
+        key_gen_init(state.active_event_n, &g);
         state.mode_select_len = g.k;
-        for (int i = 0; i < state.active_n; ++i) {
+        for (int i = 0; i < state.active_event_n; ++i) {
             const char *code = key_gen_get(&g);
             assert(code, "not enough codes");
-            strcpy(state.active_events_tag[i].code, code);
+            strcpy(state.active_events[i].tag.code, code);
         }
     } else if (state.main_view == VIEW_TODO) {
         struct key_gen g;
@@ -40,18 +40,19 @@ static void switch_mode_select() {
     }
 }
 
-static void print_event_template_callback(void *ud, FILE *f) {
-    print_event_template(f, (struct event *)ud);
+static void print_event_template_callback(void *cl, FILE *f) {
+    struct active_event *aev = cl;
+    print_event_template(f, &aev->ers->base, aev->ers->uid);
 }
 static void print_todo_template_callback(void *ud, FILE *f) {
     print_todo_template(f, (struct todo *)ud);
 }
-static void launch_event_editor(struct event *ev, struct calendar *cal) {
+static void launch_event_editor(struct active_event *aev) {
     if (!state.sp) {
-        state.sp_calendar = cal;
+        state.sp_calendar = aev->tag.cal;
         state.sp_type = ICAL_VEVENT_COMPONENT;
         state.sp = subprocess_new_input(state.editor[0],
-                state.editor + 1, &print_event_template_callback, (void *)ev);
+                state.editor + 1, &print_event_template_callback, (void *)aev);
     }
 }
 static void launch_todo_editor(struct todo *td, struct calendar *cal) {
@@ -67,14 +68,13 @@ static void mode_select_finish() {
     state.keystate = KEYSTATE_BASE;
     state.dirty = true;
     if (state.main_view == VIEW_CALENDAR) {
-        for (int i = 0; i < state.active_n; ++i) {
+        for (int i = 0; i < state.active_event_n; ++i) {
             if (strncmp(
-                    state.active_events_tag[i].code, state.mode_select_code,
+                    state.active_events[i].tag.code, state.mode_select_code,
                     state.mode_select_code_n) == 0) {
                 fprintf(stderr, "selected event: %s\n",
-                        state.active_events[i]->summary);
-                launch_event_editor(
-                        state.active_events[i], state.active_events_tag[i].cal);
+                    state.active_events[i].ev->summary);
+                launch_event_editor(&state.active_events[i]);
                 break;
             }
         }
@@ -103,8 +103,7 @@ static void mode_select_append_sym(char sym) {
 }
 
 struct event_filterer {
-    struct event **list;
-    struct event_tag *tags;
+    struct active_event *list;
     int n;
     time_t from, to;
     bool show_priv;
@@ -112,31 +111,30 @@ struct event_filterer {
 };
 static void init_event_filterer(struct event_filterer *f) {
     f->list = NULL;
-    f->tags = NULL;
     f->n = 0;
     f->from = -1;
     f->to = -1;
     f->show_priv = false;
 }
-static int filter_events(void *f_p, void *e_p) {
-    struct event_filterer *f = f_p;
-    struct event *e = e_p;
-    do {
-        if (f->from != -1 && !interval_overlap(f->from, f->to,
-                e->start.timestamp, e->end.timestamp)) continue;
-        if (!f->show_priv && e->clas == ICAL_CLASS_PRIVATE) continue;
+static int filter_event_sets(void *cl, void *e_p) {
+    struct event_filterer *f = cl;
+    struct event_recur_set *ers = e_p;
+    for (int i = 0; i < (ers->max != 0 ? ers->n : 1); ++i) {
+        time_t start, end;
+        struct event *ev = event_recur_set_get(ers, i, &start, &end);
+        if (f->from != -1 && !interval_overlap(f->from, f->to, start, end))
+            continue;
+        if (!f->show_priv && ev->clas == ICAL_CLASS_PRIVATE) continue;
 
-        if (f->list) {
-            f->list[f->n] = e;
-            if (f->tags) {
-                f->tags[f->n] = (struct event_tag){
-                    .ev = e,
-                    .cal = f->cal
-                };
-            }
-        }
+        if (f->list) f->list[f->n] = (struct active_event){
+            .ers = ers,
+            .start = date_from_timet(start, state.zone->impl),
+            .end = date_from_timet(end, state.zone->impl),
+            .ev = ev,
+            .tag = (struct event_tag){ .cal = f->cal }
+        };
         f->n++;
-    } while (e = e->recur);
+    }
     return MAP_OK;
 }
 
@@ -144,13 +142,7 @@ static void discard_temp_structures() {
     // discard existing structures
     if (state.active_events) {
         free(state.active_events);
-        free(state.active_events_tag);
-    }
-    if (state.layout_event_n) {
-        for (int d = 0; state.layout_event_n[d] >= 0; d++)
-            free(state.layout_events[d]);
-        free(state.layout_events);
-        free(state.layout_event_n);
+        free(state.active_event_layouts);
     }
 }
 
@@ -168,47 +160,46 @@ static void update_active_events() {
     filterer.show_priv = true;
     for (int i = 0; i < state.n_cal; i++) {
         if (state.cal_info[i].visible) {
-            hashmap_iterate(state.cal[i].events, filter_events, &filterer);
+            hashmap_iterate(state.cal[i].event_sets,
+                    filter_event_sets, &filterer);
         }
     }
 
     /* allocate memory based on counts */
-    state.active_n = filterer.n;
-    state.active_events_tag = malloc(sizeof(struct event_tag) * state.active_n);
-    struct event **active = malloc(sizeof(struct event*) * state.active_n);
+    state.active_event_n = filterer.n;
+    state.active_events =
+        malloc_check(sizeof(struct active_event) * state.active_event_n);
+    int aelmax = state.active_event_n * state.view_days;
+    state.active_event_layouts =
+        malloc_check(sizeof(struct active_event_layout) * aelmax);
+    state.active_event_layout_n = 0;
 
     /* populate the lists */
     filterer.n = 0;
-    filterer.list = active;
-    filterer.tags = state.active_events_tag;
+    filterer.list = state.active_events;
     for (int i = 0; i < state.n_cal; i++) {
         filterer.cal = &state.cal[i];
         if (state.cal_info[i].visible) {
-            hashmap_iterate(state.cal[i].events, filter_events, &filterer);
+            hashmap_iterate(state.cal[i].event_sets,
+                    filter_event_sets, &filterer);
         }
     }
 
     /* create the 2D layout */
-    struct layout_event **layout_events =
-        malloc(sizeof(struct layout_event*) * state.view_days);
-    int *layout_event_n = malloc(sizeof(int) * (state.view_days + 1));
-    layout_event_n[state.view_days] = -1;
+    struct layout_event *la =
+        malloc(sizeof(struct layout_event) * state.active_event_n);
     for (int d = 0; d < state.view_days; d++) {
         // TODO: what if day not 24h long?
         time_t day_base = state.base + 3600 * 24 * d;
         int l = 0;
-        struct layout_event *la = layout_events[d]
-            = malloc(sizeof(struct layout_event) * state.active_n);
-        for (int k = 0; k < state.active_n; k++) {
-            struct event *ev = active[k];
-            if ( ! interval_overlap(
-                    day_base, day_base + 3600 * 24,
-                    ev->start.timestamp, ev->end.timestamp)
-                ) continue;
-            time_t start_sec = max(0, ev->start.timestamp - day_base);
-            time_t end_sec = min(3600 * 24, ev->end.timestamp - day_base);
+        for (int k = 0; k < state.active_event_n; k++) {
+            struct active_event *aev = &state.active_events[k];
+            if (! interval_overlap(day_base, day_base + 3600 * 24,
+                    aev->start.timestamp, aev->end.timestamp)) continue;
+            time_t start_sec = max(0, aev->start.timestamp - day_base);
+            time_t end_sec = min(3600 * 24, aev->end.timestamp - day_base);
             assert(start_sec < end_sec, "bad layout start and end times");
-            assert(l < state.active_n, "too many events");
+            assert(l < state.active_event_n, "too many events");
             la[l++] = (struct layout_event){
                 .start = start_sec,
                 .end = end_sec,
@@ -216,12 +207,21 @@ static void update_active_events() {
             };
         }
         calendar_layout(la, l);
-        layout_event_n[d] = l;
+        for (int i = 0; i < l; ++i) {
+            struct layout_event layout = la[i];
+            assert(state.active_event_layout_n < aelmax, "");
+            state.active_event_layouts[state.active_event_layout_n++] =
+                    (struct active_event_layout){
+                .aev = &state.active_events[layout.idx],
+                .start = layout.start,
+                .end = layout.end,
+                .max_n = layout.max_n,
+                .col = layout.col,
+                .day_i = d
+            };
+        }
     }
-
-    state.active_events = active;
-    state.layout_events = layout_events;
-    state.layout_event_n = layout_event_n;
+    free(la);
 }
 
 struct todo_filterer {
@@ -307,17 +307,17 @@ static bool different_day(struct tm a, struct tm b) {
 }
 static void fit_events() {
     int min_sec = 3600 * 24 + 1, max_sec = -1;
-    for (int i = 0; i < state.active_n; ++i) {
-        struct event *ev = state.active_events[i];
-        if (different_day(ev->start.local_time, ev->end.local_time)) {
+    for (int i = 0; i < state.active_event_n; ++i) {
+        struct active_event *aev = &state.active_events[i];
+        if (different_day(aev->start.local_time, aev->end.local_time)) {
             /* TODO: maybe could do better when the event begins on the
              * last day of the view range. */
             min_sec = 0;
             max_sec = 3600 * 24;
             break;
         }
-        int start = day_sec(ev->start.local_time),
-            end = day_sec(ev->end.local_time);
+        int start = day_sec(aev->start.local_time),
+            end = day_sec(aev->end.local_time);
         if (start < min_sec) min_sec = start;
         if (end > max_sec) max_sec = end;
     }
@@ -332,8 +332,6 @@ static void fit_events() {
     state.hours_view_manual = (range){ -1, -1 };
 
     update_actual_fit();
-
-    // fprintf(stderr, "fit: %f-%f\n", min_sec / 3600.0, max_sec / 3600.0);
 }
 
 static void reload_calendars() {
@@ -392,12 +390,16 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                 struct tm t = *gmtime(&now);
 
                 if (state.main_view == VIEW_CALENDAR) {
-                    struct event template;
-                    init_event(&template);
-                    template.start.local_time = t;
-                    template.end.local_time = t;
+                    struct active_event template;
+                    struct event_recur_set ers;
+                    ers.uid = NULL;
+                    init_event(&ers.base);
+                    ers.base.start.local_time = t;
+                    ers.base.end.local_time = t;
                     assert(state.n_cal > 0, "no calendars");
-                    launch_event_editor(&template, &state.cal[0]);
+                    template.tag.cal = &state.cal[0];
+                    template.ers = &ers;
+                    launch_event_editor(&template);
                 } else if (state.main_view == VIEW_TODO) {
                     struct todo template;
                     init_todo(&template);
@@ -542,9 +544,11 @@ static void application_handle_child(void *ud, pid_t pid) {
 
     if (state.sp_type == ICAL_VEVENT_COMPONENT) {
         struct event ev;
-        res = parse_event_template(f, &ev, state.zone->impl, &del);
+        char *uid = NULL;
+        res = parse_event_template(f, &ev, state.zone->impl, &del, &uid);
         if (res >= 0) {
-            res = save_event(ev, cal, del);
+            res = save_event(ev, &uid, cal, del);
+            if (uid) free(uid);
         }
         if (res >= 0) {
             update_active_events();
@@ -568,8 +572,10 @@ static void application_handle_child(void *ud, pid_t pid) {
     }
 }
 
-static char * get_event_color(void * p) {
-    return ((struct event *)p)->color_str;
+static char * get_event_recur_set_color(void * p) {
+    //TODO: we only get the color from the base instance of the recur set
+    struct event_recur_set *ers = p;
+    return ers->base.color_str;
 }
 
 int application_main(struct application_options opts, struct backend *backend) {
@@ -580,8 +586,8 @@ int application_main(struct application_options opts, struct backend *backend) {
         .window_height = -1,
         .sp = NULL,
         .active_events = NULL,
+        .active_event_layouts = NULL,
         .active_todos = NULL,
-        .layout_event_n = NULL,
         .show_private_events = false,
         .keystate = KEYSTATE_BASE
     };
@@ -636,7 +642,8 @@ int application_main(struct application_options opts, struct backend *backend) {
         if (!cal->name) cal->name = str_dup(cal->storage);
 
         /* calculate most frequent color */
-        const char *fc = most_frequent(cal->events, &get_event_color);
+        const char *fc = most_frequent(
+            cal->event_sets, &get_event_recur_set_color);
         uint32_t color = lookup_color(fc);
         if (!color) color = 0xFF20D0D0;
         state.cal_info[state.n_cal].color = color;
@@ -664,7 +671,7 @@ int application_main(struct application_options opts, struct backend *backend) {
 
     discard_temp_structures();
     for (int i = 0; i < state.n_cal; i++) {
-        free_calendar(&state.cal[i]);
+        destruct_calendar(&state.cal[i]);
     }
     free_timezone(state.zone);
     text_renderer_free(state.tr);

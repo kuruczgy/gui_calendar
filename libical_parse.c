@@ -105,9 +105,7 @@ char* read_stream(char *s, size_t size, void *d)
     return fgets(s, size, (FILE*)d);
 }
 
-struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone) {
-    if (icaltime_is_null_time(tt)) return (struct date){ .timestamp = -1 };
-    time_t t = icaltime_as_timet_with_zone(tt, icaltime_get_timezone(tt));
+struct date date_from_timet(time_t t, icaltimezone *local_zone) {
     if (t < 0 || t > (time_t)(1LL << 60)) { /* sanity check */
         return (struct date){ .timestamp = -1 };
     }
@@ -120,59 +118,88 @@ struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone) {
     };
 }
 
-static int cal_append(struct calendar *cal, struct event *ev) {
-    assert(ev->uid, "uid missing at insert");
-    struct event *e;
-    int res = 1;
-    if (hashmap_get(cal->events, ev->uid, (void**)&e) == MAP_OK) {
-        hashmap_remove(cal->events, ev->uid);
-        free_event(e);
-        res = 0;
-    }
-    if (ev->recur)
-        assert(!ev->recur, "recur not null in cal_append");
-    hashmap_put(cal->events, ev->uid, ev);
-    return res;
+struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone) {
+    if (icaltime_is_null_time(tt)) return (struct date){ .timestamp = -1 };
+    time_t t = icaltime_as_timet_with_zone(tt, icaltime_get_timezone(tt));
+    return date_from_timet(t, local_zone);
 }
 
 int libical_parse_event(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone) {
-    struct event *ev = malloc(sizeof(struct event));
-    init_event(ev);
+    const char *uid = icalcomponent_get_uid(c);
+    if (!uid) return -1;
+    icalproperty *recurrenceid =
+        icalcomponent_get_first_property(c,ICAL_RECURRENCEID_PROPERTY);
+    icalproperty *rrule=icalcomponent_get_first_property(c,ICAL_RRULE_PROPERTY);
+    icalproperty *rdate=icalcomponent_get_first_property(c,ICAL_RDATE_PROPERTY);
+    icalproperty *exdate =
+        icalcomponent_get_first_property(c,ICAL_EXDATE_PROPERTY);
 
-    ev->recur = NULL;
+    struct event_recur_set *ers = NULL;
+    struct event *ev = NULL;
+    if (hashmap_get(cal->event_sets, uid, (void**)&ers) == MAP_OK) {
+        /* already have this uid */
+        if (recurrenceid) {
+            /* we have to change the recurrence-id instance */
+            if (rrule || rdate || exdate) {
+                fprintf(stderr, "error: unexpected property");
+                return -1;
+            }
+            icaltimetype rid_tt = icalproperty_get_datetime_with_component(
+                    recurrenceid, c);
+            struct event_recur_instance *eri =
+                malloc_check(sizeof(struct event_recur_instance));
+            *eri = (struct event_recur_instance){
+                .next = NULL,
+                .recurrence_id = icaltime_as_timet_with_zone(
+                    rid_tt, icaltime_get_timezone(rid_tt))
+            };
+
+            /* append to linked list */
+            struct event_recur_instance **next = &ers->instances;
+            while(*next) next = &(*next)->next;
+            *next = eri;
+
+            ev = &eri->ev;
+        } else {
+            /* we overwrite the whole recurrence set */
+            hashmap_remove(cal->event_sets, uid);
+            free_event_recur_set(ers);
+            ers = NULL;
+        }
+    }
+
+    if (!ers) {
+        /* we create the whole recurrence set */
+        ers = new_event_recur_set(uid, rrule ? 100 : 0);
+        ev = &ers->base;
+        hashmap_put(cal->event_sets, ers->uid, ers);
+    }
+    assert(ev && ers, "");
+
+    /* extract info into an event object */
+    init_event(ev);
     struct icaltimetype
         dtstart = icalcomponent_get_dtstart(c),
         dtend = icalcomponent_get_dtend(c);
     ev->start = date_from_icaltime(dtstart, local_zone);
     ev->end = date_from_icaltime(dtend, local_zone);
-    ev->uid = str_dup(icalcomponent_get_uid(c));
-    if (!ev->uid) {
-        free(ev);
-        fprintf(stderr, "warning: event missing uid!\n");
-        return -1;
-    }
     if (ev->start.timestamp < 0 || ev->end.timestamp < 0) {
-        free(ev);
         fprintf(stderr, "warning: invalid start or end date\n");
-        return -1;
+        goto err;
     }
-    if (!(ev->start.timestamp < ev->end.timestamp)) {
-        free(ev);
+    if (ev->start.timestamp >= ev->end.timestamp) {
         fprintf(stderr, "warning: event ends before it begins\n");
-        return -1;
+        goto err;
     }
     ev->summary = str_dup(icalcomponent_get_summary(c));
     ev->color = 0;
     ev->location = str_dup(icalcomponent_get_location(c));
     ev->desc = str_dup(icalcomponent_get_description(c));
     ev->clas = icalcomponent_get_class(c);
-
     icalproperty_status pstatus = icalcomponent_get_status(c);
     ev->status = pstatus;
-
-    icalproperty *p = icalcomponent_get_first_property(c,
-            ICAL_COLOR_PROPERTY);
+    icalproperty *p = icalcomponent_get_first_property(c, ICAL_COLOR_PROPERTY);
     if (p) {
         icalvalue *v = icalproperty_get_value(p);
         const char *text = icalvalue_get_text(v);
@@ -180,37 +207,28 @@ int libical_parse_event(icalcomponent *c, struct calendar *cal,
         ev->color_str = str_dup(text);
     }
 
-    icalproperty *rrule=icalcomponent_get_first_property(c,ICAL_RRULE_PROPERTY);
     if (rrule) {
+        if (rdate || exdate) {
+            fprintf(stderr, "warning: RDATE and EXDATE not supported\n");
+        }
         struct icalrecurrencetype recur = icalproperty_get_rrule(rrule);
         icalrecur_iterator *ritr = icalrecur_iterator_new(recur, dtstart);
-        struct icaldurationtype dur = icaltime_subtract(dtend, dtstart);
         struct icaltimetype next;
         int n = 0;
-        struct event *ev2 = NULL;
         while (next = icalrecur_iterator_next(ritr), ++n,
-                (!icaltime_is_null_time(next) && n < 128)) {
-            if (!ev2) {
-                ev2 = malloc(sizeof(struct event));
-                memcpy(ev2, ev, sizeof(struct event));
-                cal->num_events += cal_append(cal, ev2);
-            } else {
-                ev2 = ev2->recur = malloc(sizeof(struct event));
-                memcpy(ev2, ev, sizeof(struct event));
-                cal->num_events++;
-            }
-
-            assert(!ev2->recur, "recur not null");
-            ev2->start = date_from_icaltime(next, local_zone);
-            next = icaltime_add(next, dur);
-            ev2->end = date_from_icaltime(next, local_zone);
+                (!icaltime_is_null_time(next) && n < 100)) {
+            if (ers->n == ers->max) break;
+            struct date start2 = date_from_icaltime(next, local_zone);
+            ers->set[ers->n++] = start2.timestamp;
         }
         icalrecur_iterator_free(ritr);
-        free(ev);
-    } else {
-        cal->num_events += cal_append(cal, ev);
     }
     return 0;
+err:
+    /* remove & cleanup */
+    hashmap_remove(cal->event_sets, ers->uid);
+    free_event_recur_set(ers);
+    return -1;
 }
 
 int libical_parse_todo(icalcomponent *c, struct calendar *cal,

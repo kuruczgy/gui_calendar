@@ -5,8 +5,20 @@
 #include "calendar.h"
 #include "util.h"
 
+typedef struct {
+    union {
+        struct {
+            char **uid_ptr;
+            struct event *ev;
+        };
+        struct {
+            struct todo *td;
+        };
+    };
+} parse_cl;
+
 struct parser_param {
-    void *obj;
+    parse_cl cl;
     icaltimezone *zone;
     bool del;
 };
@@ -14,7 +26,7 @@ struct parser_param {
 struct prop_parser {
     const char *key;
     int (*parse)(struct prop_parser*,struct parser_param*,const char *value);
-    void (*assign)(void *obj, void *val);
+    void (*assign)(parse_cl *cl, void *val);
 };
 
 static int parse_datetime_prop(const char *s, struct date *res,
@@ -41,7 +53,7 @@ static int parse_datetime_prop(const char *s, struct date *res,
 int parse_identity(struct prop_parser *parser, struct parser_param *p,
         const char *val) {
     char *s = strlen(val) > 0 ? str_dup(val) : NULL;
-    parser->assign(p->obj, s);
+    parser->assign(&p->cl, s);
     return 0;
 }
 int parse_datetime(struct prop_parser *parser, struct parser_param *p,
@@ -50,7 +62,7 @@ int parse_datetime(struct prop_parser *parser, struct parser_param *p,
     if (parse_datetime_prop(val, &res, p->zone) < 0) {
         return -1;
     }
-    parser->assign(p->obj, &res);
+    parser->assign(&p->cl, &res);
     return 0;
 }
 int parse_delete(struct prop_parser *parser, struct parser_param *p,
@@ -64,7 +76,7 @@ int parse_class(struct prop_parser *parser, struct parser_param *p,
     enum icalproperty_class clas = ICAL_CLASS_NONE;
     if (strcmp(val, "private") == 0) {
         clas = ICAL_CLASS_PRIVATE;
-        parser->assign(p->obj, &clas);
+        parser->assign(&p->cl, &clas);
     }
     return 0;
 }
@@ -73,7 +85,7 @@ int parse_status(struct prop_parser *parser, struct parser_param *p,
     enum icalproperty_status status = ICAL_STATUS_NONE;
     if (strcmp(val, "1") == 0) {
         status = ICAL_STATUS_COMPLETED;
-        parser->assign(p->obj, &status);
+        parser->assign(&p->cl, &status);
     }
     return 0;
 }
@@ -84,52 +96,51 @@ int parse_event_status(struct prop_parser *parser, struct parser_param *p,
     if (strcmp(val, "confirmed") == 0) status = ICAL_STATUS_CONFIRMED;
     if (strcmp(val, "cancelled") == 0) status = ICAL_STATUS_CANCELLED;
 
-    parser->assign(p->obj, &status);
+    parser->assign(&p->cl, &status);
     return 0;
 }
 
 /* assignment functions */
-static void assign_event_summary(void *ud, void *val) {
-    ((struct event *)ud)->summary = (char *)val; }
-static void assign_event_uid(void *ud, void *val) {
-    ((struct event *)ud)->uid = (char *)val; }
-static void assign_event_location(void *ud, void *val) {
-    ((struct event *)ud)->location = (char *)val; }
-static void assign_event_desc(void *ud, void *val) {
-    ((struct event *)ud)->desc = (char *)val; }
-static void assign_event_start(void *ud, void *val) {
-    ((struct event *)ud)->start = *(struct date*)val; }
-static void assign_event_end(void *ud, void *val) {
-    ((struct event *)ud)->end = *(struct date*)val; }
-static void assign_event_class(void *ud, void *val) {
-    ((struct event *)ud)->clas = *(enum icalproperty_class*)val; }
-static void assign_event_status(void *ud, void *val) {
-    ((struct event *)ud)->status = *(enum icalproperty_status*)val; }
-static void assign_event_color_str(void *ud, void *val) {
-    struct event *ev = ud;
+static void assign_event_summary(parse_cl *cl, void *val) {
+    cl->ev->summary = (char *)val; }
+static void assign_event_uid(parse_cl *cl, void *val) {
+    *cl->uid_ptr = (char *)val; }
+static void assign_event_location(parse_cl *cl, void *val) {
+    cl->ev->location = (char *)val; }
+static void assign_event_desc(parse_cl *cl, void *val) {
+    cl->ev->desc = (char *)val; }
+static void assign_event_start(parse_cl *cl, void *val) {
+    cl->ev->start = *(struct date*)val; }
+static void assign_event_end(parse_cl *cl, void *val) {
+    cl->ev->end = *(struct date*)val; }
+static void assign_event_class(parse_cl *cl, void *val) {
+    cl->ev->clas = *(enum icalproperty_class*)val; }
+static void assign_event_status(parse_cl *cl, void *val) {
+    cl->ev->status = *(enum icalproperty_status*)val; }
+static void assign_event_color_str(parse_cl *cl, void *val) {
     if (val) {
-        ev->color = lookup_color((char *)val);
-        if (ev->color) ev->color_str = (char *)val;
-        else ev->color_str = NULL;
+        cl->ev->color = lookup_color((char *)val);
+        if (cl->ev->color) cl->ev->color_str = (char *)val;
+        else cl->ev->color_str = NULL;
     } else {
-        ev->color_str = NULL;
+        cl->ev->color_str = NULL;
     }
 }
 
-static void assign_todo_summary(void *ud, void *val) {
-    ((struct todo *)ud)->summary = (char*)val; }
-static void assign_todo_uid(void *ud, void *val) {
-    ((struct todo *)ud)->uid = (char*)val; }
-static void assign_todo_desc(void *ud, void *val) {
-    ((struct todo *)ud)->desc = (char*)val; }
-static void assign_todo_start(void *ud, void *val) {
-    ((struct todo *)ud)->start = *(struct date*)val; }
-static void assign_todo_due(void *ud, void *val) {
-    ((struct todo *)ud)->due = *(struct date*)val; }
-static void assign_todo_class(void *ud, void *val) {
-    ((struct todo *)ud)->clas = *(enum icalproperty_class*)val; }
-static void assign_todo_status(void *ud, void *val) {
-    ((struct todo *)ud)->status = *(enum icalproperty_status*)val; }
+static void assign_todo_summary(parse_cl *cl, void *val) {
+    cl->td->summary = (char*)val; }
+static void assign_todo_uid(parse_cl *cl, void *val) {
+    cl->td->uid = (char*)val; }
+static void assign_todo_desc(parse_cl *cl, void *val) {
+    cl->td->desc = (char*)val; }
+static void assign_todo_start(parse_cl *cl, void *val) {
+    cl->td->start = *(struct date*)val; }
+static void assign_todo_due(parse_cl *cl, void *val) {
+    cl->td->due = *(struct date*)val; }
+static void assign_todo_class(parse_cl *cl, void *val) {
+    cl->td->clas = *(enum icalproperty_class*)val; }
+static void assign_todo_status(parse_cl *cl, void *val) {
+    cl->td->status = *(enum icalproperty_status*)val; }
 
 
 static struct prop_parser event_parsers[] = {
@@ -191,11 +202,11 @@ static int parse(FILE *f, struct prop_parser *parsers,
 }
 
 int parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
-        bool *del) {
+        bool *del, char **uid_ptr) {
     init_event(ev);
     *del = false;
     struct parser_param params = {
-        .obj = (void *)ev,
+        .cl = (parse_cl){ .ev = ev, .uid_ptr = uid_ptr },
         .zone = zone,
         .del = false
     };
@@ -211,7 +222,7 @@ int parse_todo_template(FILE *f, struct todo *td, icaltimezone *zone,
     init_todo(td);
     *del = false;
     struct parser_param params = {
-        .obj = (void *)td,
+        .cl = (parse_cl){ .td = td },
         .zone = zone,
         .del = false
     };
@@ -227,7 +238,7 @@ static void print_time_prop(FILE *f, const struct tm *tim) {
     fprintf(f, "%04d-%02d-%02d %02d:%02d", tim->tm_year + 1900,
             tim->tm_mon + 1, tim->tm_mday, tim->tm_hour, tim->tm_min);
 }
-void print_event_template(FILE *f, const struct event *ev) {
+void print_event_template(FILE *f, struct event *ev, const char *uid) {
     fprintf(f, "summary: %s\n", ev->summary ? ev->summary : "");
     fprintf(f, "start: ");
     print_time_prop(f, &ev->start.local_time);
@@ -246,8 +257,8 @@ void print_event_template(FILE *f, const struct event *ev) {
     }
     fprintf(f, "# status: tentative / confirmed / cancelled\n");
     fprintf(f, "status: %s\n", s_status);
-    if (ev->uid) {
-        fprintf(f, "uid: %s\n", ev->uid);
+    if (uid) {
+        fprintf(f, "uid: %s\n", uid);
     }
     fprintf(f, "delete: \n");
 }
