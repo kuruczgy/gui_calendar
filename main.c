@@ -109,6 +109,7 @@ int main(int argc, char **argv) {
 #ifdef CONFIG_BACKEND_FBDEV
         case BACKEND_FBDEV:
             backend = backend_init_fbdev();
+            break;
 #endif
         default:
             fprintf(stderr, "backend not supported\n");
