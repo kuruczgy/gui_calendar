@@ -108,7 +108,8 @@ struct event * event_recur_set_get(struct event_recur_set *ers, int i,
         time_t *start, time_t *end);
 
 /* takes ownership of event */
-int save_event(struct event ev,char **uid_ptr,struct calendar *cal,bool del);
+int save_event(struct event ev, char **uid_ptr, struct calendar *cal, bool del,
+        time_t recurrence_id);
 int save_todo(struct todo td, struct calendar *cal, bool del);
 
 /* missing libical stuff */
@@ -117,10 +118,11 @@ void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v);
 void icalcomponent_set_color(icalcomponent *c, const char *v);
 
 /* editor stuff */
-void print_event_template(FILE *f, struct event *ev, const char *uid);
+void print_event_template(FILE *f, struct event *ev, const char *uid,
+        time_t recurrence_id);
 void print_todo_template(FILE *f, const struct todo *td);
 int parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
-        bool *del, char **uid_ptr);
+        bool *del, char **uid_ptr, time_t *recurrence_id);
 int parse_todo_template(FILE *f, struct todo *td, icaltimezone *zone,
         bool *del);
 

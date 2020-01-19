@@ -42,7 +42,8 @@ static void switch_mode_select() {
 
 static void print_event_template_callback(void *cl, FILE *f) {
     struct active_event *aev = cl;
-    print_event_template(f, &aev->ers->base, aev->ers->uid);
+    print_event_template(f, &aev->ers->base, aev->ers->uid,
+            aev->start.timestamp);
 }
 static void print_todo_template_callback(void *ud, FILE *f) {
     print_todo_template(f, (struct todo *)ud);
@@ -390,6 +391,8 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                 struct tm t = *gmtime(&now);
 
                 if (state.main_view == VIEW_CALENDAR) {
+
+                    /* bit of a hack constructing this template */
                     struct active_event template;
                     struct event_recur_set ers;
                     ers.uid = NULL;
@@ -399,6 +402,8 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                     assert(state.n_cal > 0, "no calendars");
                     template.tag.cal = &state.cal[0];
                     template.ers = &ers;
+                    template.start.timestamp = -1;
+
                     launch_event_editor(&template);
                 } else if (state.main_view == VIEW_TODO) {
                     struct todo template;
@@ -545,9 +550,11 @@ static void application_handle_child(void *ud, pid_t pid) {
     if (state.sp_type == ICAL_VEVENT_COMPONENT) {
         struct event ev;
         char *uid = NULL;
-        res = parse_event_template(f, &ev, state.zone->impl, &del, &uid);
+        time_t recurrence_id = -1;
+        res = parse_event_template(f, &ev, state.zone->impl, &del, &uid,
+                &recurrence_id);
         if (res >= 0) {
-            res = save_event(ev, &uid, cal, del);
+            res = save_event(ev, &uid, cal, del, recurrence_id);
             if (uid) free(uid);
         }
         if (res >= 0) {

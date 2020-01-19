@@ -275,7 +275,8 @@ static int save_component(void *obj, char **uid_ref,
     }
 }
 
-int save_event(struct event ev,char **uid_ptr,struct calendar *cal,bool del) {
+int save_event(struct event ev, char **uid_ptr, struct calendar *cal, bool del,
+        time_t recurrence_id) {
     int res = save_component(
         (void*)&ev, uid_ptr, cal, del,
         ICAL_VEVENT_COMPONENT, &ev_to_comp);

@@ -9,6 +9,7 @@ typedef struct {
     union {
         struct {
             char **uid_ptr;
+            time_t *recurrence_id;
             struct event *ev;
         };
         struct {
@@ -99,6 +100,13 @@ int parse_event_status(struct prop_parser *parser, struct parser_param *p,
     parser->assign(&p->cl, &status);
     return 0;
 }
+int parse_recurrence_id(struct prop_parser *parser, struct parser_param *p,
+        const char *val) {
+    time_t res = atol(val);
+    if (res <= 0) return -1;
+    parser->assign(&p->cl, &res);
+    return 0;
+}
 
 /* assignment functions */
 static void assign_event_summary(parse_cl *cl, void *val) {
@@ -126,6 +134,8 @@ static void assign_event_color_str(parse_cl *cl, void *val) {
         cl->ev->color_str = NULL;
     }
 }
+static void assign_event_recurrence_id(parse_cl *cl, void *val) {
+    *cl->recurrence_id = *(time_t*)val; }
 
 static void assign_todo_summary(parse_cl *cl, void *val) {
     cl->td->summary = (char*)val; }
@@ -153,6 +163,7 @@ static struct prop_parser event_parsers[] = {
     { "end", &parse_datetime, &assign_event_end },
     { "class", &parse_class, &assign_event_class },
     { "status", &parse_event_status, &assign_event_status },
+    { "instance", &parse_recurrence_id, &assign_event_recurrence_id },
     { "delete", &parse_delete, NULL },
     { NULL, NULL, NULL }
 };
@@ -202,11 +213,15 @@ static int parse(FILE *f, struct prop_parser *parsers,
 }
 
 int parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
-        bool *del, char **uid_ptr) {
+        bool *del, char **uid_ptr, time_t *recurrence_id) {
     init_event(ev);
     *del = false;
     struct parser_param params = {
-        .cl = (parse_cl){ .ev = ev, .uid_ptr = uid_ptr },
+        .cl = (parse_cl){
+            .ev = ev,
+            .uid_ptr = uid_ptr,
+            .recurrence_id = recurrence_id
+        },
         .zone = zone,
         .del = false
     };
@@ -238,7 +253,8 @@ static void print_time_prop(FILE *f, const struct tm *tim) {
     fprintf(f, "%04d-%02d-%02d %02d:%02d", tim->tm_year + 1900,
             tim->tm_mon + 1, tim->tm_mday, tim->tm_hour, tim->tm_min);
 }
-void print_event_template(FILE *f, struct event *ev, const char *uid) {
+void print_event_template(FILE *f, struct event *ev, const char *uid,
+        time_t recurrence_id) {
     fprintf(f, "summary: %s\n", ev->summary ? ev->summary : "");
     fprintf(f, "start: ");
     print_time_prop(f, &ev->start.local_time);
@@ -257,6 +273,9 @@ void print_event_template(FILE *f, struct event *ev, const char *uid) {
     }
     fprintf(f, "# status: tentative / confirmed / cancelled\n");
     fprintf(f, "status: %s\n", s_status);
+    if (recurrence_id != -1) {
+        fprintf(f, "# instance: %ld\n", recurrence_id);
+    }
     if (uid) {
         fprintf(f, "uid: %s\n", uid);
     }
