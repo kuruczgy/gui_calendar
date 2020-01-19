@@ -1,4 +1,4 @@
-project('gui_calendar', 'c', default_options : [ 'c_std=c11' ])
+project('smuc', 'c', default_options : [ 'c_std=c11' ])
 
 wayland_client = dependency('wayland-client')
 cairo          = dependency('cairo')
@@ -66,7 +66,7 @@ lib_gui_calendar_common = static_library(
 )
 
 executable(
-  'gui-calendar',
+  'smuc',
   'main.c',
   wayland_sources,
   'backend/fbdev.c',

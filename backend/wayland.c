@@ -15,6 +15,7 @@
 
 #include "xdg-shell-client-protocol.h"
 
+#include "config.h"
 #include "util.h"
 
 struct window;
@@ -220,7 +221,7 @@ create_window(struct display *display, int width, int height) {
     xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener,
             window);
 
-    xdg_toplevel_set_title(window->xdg_toplevel, "simple-shm");
+    xdg_toplevel_set_title(window->xdg_toplevel, CONFIG_TITLE);
     wl_surface_commit(window->surface);
     window->wait_for_configure = true;
 
