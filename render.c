@@ -55,31 +55,45 @@ static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
             ((c >> 24) & 0xFF) / 255.0);
 }
 
-static void render_event(cairo_t *cr, time_t day_base,
-        box b, struct active_event_layout *ael) {
+static void render_event(cairo_t *cr, box b, box all_day_b,
+        struct active_event_layout *ael) {
     struct active_event *aev = ael->aev;
-    assert(interval_overlap(
-                aev->start.timestamp, aev->end.timestamp,
-                day_base, day_base + 3600 * 24
-    ), "event does not overlap with day");
-
     struct event *ev = aev->ev;
+
     int num_days = state.view_days;
 
-    int start_sec = max(0, aev->start.timestamp - day_base);
-    int end_sec = min(3600 * 24, aev->end.timestamp - day_base);
+    // TODO: what if day not 24h long?
+    time_t slot_base = ael->day_i == -1 ?
+            state.base : state.base + 3600 * 24 * ael->day_i;
+    time_t slot_len = ael->day_i == -1 ? 3600 * 24 * num_days : 3600 * 24;
+    assert(interval_overlap(
+                aev->start.timestamp, aev->end.timestamp,
+                slot_base, slot_base + slot_len
+    ), "event does not overlap with slot");
 
     int from_sec = state.hours_view.from * 3600;
     int to_sec = state.hours_view.to * 3600;
     int interval_sec = to_sec - from_sec;
 
     int pad = 2;
-    int sw = b.w / num_days;
-    int dw = sw / ael->max_n;
-    int x = sw * ael->day_i + dw * ael->col + pad;
-    int y = b.h * (start_sec - from_sec) / interval_sec;
-    int w = dw - 2*pad;
-    int h = b.h * (end_sec - start_sec) / interval_sec;
+    int x, y, w, h;
+    box ab;
+    if (ael->day_i == -1) {
+        ab = all_day_b;
+        x = all_day_b.w * ael->start / slot_len + pad;
+        y = all_day_b.h * ael->col / ael->max_n + pad;
+        w = all_day_b.w * (ael->end - ael->start) / slot_len - 2 * pad;
+        h = all_day_b.h / ael->max_n - 2 * pad;
+    } else {
+        ab = b;
+        int sw = b.w / num_days;
+        int dw = sw / ael->max_n;
+        x = sw * ael->day_i + dw * ael->col + pad;
+        y = b.h * (ael->start - from_sec) / interval_sec;
+        w = dw - 2*pad;
+        h = b.h * (ael->end - ael->start) / interval_sec;
+    }
+    cairo_translate(cr, ab.x, ab.y);
 
     uint32_t color = ev->color;
     if (!color) color = 0xFF20D0D0;
@@ -134,6 +148,8 @@ static void render_event(cairo_t *cr, time_t day_base,
         text_print_own(cr, state.tr, aev->tag.code);
         state.tr->p.scale = 1.0;
     }
+
+    cairo_translate(cr, -ab.x, -ab.y);
 }
 
 static void render_sidebar(cairo_t *cr, box b) {
@@ -224,65 +240,80 @@ static void render_header(cairo_t *cr, box b) {
     cairo_identity_matrix(cr);
 }
 
-static void render_calendar_events(cairo_t *cr, box b) {
-    cairo_translate(cr, b.x, b.y);
+static void render_calendar_events(cairo_t *cr, box b, box all_day_b) {
     for (int i = 0; i < state.active_event_layout_n; ++i) {
         struct active_event_layout *ael = &state.active_event_layouts[i];
-        // TODO: what if day not 24h long?
-        time_t day_base = state.base + 3600 * 24 * ael->day_i;
-        render_event(cr, day_base, b, ael);
+        render_event(cr, b, all_day_b, ael);
     }
-    cairo_translate(cr, -b.x, -b.y);
 }
 
 void render_calendar(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
 
     int num_days = state.view_days;
-    int time_strip_w = 30;
+    int time_strip_w = 30, top_strip_h = 50 * state.all_day_max_n;
     int sw = (b.w - time_strip_w) / num_days;
 
-    cairo_translate(cr, time_strip_w, 0);
+    cairo_set_source_argb(cr, 0xFF000000);
+
+    // draw separator lines
+    if (top_strip_h > 0) {
+        cairo_set_line_width(cr, 1);
+        cairo_move_to(cr, time_strip_w, top_strip_h + 0.5);
+        cairo_line_to(cr, b.w, top_strip_h + 0.5);
+        cairo_stroke(cr);
+
+        cairo_set_line_width(cr, 2);
+        cairo_move_to(cr, time_strip_w, 0);
+        cairo_line_to(cr, time_strip_w, top_strip_h);
+        cairo_stroke(cr);
+    }
 
     // draw vertical lines
-    cairo_set_source_rgba(cr, 0, 0, 0, 255);
+    cairo_translate(cr, time_strip_w, top_strip_h);
     for (int i = 0; i < num_days; i++) {
         cairo_move_to(cr, sw*i, 0);
-        cairo_line_to(cr, sw*i, b.h);
+        cairo_line_to(cr, sw*i, b.h - top_strip_h);
     }
     cairo_stroke(cr);
 
+    // draw horizontal lines
     cairo_set_line_width(cr, 1);
     cairo_set_source_argb(cr, 0xFF555555);
     range r = state.hours_view;
     for (int i = r.from + 1; i < r.to; i++) {
-        int y = b.h * (i - r.from) / (r.to - r.from);
-        cairo_move_to(cr, 0, y);
-        cairo_line_to(cr, b.w - time_strip_w, y);
+        int y = (b.h - top_strip_h) * (i - r.from) / (r.to - r.from);
+        cairo_move_to(cr, 0, y + 0.5);
+        cairo_line_to(cr, b.w - time_strip_w, y + 0.5);
     }
     cairo_stroke(cr);
     cairo_set_line_width(cr, 2);
 
+    // draw hour labels
     cairo_translate(cr, -time_strip_w, 0);
     char buf[64];
     for (int i = r.from + 1; i < r.to; i++) {
-        int y = b.h * (i - r.from) / (r.to - r.from);
+        int y = (b.h - top_strip_h) * (i - r.from) / (r.to - r.from);
         snprintf(buf, 64, "%02d", i);
         draw_text(cr, time_strip_w / 2, y, buf);
     }
 
     // draw all the events
-    render_calendar_events(cr, (box){ time_strip_w, 0, b.w-time_strip_w, b.h });
+    cairo_translate(cr, 0, -top_strip_h);
+    render_calendar_events(cr,
+        (box){ time_strip_w, top_strip_h, b.w-time_strip_w, b.h-top_strip_h },
+        (box){ time_strip_w, 0, b.w - time_strip_w, top_strip_h }
+    );
 
     // draw time marker red line
-    cairo_translate(cr, time_strip_w, 0);
+    cairo_translate(cr, time_strip_w, top_strip_h);
     time_t now = state.now;
     struct tm t = timet_to_tm_with_zone(now, state.zone);
     int now_sec = day_sec(t);
     int interval_sec = (r.to - r.from) * 3600;
     int day_sec = 24 * 3600;
     int day_i = (now - state.base) / day_sec;
-    int y = b.h * (now_sec - r.from * 3600) / interval_sec;
+    int y = (b.h - top_strip_h) * (now_sec - r.from * 3600) / interval_sec;
     if (now >= state.base) {
         cairo_move_to(cr, day_i * sw, y);
         cairo_line_to(cr, (day_i+1) * sw, y);

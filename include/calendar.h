@@ -32,6 +32,7 @@ struct event {
     char *desc;
     enum icalproperty_status status;
     enum icalproperty_class clas;
+    bool all_day;
 };
 
 struct event_recur_instance {

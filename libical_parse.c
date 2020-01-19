@@ -184,6 +184,11 @@ int libical_parse_event(icalcomponent *c, struct calendar *cal,
         dtend = icalcomponent_get_dtend(c);
     ev->start = date_from_icaltime(dtstart, local_zone);
     ev->end = date_from_icaltime(dtend, local_zone);
+    ev->all_day = icaltime_is_date(dtstart);
+    if (ev->end.timestamp - ev->start.timestamp >= 3600 * 24) {
+        // all day heuristic
+        ev->all_day = true;
+    }
     if (ev->start.timestamp < 0 || ev->end.timestamp < 0) {
         fprintf(stderr, "warning: invalid start or end date\n");
         goto err;

@@ -43,6 +43,7 @@ static const struct event default_event = {
     .desc = NULL,
     .status = ICAL_STATUS_NONE,
     .clas = ICAL_CLASS_NONE,
+    .all_day = false
 };
 static const struct todo default_todo = {
     .uid = NULL,

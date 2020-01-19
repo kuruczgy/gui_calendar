@@ -23,6 +23,7 @@ struct active_event {
 
 struct active_event_layout {
     struct active_event *aev;
+    // day_i == -1 means an all day event
     int start, end, max_n, col, day_i;
 };
 
@@ -47,6 +48,7 @@ struct state {
     struct active_event *active_events;
     struct active_event_layout *active_event_layouts;
     int active_event_n, active_event_layout_n;
+    int all_day_max_n;
 
     struct todo **active_todos;
     struct todo_tag *active_todos_tag;

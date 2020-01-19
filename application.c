@@ -170,7 +170,7 @@ static void update_active_events() {
     state.active_event_n = filterer.n;
     state.active_events =
         malloc_check(sizeof(struct active_event) * state.active_event_n);
-    int aelmax = state.active_event_n * state.view_days;
+    int aelmax = state.active_event_n * (state.view_days + 1);
     state.active_event_layouts =
         malloc_check(sizeof(struct active_event_layout) * aelmax);
     state.active_event_layout_n = 0;
@@ -189,16 +189,28 @@ static void update_active_events() {
     /* create the 2D layout */
     struct layout_event *la =
         malloc(sizeof(struct layout_event) * state.active_event_n);
-    for (int d = 0; d < state.view_days; d++) {
+    int min_sec = 3600 * 24 + 1, max_sec = -1;
+    state.all_day_max_n = 0;
+    for (int d = -1; d < state.view_days; d++) {
         // TODO: what if day not 24h long?
-        time_t day_base = state.base + 3600 * 24 * d;
+        time_t slot_base = d == -1 ? state.base : state.base + 3600 * 24 * d;
+        time_t slot_len = d == -1 ? 3600 * 24 * state.view_days : 3600 * 24;
         int l = 0;
         for (int k = 0; k < state.active_event_n; k++) {
             struct active_event *aev = &state.active_events[k];
-            if (! interval_overlap(day_base, day_base + 3600 * 24,
-                    aev->start.timestamp, aev->end.timestamp)) continue;
-            time_t start_sec = max(0, aev->start.timestamp - day_base);
-            time_t end_sec = min(3600 * 24, aev->end.timestamp - day_base);
+            if (d == -1) { /* all day events */
+                if (!aev->ev->all_day) continue;
+            } else {
+                if (! interval_overlap(slot_base, slot_base + slot_len,
+                        aev->start.timestamp, aev->end.timestamp)) continue;
+            }
+            time_t start_sec = max(0, aev->start.timestamp - slot_base);
+            time_t end_sec = min(slot_len, aev->end.timestamp - slot_base);
+            if (d != -1 && aev->ev->all_day &&
+                    start_sec == 0 && end_sec == slot_len) {
+                continue;
+            }
+
             assert(start_sec < end_sec, "bad layout start and end times");
             assert(l < state.active_event_n, "too many events");
             la[l++] = (struct layout_event){
@@ -220,9 +232,25 @@ static void update_active_events() {
                 .col = layout.col,
                 .day_i = d
             };
+            if (d == -1) {
+                state.all_day_max_n = max(state.all_day_max_n, layout.max_n);
+            } else {
+                min_sec = min(min_sec, layout.start);
+                max_sec = max(max_sec, layout.end);
+            }
         }
     }
     free(la);
+
+    // do event fitting stuff
+    if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
+    range r;
+    r.from = max(0, min_sec / 3600);
+    r.to = min(24, (max_sec + 3599) / 3600);
+    if (r.to <= r.from) r = (range){ 0, 24 };
+    state.hours_view_events = r;
+    state.hours_view_manual = (range){ -1, -1 };
+    update_actual_fit();
 }
 
 struct todo_filterer {
@@ -302,45 +330,11 @@ void update_actual_fit() {
             && state.hours_view.from >= 0, "wrong from/to hour");
 }
 
-static bool different_day(struct tm a, struct tm b) {
-    return a.tm_mday != b.tm_mday || a.tm_mon != b.tm_mon || a.tm_year !=
-        b.tm_year;
-}
-static void fit_events() {
-    int min_sec = 3600 * 24 + 1, max_sec = -1;
-    for (int i = 0; i < state.active_event_n; ++i) {
-        struct active_event *aev = &state.active_events[i];
-        if (different_day(aev->start.local_time, aev->end.local_time)) {
-            /* TODO: maybe could do better when the event begins on the
-             * last day of the view range. */
-            min_sec = 0;
-            max_sec = 3600 * 24;
-            break;
-        }
-        int start = day_sec(aev->start.local_time),
-            end = day_sec(aev->end.local_time);
-        if (start < min_sec) min_sec = start;
-        if (end > max_sec) max_sec = end;
-    }
-
-    if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
-
-    range r;
-    r.from = max(0, min_sec / 3600);
-    r.to = min(24, (max_sec + 3599) / 3600);
-    if (r.to <= r.from) r = (range){ 0, 24 };
-    state.hours_view_events = r;
-    state.hours_view_manual = (range){ -1, -1 };
-
-    update_actual_fit();
-}
-
 static void reload_calendars() {
     for (int i = 0; i < state.n_cal; i++) {
         update_calendar_from_storage(&state.cal[i], state.zone->impl);
     }
     update_active_events();
-    fit_events();
     update_active_todos();
     state.dirty = true;
 }
@@ -370,19 +364,16 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
         case 'l':
             timet_adjust_days(&state.base, state.zone, state.view_days);
             update_active_events();
-            fit_events();
             state.dirty = true;
             break;
         case 'h':
             timet_adjust_days(&state.base, state.zone, -state.view_days);
             update_active_events();
-            fit_events();
             state.dirty = true;
             break;
         case 't':
             state.base = get_day_base(state.zone, state.view_days > 1);
             update_active_events();
-            fit_events();
             state.dirty = true;
             break;
         case 'n':
@@ -424,7 +415,6 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                 state.cal_info[i].visible = state.cal_default_visible[i];
             }
             update_active_events();
-            fit_events();
             state.dirty = true;
             break;
         case 'r':
@@ -445,7 +435,6 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                 if (n < state.n_cal) {
                     state.cal_info[n].visible = ! state.cal_info[n].visible;
                     update_active_events();
-                    fit_events();
                     state.dirty = true;
                 }
             } else if (mods & 1) { /* shift modifier */
@@ -527,7 +516,6 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
         }
         if (update) {
             update_active_events();
-            fit_events();
             state.dirty = true;
         }
         state.keystate = KEYSTATE_BASE;
@@ -559,7 +547,6 @@ static void application_handle_child(void *ud, pid_t pid) {
         }
         if (res >= 0) {
             update_active_events();
-            fit_events();
             state.dirty = true;
         } else {
             fprintf(stderr, "event creation failed\n");
@@ -660,7 +647,6 @@ int application_main(struct application_options opts, struct backend *backend) {
     }
 
     update_active_events();
-    fit_events();
     update_active_todos();
 
     state.backend = backend;
