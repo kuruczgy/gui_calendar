@@ -514,7 +514,8 @@ struct backend backend_init_wayland() {
     assert(display->wm_base, "xdg_wm_base");
     assert(display->compositor, "wl_compositor");
 
-    assert(create_shm_pool(display, 1366 * 1024 * 4) == 0, "create_shm_pool");
+    // TODO: maximum screen size
+    assert(create_shm_pool(display, 1920 * 1200 * 4) == 0, "create_shm_pool");
     assert(display->pool, "pool");
 
     wl_display_roundtrip(display->display);
