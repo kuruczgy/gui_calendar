@@ -346,7 +346,7 @@ static void render_todo_item(cairo_t *cr, struct todo *td, int index, box b) {
 
     if (td->desc) {
         state.tr->p.width = w/n; state.tr->p.height = b.h;
-        text_get_size(cr, state.tr, td->summary);
+        text_get_size(cr, state.tr, td->desc);
         cairo_move_to(cr, w/n, b.h/2 - state.tr->p.height/2);
         text_print_own(cr, state.tr, td->desc);
     }
