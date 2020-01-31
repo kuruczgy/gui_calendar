@@ -1,5 +1,5 @@
-#ifndef _UTIL_H_
-#define _UTIL_H_
+#ifndef GUI_CALENDAR_UTIL_H
+#define GUI_CALENDAR_UTIL_H
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>

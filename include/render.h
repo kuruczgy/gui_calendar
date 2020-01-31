@@ -1,5 +1,5 @@
-#ifndef _RENDER_H_
-#define _RENDER_H_
+#ifndef GUI_CALENDAR_RENDER_H
+#define GUI_CALENDAR_RENDER_H
 #include <cairo.h>
 #include "backend.h"
 

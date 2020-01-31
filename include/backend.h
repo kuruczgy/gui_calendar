@@ -1,5 +1,5 @@
-#ifndef _BACKEND_H_
-#define _BACKEND_H_
+#ifndef GUI_CALENDAR_BACKEND_H
+#define GUI_CALENDAR_BACKEND_H
 #include <stdbool.h>
 #include <stdint.h>
 #include <cairo.h>

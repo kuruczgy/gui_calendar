@@ -1,5 +1,5 @@
-#ifndef _PARSE_H_
-#define _PARSE_H_
+#ifndef GUI_CALENDAR_CALENDAR_H
+#define GUI_CALENDAR_CALENDAR_H
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -7,7 +7,6 @@
 #include <sys/time.h>
 #include <libical/ical.h>
 #undef assert
-#include "date.h"
 #include "hashmap.h"
 
 struct cal_timezone {

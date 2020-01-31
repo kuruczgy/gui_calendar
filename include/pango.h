@@ -1,5 +1,5 @@
-#ifndef _PANGO_H_
-#define _PANGO_H_
+#ifndef GUI_CALENDAR_PANGO_H
+#define GUI_CALENDAR_PANGO_H
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>

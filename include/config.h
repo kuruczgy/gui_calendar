@@ -1,5 +1,5 @@
-#ifndef _CONFIG_H_
-#define _CONFIG_H_
+#ifndef GUI_CALENDAR_CONFIG_H
+#define GUI_CALENDAR_CONFIG_H
 
 #define CONFIG_TITLE "SMUC - Slightly More Usable Calendar"
 

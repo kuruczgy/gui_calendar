@@ -1,5 +1,5 @@
-#ifndef _ALGO_H_
-#define _ALGO_H_
+#ifndef GUI_CALENDAR_ALGO_H
+#define GUI_CALENDAR_ALGO_H
 #include <stddef.h>
 
 /* Given an array of n elements, finds the next permutation in

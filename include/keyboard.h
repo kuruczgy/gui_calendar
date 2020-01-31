@@ -1,5 +1,5 @@
-#ifndef _KEYBOARD_H_
-#define _KEYBOARD_H_
+#ifndef GUI_CALENDAR_KEYBOARD_H
+#define GUI_CALENDAR_KEYBOARD_H
 #include <stdint.h>
 #include <stdbool.h>
 

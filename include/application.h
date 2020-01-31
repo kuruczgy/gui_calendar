@@ -1,5 +1,5 @@
-#ifndef _APPLICATION_H_
-#define _APPLICATION_H_
+#ifndef GUI_CALENDAR_APPLICATION_H
+#define GUI_CALENDAR_APPLICATION_H
 #include "calendar.h"
 #include "backend.h"
 #include "pango.h"
