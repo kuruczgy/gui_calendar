@@ -47,39 +47,12 @@ void icalcomponent_set_color(icalcomponent *c, const char *v) {
     }
 }
 
-void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n) {
-    icaltimetype tt = icaltime_from_timet_with_zone(*t, false, zone->impl);
-    icaltime_adjust(&tt, n, 0, 0, 0);
-    *t = icaltime_as_timet_with_zone(tt, zone->impl);
-}
-
-static struct tm tt_to_tm(icaltimetype tt) {
-    return (struct tm){
-        .tm_sec = tt.second,
-        .tm_min = tt.minute,
-        .tm_hour = tt.hour,
-        .tm_mday = tt.day,
-        .tm_mon = tt.month - 1,
-        .tm_year = tt.year - 1900,
-        .tm_wday = icaltime_day_of_week(tt) - 1,
-        .tm_yday = icaltime_day_of_year(tt),
-        .tm_isdst = tt.is_daylight
-    };
-}
-
-struct tm timet_to_tm_with_zone(time_t t, struct cal_timezone *zone) {
-    return tt_to_tm(icaltime_from_timet_with_zone(t, false, zone->impl));
-}
-
-time_t get_day_base(struct cal_timezone *zone, bool week) {
-    struct icaltimetype now = icaltime_current_time_with_zone(zone->impl);
-    now.hour = now.minute = now.second = 0;
-    if (week) {
-        int dow = icaltime_day_of_week(now);
-        int adjust = -((dow - 2 + 7) % 7);
-        icaltime_adjust(&now, adjust, 0, 0, 0);
+void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind) {
+    icalproperty *p = icalcomponent_get_first_property(c, kind);
+    while (p) {
+        icalcomponent_remove_property(c, p);
+        p = icalcomponent_get_next_property(c, kind);
     }
-    return icaltime_as_timet_with_zone(now, zone->impl);
 }
 
 struct cal_timezone *new_timezone(const char *location) {
@@ -103,25 +76,6 @@ const char *get_timezone_desc(struct cal_timezone *zone) {
 char* read_stream(char *s, size_t size, void *d)
 {
     return fgets(s, size, (FILE*)d);
-}
-
-struct date date_from_timet(time_t t, icaltimezone *local_zone) {
-    if (t < 0 || t > (time_t)(1LL << 60)) { /* sanity check */
-        return (struct date){ .timestamp = -1 };
-    }
-    struct tm tm = *gmtime(&t);
-    icaltimetype tt2 = icaltime_from_timet_with_zone(t, 0, local_zone);
-    return (struct date) {
-        .utc_time = tm,
-        .local_time = tt_to_tm(tt2),
-        .timestamp = t
-    };
-}
-
-struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone) {
-    if (icaltime_is_null_time(tt)) return (struct date){ .timestamp = -1 };
-    time_t t = icaltime_as_timet_with_zone(tt, icaltime_get_timezone(tt));
-    return date_from_timet(t, local_zone);
 }
 
 int libical_parse_event(icalcomponent *c, struct calendar *cal,

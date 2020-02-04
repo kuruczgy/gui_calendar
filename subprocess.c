@@ -47,9 +47,9 @@ FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid) {
 
     char *name = (*handle)->name;
     int fd = open(name, O_RDONLY);
-    char buf[1024];
-    size_t n = pread(fd, buf, 1024, 0);
-    fprintf(stderr, "file read:\n%.*s===\n", (int)n, buf);
+    // char buf[1024];
+    // size_t n = pread(fd, buf, 1024, 0);
+    // fprintf(stderr, "file read:\n%.*s===\n", (int)n, buf);
     FILE *res = fdopen(fd, "r");
     
     unlink(name);

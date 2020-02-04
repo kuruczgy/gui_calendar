@@ -8,18 +8,11 @@
 #include <libical/ical.h>
 #undef assert
 #include "hashmap.h"
+#include "datetime.h"
 
 struct cal_timezone {
     icaltimezone *impl;
     char *desc;
-};
-
-struct date {
-    // to represent an invalid date, set timestamp to -1
-    time_t timestamp;
-
-    struct tm utc_time;
-    struct tm local_time;
 };
 
 struct event {
@@ -32,6 +25,7 @@ struct event {
     enum icalproperty_status status;
     enum icalproperty_class clas;
     bool all_day;
+    // DEP: struct event
 };
 
 struct event_recur_instance {
@@ -53,6 +47,7 @@ struct todo {
     struct date start, due;
     enum icalproperty_status status;
     enum icalproperty_class clas;
+    // DEP: struct todo
 };
 
 struct calendar {
@@ -64,14 +59,14 @@ struct calendar {
     struct timespec loaded;
 };
 
-struct tm timet_to_tm_with_zone(time_t t, struct cal_timezone *zone);
-void timet_adjust_days(time_t *t, struct cal_timezone *zone, int n);
+enum comp_type {
+    COMP_TYPE_EVENT,
+    COMP_TYPE_TODO
+};
+
 struct cal_timezone *new_timezone(const char *location);
 void free_timezone(struct cal_timezone *zone);
 const char *get_timezone_desc(struct cal_timezone *zone);
-time_t get_day_base(struct cal_timezone *zone, bool week);
-struct date date_from_timet(time_t t, icaltimezone *local_zone);
-struct date date_from_icaltime(icaltimetype tt, icaltimezone *local_zone);
 
 void update_calendar_from_storage(struct calendar *cal,
         icaltimezone *local_zone);
@@ -81,8 +76,6 @@ int libical_parse_todo(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone);
 int libical_parse_ics(FILE *f, struct calendar *cal, icaltimezone *local_zone);
 icalcomponent* libical_component_from_file(FILE *f);
-
-/* new object functions: also allocate memory */
 
 /* note: you must initialize base before calling free_event_recur_set */
 struct event_recur_set * new_event_recur_set(const char *uid, int max);
@@ -100,12 +93,14 @@ void destruct_todo(struct todo *td);
 /* object free functions: also free memory */
 void free_event_recur_set(struct event_recur_set *ers);
 
-/* object copy functions: ev_dest must be uninitialized */
+/* object copy functions: dst must be uninitialized */
 void copy_event(struct event *ev_dest, const struct event *ev_src);
+void copy_todo(struct todo *dst, const struct todo *src);
 
 /* object methods */
 struct event * event_recur_set_get(struct event_recur_set *ers, int i,
         time_t *start, time_t *end);
+void event_update_derived(struct event *ev);
 
 /* takes ownership of event */
 int save_event(struct event ev, char **uid_ptr, struct calendar *cal, bool del,
@@ -116,15 +111,7 @@ int save_todo(struct todo td, struct calendar *cal, bool del);
 enum icalproperty_class icalcomponent_get_class(icalcomponent *c);
 void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v);
 void icalcomponent_set_color(icalcomponent *c, const char *v);
-
-/* editor stuff */
-void print_event_template(FILE *f, struct event *ev, const char *uid,
-        time_t recurrence_id);
-void print_todo_template(FILE *f, const struct todo *td);
-int parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
-        bool *del, char **uid_ptr, time_t *recurrence_id);
-int parse_todo_template(FILE *f, struct todo *td, icaltimezone *zone,
-        bool *del);
+void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind);
 
 void priority_sort_todos(struct todo **todos, int n);
 

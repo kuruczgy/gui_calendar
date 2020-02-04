@@ -1,297 +1,513 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "calendar.h"
+#include "editor.h"
 #include "util.h"
 
-typedef struct {
-    union {
-        struct {
-            char **uid_ptr;
-            time_t *recurrence_id;
-            struct event *ev;
-        };
-        struct {
-            struct todo *td;
-        };
-    };
-} parse_cl;
-
-struct parser_param {
-    parse_cl cl;
-    icaltimezone *zone;
-    bool del;
-};
-
-struct prop_parser {
-    const char *key;
-    int (*parse)(struct prop_parser*,struct parser_param*,const char *value);
-    void (*assign)(parse_cl *cl, void *val);
-};
-
-static int parse_datetime_prop(const char *s, struct date *res,
-        icaltimezone *local_zone) {
-    int year, month, day, hour, minute;
-    int n = sscanf(s, "%d-%d-%d %d:%d", &year, &month, &day, &hour, &minute);
-    if (n < 5) return -1;
-    struct icaltimetype tt = {
-        .year = year,
-        .month = month,
-        .day = day,
-        .hour = hour,
-        .minute = minute,
-        .second = 0,
-        .is_date = 0,
-        .is_daylight = 0, // TODO: is this ok like this?
-        .zone = local_zone
-    };
-    tt = icaltime_normalize(tt);
-    *res = date_from_icaltime(tt, local_zone);
-    return 0;
-}
-
-int parse_identity(struct prop_parser *parser, struct parser_param *p,
-        const char *val) {
-    char *s = strlen(val) > 0 ? str_dup(val) : NULL;
-    parser->assign(&p->cl, s);
-    return 0;
-}
-int parse_datetime(struct prop_parser *parser, struct parser_param *p,
-        const char *val) {
-    struct date res;
-    if (parse_datetime_prop(val, &res, p->zone) < 0) {
-        return -1;
-    }
-    parser->assign(&p->cl, &res);
-    return 0;
-}
-int parse_delete(struct prop_parser *parser, struct parser_param *p,
-        const char *val) {
-    if (strcmp(val, "true") == 0) p->del = true;
-    else p->del = false;
-    return 0;
-}
-int parse_class(struct prop_parser *parser, struct parser_param *p,
-        const char *val) {
-    enum icalproperty_class clas = ICAL_CLASS_NONE;
-    if (strcmp(val, "private") == 0) {
-        clas = ICAL_CLASS_PRIVATE;
-        parser->assign(&p->cl, &clas);
-    }
-    return 0;
-}
-int parse_status(struct prop_parser *parser, struct parser_param *p,
-        const char *val) {
-    enum icalproperty_status status = ICAL_STATUS_NONE;
-    if (strcmp(val, "1") == 0) {
-        status = ICAL_STATUS_COMPLETED;
-        parser->assign(&p->cl, &status);
-    }
-    return 0;
-}
-int parse_event_status(struct prop_parser *parser, struct parser_param *p,
-        const char *val) {
-    enum icalproperty_status status = ICAL_STATUS_NONE;
-    if (strcmp(val, "tentative") == 0) status = ICAL_STATUS_TENTATIVE;
-    if (strcmp(val, "confirmed") == 0) status = ICAL_STATUS_CONFIRMED;
-    if (strcmp(val, "cancelled") == 0) status = ICAL_STATUS_CANCELLED;
-
-    parser->assign(&p->cl, &status);
-    return 0;
-}
-int parse_recurrence_id(struct prop_parser *parser, struct parser_param *p,
-        const char *val) {
-    time_t res = atol(val);
-    if (res <= 0) return -1;
-    parser->assign(&p->cl, &res);
-    return 0;
-}
-
-/* assignment functions */
-static void assign_event_summary(parse_cl *cl, void *val) {
-    cl->ev->summary = (char *)val; }
-static void assign_event_uid(parse_cl *cl, void *val) {
-    *cl->uid_ptr = (char *)val; }
-static void assign_event_location(parse_cl *cl, void *val) {
-    cl->ev->location = (char *)val; }
-static void assign_event_desc(parse_cl *cl, void *val) {
-    cl->ev->desc = (char *)val; }
-static void assign_event_start(parse_cl *cl, void *val) {
-    cl->ev->start = *(struct date*)val; }
-static void assign_event_end(parse_cl *cl, void *val) {
-    cl->ev->end = *(struct date*)val; }
-static void assign_event_class(parse_cl *cl, void *val) {
-    cl->ev->clas = *(enum icalproperty_class*)val; }
-static void assign_event_status(parse_cl *cl, void *val) {
-    cl->ev->status = *(enum icalproperty_status*)val; }
-static void assign_event_color_str(parse_cl *cl, void *val) {
-    if (val) {
-        cl->ev->color = lookup_color((char *)val);
-        if (cl->ev->color) cl->ev->color_str = (char *)val;
-        else cl->ev->color_str = NULL;
+static void print_time_prop(char *buf, size_t size, struct simple_date sd) {
+    if (sd.year == -1) {
+        buf[0] = '\0';
     } else {
-        cl->ev->color_str = NULL;
+        snprintf(buf, size, "%04d-%02d-%02d %02d:%02d",
+            sd.year, sd.month, sd.day, sd.hour, sd.minute);
     }
 }
-static void assign_event_recurrence_id(parse_cl *cl, void *val) {
-    *cl->recurrence_id = *(time_t*)val; }
-
-static void assign_todo_summary(parse_cl *cl, void *val) {
-    cl->td->summary = (char*)val; }
-static void assign_todo_uid(parse_cl *cl, void *val) {
-    cl->td->uid = (char*)val; }
-static void assign_todo_desc(parse_cl *cl, void *val) {
-    cl->td->desc = (char*)val; }
-static void assign_todo_start(parse_cl *cl, void *val) {
-    cl->td->start = *(struct date*)val; }
-static void assign_todo_due(parse_cl *cl, void *val) {
-    cl->td->due = *(struct date*)val; }
-static void assign_todo_class(parse_cl *cl, void *val) {
-    cl->td->clas = *(enum icalproperty_class*)val; }
-static void assign_todo_status(parse_cl *cl, void *val) {
-    cl->td->status = *(enum icalproperty_status*)val; }
-
-
-static struct prop_parser event_parsers[] = {
-    { "uid", &parse_identity, &assign_event_uid },
-    { "summary", &parse_identity, &assign_event_summary },
-    { "location", &parse_identity, &assign_event_location },
-    { "desc", &parse_identity, &assign_event_desc },
-    { "color", &parse_identity, &assign_event_color_str },
-    { "start", &parse_datetime, &assign_event_start },
-    { "end", &parse_datetime, &assign_event_end },
-    { "class", &parse_class, &assign_event_class },
-    { "status", &parse_event_status, &assign_event_status },
-    { "instance", &parse_recurrence_id, &assign_event_recurrence_id },
-    { "delete", &parse_delete, NULL },
-    { NULL, NULL, NULL }
-};
-
-static struct prop_parser todo_parsers[] = {
-    { "uid", &parse_identity, &assign_todo_uid },
-    { "summary", &parse_identity, &assign_todo_summary },
-    { "desc", &parse_identity, &assign_todo_desc },
-    { "start", &parse_datetime, &assign_todo_start },
-    { "due", &parse_datetime, &assign_todo_due },
-    { "class", &parse_class, &assign_todo_class },
-    { "status", &parse_status, &assign_todo_status },
-    { "delete", &parse_delete, NULL },
-    { NULL, NULL, NULL }
-};
-
-static char *trim_start(char *s) {
-    while (isspace(*s)) s++;
-    return s;
-}
-
-static char* parse_prop(char *buf, const char *name) {
-    int l = strlen(name);
-    if (strncmp(name, buf, l) == 0) {
-        char *c = strchr(buf + l, ':');
-        if (!c) return NULL;
-        return trim_start(c + 1);
+static const char * status_str(enum icalproperty_status v) {
+    switch (v) {
+    case ICAL_STATUS_TENTATIVE: return "tentative";
+    case ICAL_STATUS_CONFIRMED: return "confirmed";
+    case ICAL_STATUS_CANCELLED: return "cancelled";
+    case ICAL_STATUS_COMPLETED: return "completed";
+    case ICAL_STATUS_NEEDSACTION: return "needs-action";
+    default: return "";
     }
-    return NULL;
 }
-
-static int parse(FILE *f, struct prop_parser *parsers,
-        struct parser_param *params) {
-    char buf[1024], *p;
-    int len;
-    while (get_line(f, buf, 1024, &len) >= 0) {
-        if (len <= 0 || buf[0] == '#') continue;
-        for (int i = 0; parsers[i].key; ++i) {
-            if (p = parse_prop(buf, parsers[i].key)) {
-                if (parsers[i].parse(&parsers[i], params, p) < 0) {
-                    return -1;
-                }
-            }
-        }
+static const char * class_str(enum icalproperty_class v) {
+    switch (v) {
+    case ICAL_CLASS_PRIVATE: return "private";
+    case ICAL_CLASS_PUBLIC: return "public";
+    default: return "";
     }
-    return 0;
 }
-
-int parse_event_template(FILE *f, struct event *ev, icaltimezone *zone,
-        bool *del, char **uid_ptr, time_t *recurrence_id) {
-    init_event(ev);
-    *del = false;
-    struct parser_param params = {
-        .cl = (parse_cl){
-            .ev = ev,
-            .uid_ptr = uid_ptr,
-            .recurrence_id = recurrence_id
-        },
-        .zone = zone,
-        .del = false
-    };
-    if (parse(f, event_parsers, &params) < 0) {
-        return -1;
+static void print_literal(FILE *f, const char *key, char *val) {
+    if (val) {
+        fprintf(f, "%s `%s`\n", key, val);
+    } else {
+        fprintf(f, "#%s\n", key);
     }
-    *del = params.del;
-    return 0;
 }
 
-int parse_todo_template(FILE *f, struct todo *td, icaltimezone *zone,
-        bool *del) {
-    init_todo(td);
-    *del = false;
-    struct parser_param params = {
-        .cl = (parse_cl){ .td = td },
-        .zone = zone,
-        .del = false
-    };
-    if (parse(f, todo_parsers, &params) < 0) {
-        return -1;
-    }
-    *del = params.del;
-    return 0;
-}
+static const char *event_usage =
+    "# USAGE:\n"
+    "# status tentative/confirmed/cancelled\n"
+    "# class public/private\n"
+    "# summary/location/desc/color `...`\n";
+static const char *todo_usage =
+    "# USAGE:\n"
+    "# status completed/needs-action\n"
+    "# class public/private\n"
+    "# summary/location/desc/color `...`\n";
 
-/* template creation */
-static void print_time_prop(FILE *f, const struct tm *tim) {
-    fprintf(f, "%04d-%02d-%02d %02d:%02d", tim->tm_year + 1900,
-            tim->tm_mon + 1, tim->tm_mday, tim->tm_hour, tim->tm_min);
-}
+
 void print_event_template(FILE *f, struct event *ev, const char *uid,
-        time_t recurrence_id) {
-    fprintf(f, "summary: %s\n", ev->summary ? ev->summary : "");
-    fprintf(f, "start: ");
-    print_time_prop(f, &ev->start.local_time);
-    fprintf(f, "\nend: ");
-    print_time_prop(f, &ev->end.local_time);
-    fprintf(f, "\nlocation: %s\n", ev->location ? ev->location : "");
-    fprintf(f, "desc: %s\n", ev->desc ? ev->desc : "");
-    fprintf(f, "color: %s\n", ev->color_str ? ev->color_str : "");
-    fprintf(f, "class: %s\n", ev->clas == ICAL_CLASS_PRIVATE ? "private" : "");
-    const char *s_status;
-    switch (ev->status) {
-    case ICAL_STATUS_TENTATIVE: s_status = "tentative"; break;
-    case ICAL_STATUS_CONFIRMED: s_status = "confirmed"; break;
-    case ICAL_STATUS_CANCELLED: s_status = "cancelled"; break;
-    default: s_status = ""; break;
-    }
-    fprintf(f, "# status: tentative / confirmed / cancelled\n");
-    fprintf(f, "status: %s\n", s_status);
+        time_t recurrence_id, icaltimezone *zone) {
+    struct simple_date
+        start_sd = simple_date_from_timet(ev->start.timestamp, zone),
+        end_sd = simple_date_from_timet(ev->end.timestamp, zone);
+    char start[32], end[32];
+    print_time_prop(start, 32, start_sd);
+    print_time_prop(end, 32, end_sd);
+
+    fprintf(f, "update event\n");
+    print_literal(f, "summary", ev->summary);
+    fprintf(f, "start %s\n", start);
+    fprintf(f, "end %s\n", end);
+    print_literal(f, "location", ev->location);
+    print_literal(f, "desc", ev->desc);
+    print_literal(f, "color", ev->color_str);
+    fprintf(f, "#class %s\n", class_str(ev->clas));
+    fprintf(f, "#status %s\n", status_str(ev->status));
     if (recurrence_id != -1) {
-        fprintf(f, "# instance: %ld\n", recurrence_id);
+        fprintf(f, "#instance: `%ld`\n", recurrence_id);
     }
     if (uid) {
-        fprintf(f, "uid: %s\n", uid);
+        fprintf(f, "uid `%s`\n", uid);
     }
-    fprintf(f, "delete: \n");
+    fprintf(f, "%s", event_usage);
 }
-void print_todo_template(FILE *f, const struct todo *td) {
-    fprintf(f, "summary: %s\n", td->summary ? td->summary : "");
-    fprintf(f, "status: %s\n", td->status == ICAL_STATUS_COMPLETED ? "1" : "0");
-    fprintf(f, "due: ");
-    print_time_prop(f, &td->due.local_time);
-    fprintf(f, "\n# start: ");
-    print_time_prop(f, &td->start.local_time);
-    fprintf(f, "\ndesc: %s\n", td->desc ? td->desc : "");
-    fprintf(f, "class: %s\n", td->clas == ICAL_CLASS_PRIVATE ? "private" : "");
+void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
+    struct simple_date
+        start_sd = simple_date_from_timet(td->start.timestamp, zone),
+        due_sd = simple_date_from_timet(td->due.timestamp, zone);
+    char start[32], due[32];
+    print_time_prop(start, 32, start_sd);
+    print_time_prop(due, 32, due_sd);
+
+    fprintf(f, "update todo\n");
+    print_literal(f, "summary", td->summary);
+    fprintf(f, "#status %s\n", status_str(td->status));
+    fprintf(f, "#due %s\n", due);
+    fprintf(f, "#start %s\n", start);
+    print_literal(f, "desc", td->desc);
+    fprintf(f, "#class %s\n", class_str(td->clas));
     if (td->uid) {
-        fprintf(f, "uid: %s\n", td->uid);
+        fprintf(f, "uid `%s`\n", td->uid);
     }
-    fprintf(f, "delete: \n");
+    fprintf(f, "%s", todo_usage);
+}
+
+void print_new_event_template(FILE *f, icaltimezone *zone) {
+    char start[32];
+    struct simple_date now = simple_date_now(zone);
+    snprintf(start, 32, "%04d-%02d-%02d", now.year, now.month, now.day);
+
+    fprintf(f,
+        "create event\n"
+        "summary\n"
+        "start %s\n"
+        "end \n"
+        "#location\n"
+        "#desc\n"
+        "#color\n"
+        "#class\n"
+        "#status\n"
+        "#calendar\n"
+        "%s"
+        "# calendar 1/2/...\n",
+        start,
+        event_usage
+    );
+}
+void print_new_todo_template(FILE *f, icaltimezone *zone) {
+    char start[32];
+    struct simple_date now = simple_date_now(zone);
+    snprintf(start, 32, "%04d-%02d-%02d", now.year, now.month, now.day);
+
+    fprintf(f,
+        "create todo\n"
+        "summary\n"
+        "#status\n"
+        "#due %s\n"
+        "#start %s\n"
+        "#desc\n"
+        "#class\n"
+        "#calendar\n"
+        "%s"
+        "# calendar 1/2/...\n",
+        start, start,
+        todo_usage
+    );
+}
+
+void init_edit_spec(struct edit_spec *es) {
+    init_event(&es->ev);
+    init_event(&es->rem_ev);
+
+    init_todo(&es->td);
+    init_todo(&es->rem_td);
+
+    es->calendar_uid = NULL;
+    es->calendar_num = -1;
+    es->uid = NULL;
+    es->recurrence_id = -1;
+}
+
+int check_edit_spec(struct edit_spec *es) {
+    if (!es->uid) return -1;
+    if (es->type == COMP_TYPE_EVENT) {
+        if (es->ev.start.timestamp >= es->ev.end.timestamp) return -1;
+    } else if (es->type == COMP_TYPE_TODO) {
+
+    } else {
+        return -1;
+    }
+    return 0;
+}
+
+void assign_str(char **dst, char *src, char *rem) {
+    if (rem) {
+        free(*dst);
+        *dst = NULL;
+    } else if (src) {
+        free(*dst);
+        *dst = str_dup(src);
+    }
+}
+void assign_date(struct date *dst, struct date src, struct date rem) {
+    if (rem.timestamp != -1) {
+        dst->timestamp = -1;
+    } else if (src.timestamp != -1) {
+        dst->timestamp = src.timestamp;
+    }
+}
+void assign_event_props(struct event *dst, struct event *src,
+        struct event *rem) {
+    // DEP: struct event
+    assign_str(&dst->summary, src->summary, rem->summary);
+    assign_date(&dst->start, src->start, rem->start);
+    assign_date(&dst->end, src->end, rem->end);
+    assign_str(&dst->color_str, src->color_str, rem->color_str);
+    assign_str(&dst->location, src->location, rem->location);
+    assign_str(&dst->desc, src->desc, rem->desc);
+    if (rem->status != ICAL_STATUS_NONE) {
+        dst->status = ICAL_STATUS_NONE;
+    } else if (src->status != ICAL_STATUS_NONE) {
+        dst->status = src->status;
+    }
+    if (rem->clas != ICAL_CLASS_NONE) {
+        dst->clas = ICAL_CLASS_NONE;
+    } else if (src->clas != ICAL_CLASS_NONE) {
+        dst->clas = src->clas;
+    }
+    // all_day is ignored, since it is not nullable
+}
+void assign_todo_props(struct todo *dst, struct todo *src, struct todo *rem) {
+    // DEP: struct todo
+    // don't touch uid
+    assign_str(&dst->summary, src->summary, rem->summary);
+    assign_str(&dst->desc, src->desc, rem->desc);
+    assign_date(&dst->start, src->start, rem->start);
+    assign_date(&dst->due, src->due, rem->due);
+    if (rem->status != ICAL_STATUS_NONE) {
+        dst->status = ICAL_STATUS_NONE;
+    } else if (src->status != ICAL_STATUS_NONE) {
+        dst->status = src->status;
+    }
+    if (rem->clas != ICAL_CLASS_NONE) {
+        dst->clas = ICAL_CLASS_NONE;
+    } else if (src->clas != ICAL_CLASS_NONE) {
+        dst->clas = src->clas;
+    }
+}
+
+static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
+    int res;
+    if (es->type == COMP_TYPE_EVENT) {
+        struct event_recur_set *ers;
+        assert(es->uid, "no uid in edit_spec");
+        res = hashmap_get(cal->event_sets, es->uid, (void**)&ers);
+        switch (es->method) {
+        case EDIT_METHOD_UPDATE:
+            assert(res == MAP_OK, "not found");
+            assign_event_props(&ers->base, &es->ev, &es->rem_ev);
+            event_update_derived(&ers->base);
+            fprintf(stderr, "[editor memory] updated event %s\n", es->uid);
+            break;
+        case EDIT_METHOD_CREATE:
+            assert(res == MAP_MISSING, "creating, but found");
+            ers = new_event_recur_set(es->uid, 0);
+            copy_event(&ers->base, &es->ev);
+            event_update_derived(&ers->base);
+            res = hashmap_put(cal->event_sets, ers->uid, ers);
+            assert(res == MAP_OK, "failed to put");
+            fprintf(stderr, "[editor memory] created event %s\n", es->uid);
+            break;
+        case EDIT_METHOD_DELETE:
+            assert(res == MAP_OK, "deleting, but not found");
+            res = hashmap_remove(cal->event_sets, es->uid);
+            assert(res == MAP_OK, "deleting error");
+            free_event_recur_set(ers);
+            fprintf(stderr, "[editor memory] deleted event %s\n", es->uid);
+            break;
+        default:
+            assert(false, "");
+            break;
+        };
+    } else if (es->type == COMP_TYPE_TODO) {
+        struct todo *td;
+        res = hashmap_get(cal->todos, es->uid, (void**)&td);
+        switch (es->method) {
+        case EDIT_METHOD_UPDATE:
+            assert(res == MAP_OK, "todo not found");
+            assign_todo_props(td, &es->td, &es->rem_td);
+            fprintf(stderr, "[editor memory] updated todo %s\n", es->uid);
+            break;
+        case EDIT_METHOD_CREATE:
+            assert(res == MAP_MISSING, "todo found");
+            assert(es->uid, "uid missing");
+            struct todo *new_td = malloc_check(sizeof(struct todo));
+            copy_todo(new_td, &es->td);
+            new_td->uid = str_dup(es->uid);
+            hashmap_put(cal->todos, new_td->uid, new_td);
+            fprintf(stderr, "[editor memory] created todo %s\n", es->uid);
+            break;
+        case EDIT_METHOD_DELETE:
+            assert(res == MAP_OK, "todo not found");
+            res = hashmap_remove(cal->todos, es->uid);
+            assert(res == MAP_OK, "failed to remove");
+            destruct_todo(td);
+            free(td);
+            fprintf(stderr, "[editor memory] deleted todo %s\n", es->uid);
+            break;
+        default:
+            assert(false, "");
+            break;
+        }
+    } else {
+        assert(false, "");
+    }
+}
+
+
+static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
+    if (es->type == COMP_TYPE_EVENT) {
+        // DEP: struct event
+        if (es->ev.summary) {
+            icalcomponent_set_summary(c, es->ev.summary);
+        }
+        if (es->rem_ev.summary) {
+            assert(false, "don't remove summary property!");
+            icalcomponent_remove_properties(c, ICAL_SUMMARY_PROPERTY);
+        }
+
+        if (es->ev.start.timestamp != -1) {
+            icalcomponent_set_dtstart(c,
+                    icaltime_from_timet_with_zone(es->ev.start.timestamp, 0,
+                        icaltimezone_get_utc_timezone()));
+        }
+        if (es->rem_ev.start.timestamp != -1) {
+            assert(false, "don't remove start property!");
+            icalcomponent_remove_properties(c, ICAL_DTSTART_PROPERTY);
+        }
+
+        if (es->ev.end.timestamp != -1) {
+            icalcomponent_set_dtend(c,
+                    icaltime_from_timet_with_zone(es->ev.end.timestamp, 0,
+                        icaltimezone_get_utc_timezone()));
+        }
+        if (es->rem_ev.end.timestamp != -1) {
+            assert(false, "don't remove end property!");
+            icalcomponent_remove_properties(c, ICAL_DTEND_PROPERTY);
+        }
+
+        if (es->ev.color_str) {
+            icalcomponent_set_color(c, es->ev.color_str);
+        }
+        if (es->rem_ev.color_str) {
+            icalcomponent_remove_properties(c, ICAL_COLOR_PROPERTY);
+        }
+
+        if (es->ev.location) {
+            icalcomponent_set_location(c, es->ev.location);
+        }
+        if (es->rem_ev.location) {
+            icalcomponent_remove_properties(c, ICAL_LOCATION_PROPERTY);
+        }
+
+        if (es->ev.desc) {
+            icalcomponent_set_description(c, es->ev.desc);
+        }
+        if (es->rem_ev.desc) {
+            icalcomponent_remove_properties(c, ICAL_DESCRIPTION_PROPERTY);
+        }
+
+        if (es->ev.status != ICAL_STATUS_NONE) {
+            icalcomponent_set_status(c, es->ev.status);
+        }
+        if (es->rem_ev.status != ICAL_STATUS_NONE) {
+            icalcomponent_remove_properties(c, ICAL_STATUS_PROPERTY);
+        }
+
+        if (es->ev.clas != ICAL_CLASS_NONE) {
+            icalcomponent_set_class(c, es->ev.clas);
+        }
+        if (es->rem_ev.clas != ICAL_CLASS_NONE) {
+            icalcomponent_remove_properties(c, ICAL_CLASS_PROPERTY);
+        }
+    } else if (es->type == COMP_TYPE_TODO) {
+        // DEP: struct todo
+
+        if (es->td.summary) {
+            icalcomponent_set_summary(c, es->td.summary);
+        }
+        if (es->rem_td.summary) {
+            assert(false, "don't remove summary property!");
+            icalcomponent_remove_properties(c, ICAL_SUMMARY_PROPERTY);
+        }
+
+        if (es->td.desc) {
+            icalcomponent_set_description(c, es->td.desc);
+        }
+        if (es->rem_td.desc) {
+            icalcomponent_remove_properties(c, ICAL_DESCRIPTION_PROPERTY);
+        }
+
+        if (es->td.start.timestamp != -1) {
+            icalcomponent_set_dtstart(c,
+                    icaltime_from_timet_with_zone(es->td.start.timestamp, 0,
+                        icaltimezone_get_utc_timezone()));
+        }
+        if (es->rem_td.start.timestamp != -1) {
+            icalcomponent_remove_properties(c, ICAL_DTSTART_PROPERTY);
+        }
+
+        if (es->td.due.timestamp != -1) {
+            icalcomponent_set_due(c,
+                    icaltime_from_timet_with_zone(es->td.due.timestamp, 0,
+                        icaltimezone_get_utc_timezone()));
+        }
+        if (es->rem_td.due.timestamp != -1) {
+            icalcomponent_remove_properties(c, ICAL_DUE_PROPERTY);
+        }
+
+        if (es->td.status != ICAL_STATUS_NONE) {
+            icalcomponent_set_status(c, es->td.status);
+        }
+        if (es->rem_td.status != ICAL_STATUS_NONE) {
+            icalcomponent_remove_properties(c, ICAL_STATUS_PROPERTY);
+        }
+
+        if (es->td.clas != ICAL_CLASS_NONE) {
+            icalcomponent_set_class(c, es->td.clas);
+        }
+        if (es->rem_td.clas != ICAL_CLASS_NONE) {
+            icalcomponent_remove_properties(c, ICAL_CLASS_PROPERTY);
+        }
+    } else {
+        assert(false, "");
+    }
+    icalcomponent_set_uid(c, es->uid);
+}
+
+static int apply_to_storage(struct edit_spec *es, struct calendar *cal) {
+    /* check if storage is directory */
+    struct stat sb;
+    FILE *f;
+    char *result;
+    char *path_base = cal->storage;
+    assert(stat(path_base, &sb) == 0, "stat");
+    assert(S_ISDIR(sb.st_mode), "saving to non-dir calendar not supported");
+
+    /* construct the path to the specific .ics file */
+    char path[1024];
+    assert(strlen(es->uid) >= 32, "uid sanity check");
+    snprintf(path, 1024, "%s/%s.ics", path_base, es->uid);
+
+    enum icalcomponent_kind type;
+    if (es->type == COMP_TYPE_EVENT) type = ICAL_VEVENT_COMPONENT;
+    else if (es->type == COMP_TYPE_TODO) type = ICAL_VTODO_COMPONENT;
+    else assert(false, "");
+
+    switch(es->method) {
+    case EDIT_METHOD_DELETE:
+        if (unlink(path) < 0) {
+            fprintf(stderr, "[editor storage] deletion failed\n");
+            return -1;
+        }
+        fprintf(stderr, "[editor storage] deleted %s\n", path);
+        return 0;
+        break;
+    case EDIT_METHOD_UPDATE:
+        if (access(path, F_OK) != 0) {
+            fprintf(stderr, "[editor storage] can't access existing file\n");
+            return -1;
+        }
+
+        /* load and parse the file */
+        f = fopen(path, "r");
+        icalcomponent *root = libical_component_from_file(f);
+        fclose(f);
+
+        /* find the specific component we are interested in, using the uid */
+        icalcomponent *c = icalcomponent_get_first_component(root, type);
+        while (c) {
+            const char *c_uid = icalcomponent_get_uid(c);
+            if (strcmp(c_uid, es->uid) == 0) { // found it
+                /* populate component with new values */
+                es_to_comp(es, c);
+                break;
+            }
+            c = icalcomponent_get_next_component(root, type);
+        }
+
+        /* serialize and write back the component */
+        result = icalcomponent_as_ical_string(root);
+        fprintf(stderr, "[editor storage] writing existing %s\n", path);
+        f = fopen(path, "w");
+        fputs(result, f);
+        fclose(f);
+        icalcomponent_free(root);
+
+        return 0;
+        break;
+    case EDIT_METHOD_CREATE:
+        ;
+        /* create the component */
+        icalcomponent *comp = icalcomponent_new(type);
+        es_to_comp(es, comp);
+        /* create a frame, serialize, and save to file */
+        icalcomponent *calendar = icalcomponent_vanew(
+            ICAL_VCALENDAR_COMPONENT,
+            icalproperty_new_version("2.0"),
+            icalproperty_new_prodid("-//ABC Corporation//gui_calendar//EN"),
+            comp,
+            NULL
+        );
+        result = icalcomponent_as_ical_string(calendar);
+        fprintf(stderr, "[editor storage] writing new %s\n", path);
+        f = fopen(path, "w");
+        fputs(result, f);
+        fclose(f);
+        icalcomponent_free(calendar);
+
+        return 0;
+    default:
+        assert(false, "");
+        break;
+    }
+    assert(false, "");
+    return 0;
+}
+
+int apply_edit_spec_to_calendar(struct edit_spec *es, struct calendar *cal) {
+    assert(es->uid, "uid");
+    fprintf(stderr, "[editor] saving %s\n", es->uid);
+    if (apply_to_storage(es, cal) != 0) return -1;
+    apply_to_memory(es, cal);
+    return 0;
 }

@@ -3,6 +3,7 @@
 #include "calendar.h"
 #include "backend.h"
 #include "pango.h"
+#include "datetime.h"
 
 struct calendar_info {
     bool visible;
@@ -17,6 +18,7 @@ struct event_tag {
 struct active_event {
     struct event_recur_set *ers;
     struct date start, end;
+    struct simple_date local_start, local_end;
     struct event *ev;
     struct event_tag tag;
 };
@@ -66,7 +68,6 @@ struct state {
 
     struct subprocess_handle *sp;
     struct calendar *sp_calendar;
-    enum icalcomponent_kind sp_type;
 
     const char **editor;
     char mode_select_code[33];

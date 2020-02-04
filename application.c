@@ -8,6 +8,7 @@
 #include "keyboard.h"
 #include "backend.h"
 #include "render.h"
+#include "editor.h"
 
 struct state state = { 0 };
 
@@ -43,25 +44,45 @@ static void switch_mode_select() {
 static void print_event_template_callback(void *cl, FILE *f) {
     struct active_event *aev = cl;
     print_event_template(f, &aev->ers->base, aev->ers->uid,
-            aev->start.timestamp);
+            aev->start.timestamp, state.zone->impl);
 }
 static void print_todo_template_callback(void *ud, FILE *f) {
-    print_todo_template(f, (struct todo *)ud);
+    print_todo_template(f, (struct todo *)ud, state.zone->impl);
+}
+static void print_new_event_template_callback(void *cl, FILE *f) {
+    print_new_event_template(f, state.zone->impl);
+}
+static void print_new_todo_template_callback(void *cl, FILE *f) {
+    print_new_todo_template(f, state.zone->impl);
 }
 static void launch_event_editor(struct active_event *aev) {
     if (!state.sp) {
         state.sp_calendar = aev->tag.cal;
-        state.sp_type = ICAL_VEVENT_COMPONENT;
         state.sp = subprocess_new_input(state.editor[0],
-                state.editor + 1, &print_event_template_callback, (void *)aev);
+            state.editor + 1, &print_event_template_callback, (void *)aev);
     }
 }
 static void launch_todo_editor(struct todo *td, struct calendar *cal) {
     if (!state.sp) {
         state.sp_calendar = cal;
-        state.sp_type = ICAL_VTODO_COMPONENT;
         state.sp = subprocess_new_input(state.editor[0],
-                state.editor + 1, &print_todo_template_callback, (void *)td);
+            state.editor + 1, &print_todo_template_callback, (void *)td);
+    }
+}
+static void launch_new_event_editor() {
+    if (!state.sp) {
+        assert(state.n_cal > 0, "no calendars");
+        state.sp_calendar = &state.cal[0];
+        state.sp = subprocess_new_input(state.editor[0],
+            state.editor + 1, &print_new_event_template_callback, NULL);
+    }
+}
+static void launch_new_todo_editor() {
+    if (!state.sp) {
+        assert(state.n_cal > 0, "no calendars");
+        state.sp_calendar = &state.cal[0];
+        state.sp = subprocess_new_input(state.editor[0],
+            state.editor + 1, &print_new_todo_template_callback, NULL);
     }
 }
 
@@ -131,6 +152,8 @@ static int filter_event_sets(void *cl, void *e_p) {
             .ers = ers,
             .start = date_from_timet(start, state.zone->impl),
             .end = date_from_timet(end, state.zone->impl),
+            .local_start = simple_date_from_timet(start, state.zone->impl),
+            .local_end = simple_date_from_timet(end, state.zone->impl),
             .ev = ev,
             .tag = (struct event_tag){ .cal = f->cal }
         };
@@ -312,7 +335,7 @@ void update_actual_fit() {
     } else {
         int min_sec = state.hours_view_events.from * 3600,
             max_sec = state.hours_view_events.to * 3600;
-        struct tm t = timet_to_tm_with_zone(state.now, state.zone);
+        struct tm t = timet_to_tm_with_zone(state.now, state.zone->impl);
         int now_sec = day_sec(t);
         time_t diff = time(NULL) - state.base;
         if (!(diff > state.view_days * 3600 * 24 || diff < 0)) {
@@ -362,47 +385,26 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             state.dirty = true;
             break;
         case 'l':
-            timet_adjust_days(&state.base, state.zone, state.view_days);
+            timet_adjust_days(&state.base, state.zone->impl, state.view_days);
             update_active_events();
             state.dirty = true;
             break;
         case 'h':
-            timet_adjust_days(&state.base, state.zone, -state.view_days);
+            timet_adjust_days(&state.base, state.zone->impl, -state.view_days);
             update_active_events();
             state.dirty = true;
             break;
         case 't':
-            state.base = get_day_base(state.zone, state.view_days > 1);
+            state.base = get_day_base(state.zone->impl, state.view_days > 1);
             update_active_events();
             state.dirty = true;
             break;
         case 'n':
             if (!state.sp) {
-                time_t now = time(NULL);
-                struct tm t = *gmtime(&now);
-
                 if (state.main_view == VIEW_CALENDAR) {
-
-                    /* bit of a hack constructing this template */
-                    struct active_event template;
-                    struct event_recur_set ers;
-                    ers.uid = NULL;
-                    init_event(&ers.base);
-                    ers.base.start.local_time = t;
-                    ers.base.end.local_time = t;
-                    assert(state.n_cal > 0, "no calendars");
-                    template.tag.cal = &state.cal[0];
-                    template.ers = &ers;
-                    template.start.timestamp = -1;
-
-                    launch_event_editor(&template);
+                    launch_new_event_editor();
                 } else if (state.main_view == VIEW_TODO) {
-                    struct todo template;
-                    init_todo(&template);
-                    template.due.local_time = t;
-                    template.start.local_time = t;
-                    assert(state.n_cal > 0, "no calendars");
-                    launch_todo_editor(&template, &state.cal[0]);
+                    launch_new_todo_editor();
                 }
             }
             break;
@@ -529,40 +531,55 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 
 static void application_handle_child(void *ud, pid_t pid) {
     int res;
-    bool del = false;
     struct calendar *cal = state.sp_calendar;
     FILE *f = subprocess_get_result(&(state.sp), pid);
     if (!state.sp) state.sp_calendar = NULL;
     if (!f) return;
 
-    if (state.sp_type == ICAL_VEVENT_COMPONENT) {
-        struct event ev;
-        char *uid = NULL;
-        time_t recurrence_id = -1;
-        res = parse_event_template(f, &ev, state.zone->impl, &del, &uid,
-                &recurrence_id);
-        if (res >= 0) {
-            res = save_event(ev, &uid, cal, del, recurrence_id);
-            if (uid) free(uid);
+    struct edit_spec es;
+    init_edit_spec(&es);
+    res = parse_edit_template(f, &es, state.zone->impl);
+
+    if (res != 0) {
+        fprintf(stderr, "[editor] can't parse edit template. aborting edit!\n");
+        return;
+    }
+
+    if (es.method == EDIT_METHOD_CREATE) {
+        assert(!es.uid, "uid already exists");
+        char uid_buf[64];
+        generate_uid(uid_buf);
+        es.uid = str_dup(uid_buf);
+    }
+
+    if (check_edit_spec(&es) != 0) {
+        fprintf(stderr, "[editor] edit_spec failed sanity check."
+                "aborting edit!\n");
+        return;
+    }
+
+    if (es.method == EDIT_METHOD_CREATE && es.calendar_num > 0) {
+        if (es.calendar_num >= 1 && es.calendar_num <= state.n_cal) {
+            cal = &state.cal[es.calendar_num - 1];
         }
-        if (res >= 0) {
+    }
+
+    if (!cal) {
+        fprintf(stderr, "[editor] calendar not specified. aborting edit!\n");
+        return;
+    }
+
+    if (apply_edit_spec_to_calendar(&es, cal) == 0) {
+        if (es.type == COMP_TYPE_EVENT) {
             update_active_events();
-            state.dirty = true;
-        } else {
-            fprintf(stderr, "event creation failed\n");
-        }
-    } else if (state.sp_type == ICAL_VTODO_COMPONENT) {
-        struct todo td;
-        res = parse_todo_template(f, &td, state.zone->impl, &del);
-        if (res >= 0) {
-            res = save_todo(td, cal, del);
-        }
-        if (res >= 0) {
+        } else if (es.type == COMP_TYPE_TODO) {
             update_active_todos();
-            state.dirty = true;
         } else {
-            fprintf(stderr, "todo saving failed\n");
+            assert(false, "");
         }
+        state.dirty = true;
+    } else {
+        fprintf(stderr, "[editor] error: could not save edit\n");
     }
 }
 
@@ -619,7 +636,7 @@ int application_main(struct application_options opts, struct backend *backend) {
     state.editor = editor;
 
     state.zone = new_timezone("Europe/Budapest");
-    state.base = get_day_base(state.zone, state.view_days == 7);
+    state.base = get_day_base(state.zone->impl, state.view_days == 7);
 
     for (int i = 0; i < opts.argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];

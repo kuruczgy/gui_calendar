@@ -2,10 +2,9 @@
 #include <string.h>
 #include "calendar.h"
 #include "util.h"
+#include "editor.h"
 
 int main() {
-    struct event ev;
-    bool del = (bool)123;
-    char *uid;
-    parse_event_template(stdin, &ev, NULL, &del, &uid);
+    struct edit_spec es;
+    parse_edit_template(stdin, &es, NULL);
 }

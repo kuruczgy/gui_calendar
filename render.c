@@ -21,8 +21,8 @@ static const char *usage =
 
 static char* natural_date_format(const struct date *d) {
     time_t now = state.now;
-    struct tm t = timet_to_tm_with_zone(now, state.zone);
-    struct tm lt = d->local_time;
+    struct tm t = timet_to_tm_with_zone(now, state.zone->impl);
+    struct tm lt = timet_to_tm_with_zone(d->timestamp, state.zone->impl);
     if (t.tm_year == lt.tm_year && t.tm_yday == lt.tm_yday)
         return text_format("%02d:%02d", lt.tm_hour, lt.tm_min);
     else
@@ -122,8 +122,8 @@ static void render_event(cairo_t *cr, box b, box all_day_b,
         cairo_move_to(cr, x, y);
         state.tr->p.width = w; state.tr->p.height = h - loc_h;
         char *text = text_format("%02d:%02d-%02d:%02d %s",
-                ev->start.local_time.tm_hour, ev->start.local_time.tm_min,
-                ev->end.local_time.tm_hour, ev->end.local_time.tm_min,
+                aev->local_start.hour, aev->local_start.minute,
+                aev->local_end.hour, aev->local_end.minute,
                 ev->summary);
         text_print_free(cr, state.tr, text);
 
@@ -308,7 +308,7 @@ void render_calendar(cairo_t *cr, box b) {
     // draw time marker red line
     cairo_translate(cr, time_strip_w, top_strip_h);
     time_t now = state.now;
-    struct tm t = timet_to_tm_with_zone(now, state.zone);
+    struct tm t = timet_to_tm_with_zone(now, state.zone->impl);
     int now_sec = day_sec(t);
     int interval_sec = (r.to - r.from) * 3600;
     int day_sec = 24 * 3600;
@@ -435,7 +435,7 @@ bool render_application(void *ud, cairo_t *cr) {
     if (state.n_cal > 0) {
         cairo_move_to(cr, 0, 0);
 
-        struct tm t = timet_to_tm_with_zone(state.now, state.zone);
+        struct tm t = timet_to_tm_with_zone(state.now, state.zone->impl);
         char *text = text_format(
                 "%s\rframe %d\r%02d:%02d:%02d\rmode: %s",
                 get_timezone_desc(state.zone),

@@ -34,7 +34,9 @@ incdir = include_directories('include')
 sources = [
   'util.c',
   'calendar.c',
+  'datetime.c',
   'editor.c',
+  'editor_parser.c',
   'pango.c',
   'subprocess.c',
   'colors.c',
