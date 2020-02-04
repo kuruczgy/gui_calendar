@@ -310,7 +310,9 @@ static void update_active_todos() {
     /* count the matching todos */
     struct todo_filterer f = { .n = 0 };
     for (int i = 0; i < state.n_cal; ++i) {
-        hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
+        if (state.cal_info[i].visible) {
+            hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
+        }
     }
     int n = f.n;
 
@@ -322,8 +324,10 @@ static void update_active_todos() {
     /* populate the data structures */
     f.n = 0;
     for (int i = 0; i < state.n_cal; ++i) {
-        f.cal = &state.cal[i];
-        hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
+        if (state.cal_info[i].visible) {
+            f.cal = &state.cal[i];
+            hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
+        }
     }
     assert(n == f.n, "todo count mismatch");
     priority_sort_todos(state.active_todos, state.active_todo_n);
@@ -437,6 +441,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                 if (n < state.n_cal) {
                     state.cal_info[n].visible = ! state.cal_info[n].visible;
                     update_active_events();
+                    update_active_todos();
                     state.dirty = true;
                 }
             } else if (mods & 1) { /* shift modifier */
