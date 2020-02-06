@@ -167,15 +167,11 @@ void event_update_derived(struct event *ev) {
     }
 }
 
-static int todo_cmp(const void *pa, const void *pb) {
-    struct todo *a = *(struct todo**)pa, *b = *(struct todo**)pb;
+int todo_priority_cmp(const struct todo *a, const struct todo *b) {
     if (a->due.timestamp > 0 || b->due.timestamp > 0) {
         if (a->due.timestamp < 0) return 1;
         else if (b->due.timestamp < 0) return -1;
         return a->due.timestamp - b->due.timestamp;
     }
     return 0;
-}
-void priority_sort_todos(struct todo **todos, int n) {
-    qsort(todos, n, sizeof(struct todo*), todo_cmp);
 }

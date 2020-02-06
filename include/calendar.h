@@ -113,7 +113,8 @@ void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v);
 void icalcomponent_set_color(icalcomponent *c, const char *v);
 void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind);
 
-void priority_sort_todos(struct todo **todos, int n);
+/* provides a partial ordering over todos */
+int todo_priority_cmp(const struct todo *a, const struct todo *b);
 
 /* subprocess stuff */
 struct subprocess_handle;

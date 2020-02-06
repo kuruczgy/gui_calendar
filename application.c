@@ -276,6 +276,11 @@ static void update_active_events() {
     update_actual_fit();
 }
 
+static int todo_tag_cmp(const void *pa, const void *pb) {
+    const struct todo_tag *a = pa, *b = pb;
+    return todo_priority_cmp(a->td, b->td);
+}
+
 struct todo_filterer {
     int n;
     struct calendar *cal;
@@ -330,7 +335,10 @@ static void update_active_todos() {
         }
     }
     assert(n == f.n, "todo count mismatch");
-    priority_sort_todos(state.active_todos, state.active_todo_n);
+    qsort(state.active_todos_tag, state.active_todo_n,
+            sizeof(struct todo_tag), &todo_tag_cmp);
+    for (int i = 0; i < state.active_todo_n; ++i)
+        state.active_todos[i] = state.active_todos_tag[i].td;
 }
 
 void update_actual_fit() { 
