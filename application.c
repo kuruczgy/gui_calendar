@@ -429,6 +429,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                 state.cal_info[i].visible = state.cal_default_visible[i];
             }
             update_active_events();
+            update_active_todos();
             state.dirty = true;
             break;
         case 'r':
