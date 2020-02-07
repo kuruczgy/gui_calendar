@@ -26,6 +26,7 @@ void assert(bool, const char *);
 
 char *str_dup(const char *s);
 int get_line(FILE *f, char *buf, int s, int *n);
+void trim_end(char *s);
 
 time_t min(time_t a, time_t b);
 time_t max(time_t a, time_t b);

@@ -164,7 +164,7 @@ static void render_sidebar(cairo_t *cr, box b) {
         if (!state.show_private_events && state.cal[i].priv) continue;
 
         char *text = text_format("%i: %s", i + 1, name);
-        state.tr->p.width = b.w;
+        state.tr->p.width = b.w; state.tr->p.height = -1;
         text_get_size(cr, state.tr, text);
         int height = state.tr->p.height;
 

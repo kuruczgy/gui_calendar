@@ -665,6 +665,7 @@ int application_main(struct application_options opts, struct backend *backend) {
 
         /* set metadata */
         if (!cal->name) cal->name = str_dup(cal->storage);
+        trim_end(cal->name);
 
         /* calculate most frequent color */
         const char *fc = most_frequent(

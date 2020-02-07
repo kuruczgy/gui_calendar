@@ -2,12 +2,13 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/random.h>
 #include "util.h"
 
-// Most of this is from the weston examples
+/* start weston section: most of this is from the weston examples */
 
 int
 os_fd_set_cloexec(int fd)
@@ -82,9 +83,12 @@ os_create_anonymous_file(off_t size)
     return fd;
 }
 
+/* end weston section */
 
 time_t min(time_t a, time_t b) { return a < b ? a : b; }
 time_t max(time_t a, time_t b) { return a < b ? b : a; }
+
+/* string handling stuff */
 
 char *str_dup(const char *s) {
     if (!s) return NULL;
@@ -108,6 +112,13 @@ int get_line(FILE *f, char *buf, int s, int *n) {
         ++i;
     }
     return -1;
+}
+
+void trim_end(char *s) {
+    assert(s, "trim_end NULL");
+    int i = strlen(s);
+    while (i > 0 && isspace(s[i - 1])) --i;
+    s[i] = '\0';
 }
 
 void generate_uid(char buf[64]) {
