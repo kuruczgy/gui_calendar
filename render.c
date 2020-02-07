@@ -223,7 +223,7 @@ static void render_header(cairo_t *cr, box b) {
     }
     cairo_stroke(cr);
 
-    char *days[] = { "H", "K", "Sze", "Cs", "P", "Szo", "V" };
+    char *days[] = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
     char buf[64];
     for (int i = 0; i < num_days; i++) {
         time_t time_off = state.base + 3600 * 24 * i;
