@@ -276,6 +276,24 @@ static void update_active_events() {
     update_actual_fit();
 }
 
+/* provides a partial ordering over todos */
+static int todo_priority_cmp(const struct todo *a, const struct todo *b) {
+    /* -1: a first, 1: b first, 0: equal */
+    bool a_started = a->start.timestamp == -1
+        || a->start.timestamp <= state.now;
+    bool b_started = b->start.timestamp == -1
+        || b->start.timestamp <= state.now;
+    if (a_started && !b_started) {
+        return -1;
+    } else if (b_started && !a_started) {
+        return 1;
+    } else if (a->due.timestamp > 0 || b->due.timestamp > 0) {
+        if (a->due.timestamp < 0) return 1;
+        else if (b->due.timestamp < 0) return -1;
+        return a->due.timestamp - b->due.timestamp;
+    }
+    return 0;
+}
 static int todo_tag_cmp(const void *pa, const void *pb) {
     const struct todo_tag *a = pa, *b = pb;
     return todo_priority_cmp(a->td, b->td);
@@ -614,7 +632,8 @@ int application_main(struct application_options opts, struct backend *backend) {
         .active_event_layouts = NULL,
         .active_todos = NULL,
         .show_private_events = false,
-        .keystate = KEYSTATE_BASE
+        .keystate = KEYSTATE_BASE,
+        .now = time(NULL)
     };
 
     state.view_days = opts.view_days;

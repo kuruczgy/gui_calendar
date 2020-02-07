@@ -19,15 +19,33 @@ static const char *usage =
     " +/-: inc./dec. vertical scale\r"
     " up/down: move 1 hour up/down\r";
 
+static bool same_day(struct simple_date a, struct simple_date b) {
+    return
+        a.year == b.year &&
+        a.month == b.month &&
+        a.day == b.day;
+}
+
 static char* natural_date_format(const struct date *d) {
-    time_t now = state.now;
-    struct tm t = timet_to_tm_with_zone(now, state.zone->impl);
-    struct tm lt = timet_to_tm_with_zone(d->timestamp, state.zone->impl);
-    if (t.tm_year == lt.tm_year && t.tm_yday == lt.tm_yday)
-        return text_format("%02d:%02d", lt.tm_hour, lt.tm_min);
-    else
-        return text_format("%04d-%02d-%02d %02d:%02d", lt.tm_year + 1900,
-            lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min);
+    time_t timet_now = state.now;
+    struct simple_date now =
+        simple_date_from_timet(timet_now, state.zone->impl);
+    timet_adjust_days(&timet_now, state.zone->impl, -1);
+    struct simple_date yesterday =
+        simple_date_from_timet(timet_now, state.zone->impl);
+    struct simple_date t =
+        simple_date_from_timet(d->timestamp, state.zone->impl);
+    if (same_day(t, now)) {
+        return text_format("%02d:%02d", t.hour, t.minute);
+    } else if (same_day(t, yesterday)) {
+        return text_format("yesterday %02d:%02d", t.hour, t.minute);
+    } else if (t.year == now.year) {
+        return text_format("%02d-%02d %02d:%02d",
+            t.month, t.day, t.hour, t.minute);
+    } else {
+        return text_format("%04d-%02d-%02d %02d:%02d",
+            t.year, t.month, t.day, t.hour, t.minute);
+    }
 }
 
 static void draw_text(cairo_t *cr, int x, int y, char *text) {
@@ -35,6 +53,16 @@ static void draw_text(cairo_t *cr, int x, int y, char *text) {
     text_get_size(cr, state.tr, text);
     cairo_move_to(cr, x - state.tr->p.width / 2, y - state.tr->p.height / 2);
     text_print_own(cr, state.tr, text);
+}
+
+static void text_print_vert_center(cairo_t *cr, box b, char *text) {
+    state.tr->p.width = b.w; state.tr->p.height = b.h;
+    state.tr->p.wrap_char = false;
+    text_get_size(cr, state.tr, text);
+    cairo_move_to(cr, b.x,
+                      b.y + b.h / 2 - state.tr->p.height / 2);
+    text_print_own(cr, state.tr, text);
+    state.tr->p.wrap_char = true;
 }
 
 static void text_print_center(cairo_t *cr, box b, char *text) {
@@ -324,33 +352,56 @@ void render_calendar(cairo_t *cr, box b) {
     cairo_identity_matrix(cr);
 }
 
-static void render_todo_item(cairo_t *cr, struct todo *td, int index, box b) {
+/* return height */
+static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
     cairo_translate(cr, b.x, b.y);
-    cairo_set_source_argb(cr, 0xFF000000);
-    struct todo_tag *todo_tag = &state.active_todos_tag[index];
 
-    int w = b.w;
+    /* prepare all the info we need */
+    struct todo *td = tag->td;
+    bool overdue = td->due.timestamp != -1 && td->due.timestamp < state.now;
+    bool not_started = td->start.timestamp != -1
+        && td->start.timestamp > state.now;
+    int hpad = 5;
+
+    int w = b.w - 80;
+    int n = 1;
+    if (td->desc) n += 1;
+
+    /* calculate height */
+    if (td->summary) {
+        state.tr->p.width = w/n - 2*hpad; state.tr->p.height = -1;
+        text_get_size(cr, state.tr, td->summary);
+        b.h = max(b.h, state.tr->p.height);
+    }
+    if (td->desc) {
+        state.tr->p.width = w/n - 2*hpad; state.tr->p.height = -1;
+        text_get_size(cr, state.tr, td->desc);
+        b.h = max(b.h, state.tr->p.height);
+    }
+
+    if (overdue) {
+        cairo_set_source_argb(cr, 0xFFD05050);
+        cairo_rectangle(cr, b.w - 80, 0, 80, b.h);
+        cairo_fill(cr);
+    }
+    cairo_set_source_argb(cr, not_started ? 0xFF888888 : 0xFF000000);
+
+    /* draw text in the slots */
     if (td->due.timestamp != -1) {
         char *text = natural_date_format(&td->due);
         text_print_center(cr, (box){ b.w - 80, 0, 80, b.h }, text);
         free(text);
     }
-    w -= 80;
-
-    int n = 1;
-    if (td->desc) ++n;
-    state.tr->p.width = w/n; state.tr->p.height = b.h;
-    text_get_size(cr, state.tr, td->summary);
-    cairo_move_to(cr, 0, b.h/2 - state.tr->p.height/2);
-    text_print_own(cr, state.tr, td->summary);
-
+    if (td->summary) {
+        text_print_vert_center(cr, (box){ w*0/n + hpad, 0, w/n - 2*hpad, b.h },
+            td->summary);
+    }
     if (td->desc) {
-        state.tr->p.width = w/n; state.tr->p.height = b.h;
-        text_get_size(cr, state.tr, td->desc);
-        cairo_move_to(cr, w/n, b.h/2 - state.tr->p.height/2);
-        text_print_own(cr, state.tr, td->desc);
+        text_print_vert_center(cr, (box){ w*1/n + hpad, 0, w/n - 2*hpad, b.h },
+            td->desc);
     }
 
+    /* draw slot separators */
     cairo_set_line_width(cr, 1);
     for (int i = 1; i <= n; ++i) {
         cairo_move_to(cr, w*i/n +.5, 0);
@@ -358,32 +409,46 @@ static void render_todo_item(cairo_t *cr, struct todo *td, int index, box b) {
         cairo_stroke(cr);
     }
 
+    /* draw key tag code */
     if (state.keystate == KEYSTATE_SELECT) {
         uint32_t c = 0xFFFF00FF;
         cairo_set_source_argb(cr, c);
-        char *text = todo_tag->code;
+        char *text = tag->code;
         state.tr->p.scale = 3.0;
         state.tr->p.width = b.w; state.tr->p.height = -1;
         text_get_size(cr, state.tr, text);
         cairo_move_to(cr, b.w/2 - state.tr->p.width/2,
                           b.h/2 - state.tr->p.height/2);
-        text_print_own(cr, state.tr, todo_tag->code);
+        text_print_own(cr, state.tr, text);
         state.tr->p.scale = 1.0;
     }
 
+    /* draw separator on bottom side */
     cairo_set_source_argb(cr, 0xFF000000);
     cairo_set_line_width(cr, 2);
     cairo_move_to(cr, 0, b.h);
     cairo_line_to(cr, b.w, b.h);
     cairo_stroke(cr);
+
     cairo_translate(cr, -b.x, -b.y);
+
+    return b.h;
 }
 
 static void render_todo_list(cairo_t *cr, box b) {
     cairo_translate(cr, b.x, b.y);
+
+    /* draw separator on top */
+    cairo_set_source_argb(cr, 0xFF000000);
+    cairo_set_line_width(cr, 2);
+    cairo_move_to(cr, 0, 0);
+    cairo_line_to(cr, b.w, 0);
+    cairo_stroke(cr);
+
+    int y = 0;
     for (int i = 0; i < state.active_todo_n; ++i) {
-        render_todo_item(cr, state.active_todos[i], i, (box){0,i*40,b.w,40});
-        if (i*40 > b.h) break;
+        y += render_todo_item(cr, &state.active_todos_tag[i], (box){0,y,b.w,40});
+        if (y > b.h) break;
     }
     cairo_identity_matrix(cr);
 }

@@ -166,12 +166,3 @@ void event_update_derived(struct event *ev) {
         ev->all_day = true;
     }
 }
-
-int todo_priority_cmp(const struct todo *a, const struct todo *b) {
-    if (a->due.timestamp > 0 || b->due.timestamp > 0) {
-        if (a->due.timestamp < 0) return 1;
-        else if (b->due.timestamp < 0) return -1;
-        return a->due.timestamp - b->due.timestamp;
-    }
-    return 0;
-}
