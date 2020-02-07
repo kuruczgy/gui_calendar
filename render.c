@@ -1,3 +1,5 @@
+#include <math.h>
+
 #include "render.h"
 #include "pango.h"
 #include "application.h"
@@ -104,24 +106,29 @@ static void render_event(cairo_t *cr, box b, box all_day_b,
     int interval_sec = to_sec - from_sec;
 
     int pad = 2;
-    int x, y, w, h;
+    float x, y, w, h;
     box ab;
     if (ael->day_i == -1) {
         ab = all_day_b;
-        x = all_day_b.w * ael->start / slot_len + pad;
-        y = all_day_b.h * ael->col / ael->max_n + pad;
-        w = all_day_b.w * (ael->end - ael->start) / slot_len - 2 * pad;
-        h = all_day_b.h / ael->max_n - 2 * pad;
+        x = (float)all_day_b.w / slot_len * ael->start + pad;
+        y = (float)all_day_b.h / ael->max_n * ael->col + pad;
+        w = (float)all_day_b.w / slot_len * (ael->end - ael->start) - 2 * pad;
+        h = (float)all_day_b.h / ael->max_n - 2 * pad;
     } else {
         ab = b;
-        int sw = b.w / num_days;
-        int dw = sw / ael->max_n;
+        float sw = (float)b.w / num_days;
+        float dw = sw / ael->max_n;
         x = sw * ael->day_i + dw * ael->col + pad;
-        y = b.h * (ael->start - from_sec) / interval_sec;
+        y = (float)b.h * (ael->start - from_sec) / interval_sec;
         w = dw - 2*pad;
-        h = b.h * (ael->end - ael->start) / interval_sec;
+        h = (float)b.h * (ael->end - ael->start) / interval_sec;
     }
     cairo_translate(cr, ab.x, ab.y);
+
+    x = roundf(x);
+    y = roundf(y);
+    w = roundf(w);
+    h = roundf(h);
 
     uint32_t color = ev->color;
     if (!color) color = 0xFF20D0D0;
@@ -244,10 +251,11 @@ static void render_header(cairo_t *cr, box b) {
     cairo_stroke(cr);
 
     int num_days = state.view_days;
-    int sw = b.w / num_days;
+    float sw = (float)b.w / num_days;
     for (int i = 1; i < num_days; i++) {
-        cairo_move_to(cr, sw*i, 0);
-        cairo_line_to(cr, sw*i, b.h);
+        float pos = roundf(sw*i);
+        cairo_move_to(cr, pos, 0);
+        cairo_line_to(cr, pos, b.h);
     }
     cairo_stroke(cr);
 
@@ -280,7 +288,7 @@ void render_calendar(cairo_t *cr, box b) {
 
     int num_days = state.view_days;
     int time_strip_w = 30, top_strip_h = 50 * state.all_day_max_n;
-    int sw = (b.w - time_strip_w) / num_days;
+    float sw = (float)(b.w - time_strip_w) / num_days;
 
     cairo_set_source_argb(cr, 0xFF000000);
 
@@ -300,8 +308,9 @@ void render_calendar(cairo_t *cr, box b) {
     // draw vertical lines
     cairo_translate(cr, time_strip_w, top_strip_h);
     for (int i = 0; i < num_days; i++) {
-        cairo_move_to(cr, sw*i, 0);
-        cairo_line_to(cr, sw*i, b.h - top_strip_h);
+        float pos = roundf(sw*i);
+        cairo_move_to(cr, pos, 0);
+        cairo_line_to(cr, pos, b.h - top_strip_h);
     }
     cairo_stroke(cr);
 
