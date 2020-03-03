@@ -47,6 +47,18 @@ void icalcomponent_set_color(icalcomponent *c, const char *v) {
     }
 }
 
+void icalcomponent_set_estimatedduration(icalcomponent *c,
+        struct icaldurationtype v) {
+    icalproperty *p = icalcomponent_get_first_property(c,
+            ICAL_ESTIMATEDDURATION_PROPERTY);
+    if (!p) {
+        p = icalproperty_new_estimatedduration(v);
+        icalcomponent_add_property(c, p);
+    } else {
+        icalproperty_set_estimatedduration(p, v);
+    }
+}
+
 void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind) {
     icalproperty *p = icalcomponent_get_first_property(c, kind);
     while (p) {
@@ -80,6 +92,7 @@ char* read_stream(char *s, size_t size, void *d)
 
 int libical_parse_event(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone) {
+    // DEP: struct event
     const char *uid = icalcomponent_get_uid(c);
     if (!uid) return -1;
     icalproperty *recurrenceid =
@@ -192,7 +205,9 @@ err:
 
 int libical_parse_todo(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone) {
+    // DEP: struct todo
     struct todo *td = malloc(sizeof(struct todo));
+    init_todo(td);
 
     struct icaltimetype
         dtstart = icalcomponent_get_dtstart(c),
@@ -212,6 +227,13 @@ int libical_parse_todo(icalcomponent *c, struct calendar *cal,
     icalproperty_status s = icalcomponent_get_status(c);
     td->status = s;
     td->clas = icalcomponent_get_class(c);
+
+    icalproperty *p = icalcomponent_get_first_property(c,
+            ICAL_ESTIMATEDDURATION_PROPERTY);
+    if (p) {
+        struct icaldurationtype v = icalproperty_get_estimatedduration(p);
+        td->estimated_duration = icaldurationtype_as_int(v);
+    }
 
     hashmap_put(cal->todos, td->uid, td); // TODO: memory leak
     return 0;

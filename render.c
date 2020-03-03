@@ -49,6 +49,20 @@ static char* natural_date_format(const struct date *d) {
             t.year, t.month, t.day, t.hour, t.minute);
     }
 }
+static char * format_dur(int v) {
+    // ugly af...
+    char *s = malloc_check(64);
+    s[0] = '\0';
+    int n = 0;
+    struct simple_dur sdu = simple_dur_from_int(v);
+    if (sdu.d != 0) n += snprintf(s + n, 64 - n, "%dd", sdu.d);
+    if (sdu.h != 0) n += snprintf(s + n, 64 - n, "%dh", sdu.h);
+    if (sdu.m != 0) n += snprintf(s + n, 64 - n, "%dm", sdu.m);
+    if (sdu.s != 0) n += snprintf(s + n, 64 - n, "%ds", sdu.s);
+    if (sdu.d == 0 && sdu.h == 0 && sdu.m == 0 && sdu.s == 0)
+        n -= snprintf(s + n, n, "0s");
+    return s;
+}
 
 static void draw_text(cairo_t *cr, int x, int y, char *text) {
     state.tr->p.width = -1; state.tr->p.height = -1;
@@ -403,8 +417,24 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
     cairo_set_source_argb(cr, not_started ? 0xFF888888 : 0xFF000000);
 
     /* draw text in the slots */
+    char *text = NULL;
     if (td->due.timestamp != -1) {
-        char *text = natural_date_format(&td->due);
+        free(text);
+        text = natural_date_format(&td->due);
+    }
+    if (td->estimated_duration != -1) {
+        char *text_dur = format_dur(td->estimated_duration);
+        if (text != NULL) {
+            char *text_comb = text_format("%s\n~%s", text, text_dur);
+            free(text);
+            text = text_comb;
+        } else {
+            char *text_comb = text_format("~%s", text_dur);
+            text = text_comb;
+        }
+        free(text_dur);
+    }
+    if (text) {
         text_print_center(cr, (box){ b.w - 80, 0, 80, b.h }, text);
         free(text);
     }

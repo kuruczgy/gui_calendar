@@ -31,6 +31,7 @@ void init_calendar(struct calendar *cal) {
 
 static const struct date default_date = { .timestamp = -1 };
 static const struct event default_event = {
+    // DEP: struct event
     .summary = NULL,
     .start = default_date,
     .end = default_date,
@@ -43,13 +44,15 @@ static const struct event default_event = {
     .all_day = false
 };
 static const struct todo default_todo = {
+    // DEP: struct todo
     .uid = NULL,
     .summary = NULL,
     .desc = NULL,
     .start = default_date,
     .due = default_date,
     .status = ICAL_STATUS_NONE,
-    .clas = ICAL_CLASS_NONE
+    .clas = ICAL_CLASS_NONE,
+    .estimated_duration = -1
 };
 
 void init_event(struct event *ev) { *ev = default_event; }
@@ -127,6 +130,7 @@ void copy_todo(struct todo *dst, const struct todo *src) {
     dst->due = src->due;
     dst->status = src->status;
     dst->clas = src->clas;
+    dst->estimated_duration = src->estimated_duration;
 }
 
 /* object methods */

@@ -133,3 +133,16 @@ time_t simple_date_to_timet(struct simple_date sd, icaltimezone *zone) {
     icaltimetype tt = simple_date_to_icaltime(sd);
     return icaltime_as_timet_with_zone(tt, zone);
 }
+
+struct simple_dur simple_dur_from_int(int v) {
+    struct simple_dur sdu;
+    sdu.d = v / (3600 * 24); v %= 3600 * 24;
+    sdu.h = v / 3600; v %= 3600;
+    sdu.m = v / 60; v %= 60;
+    sdu.s = v;
+    return sdu;
+}
+
+int simple_dur_to_int(struct simple_dur sdu) {
+    return sdu.d * 3600 * 24 + sdu.h * 3600 + sdu.m * 60 + sdu.s;
+}

@@ -29,6 +29,10 @@ literal = "`", { char - "`" }, "`" ;
 (* function `integer` *)
 integer = digit, { digit } ;
 
+(* function `dur` *)
+dur-comp = integer, ( "d" | "h" | "m" | "s" ) ;
+dur = dur-comp, { dur-comp } ;
+
 (* function `prop` *)
 status-val = "tentative" | "confirmed" |
     "cancelled" | "needs-action" | "completed" ;
@@ -36,12 +40,13 @@ uprop =
     ( ( "start" | "end" | "due" ), ws, dt ) |
     ( ( "summary" | "location" | "desc" | "color" ), ws, literal ) |
     ( ( "uid" | "instance" ), ws, literal ) |
+    ( "est", ws, integer ) |
     ( "class", ws, ( "private" | "public" ) ) |
     ( "status", ws, status-val ) |
     ( "calendar", ws, ( integer | literal ) ) ;
 remprop = "-",
-    ( "start", "due", "location", "desc", "color", "class", "status" ),
-    [ ws, { char - "\n" } ];
+    ( "start", "due", "location", "desc", "color", "class", "status", "est" ),
+    [ ws, { char - "\n" } ] ;
 prop = uprop | remprop
 
 (* function `grammar` *)
@@ -191,6 +196,28 @@ static res integer(st s, int *out) {
     return OK;
 }
 
+static res dur(st s, int *out) {
+    struct simple_dur sdu = { 0, 0, 0, 0 };
+    int o;
+    char c;
+    bool first = true;
+    do {
+        if (integer(s, &o) != OK) goto out;
+        c = get(s);
+        switch (c) {
+        case 'd': sdu.d = o; break;
+        case 'h': sdu.h = o; break;
+        case 'm': sdu.m = o; break;
+        case 's': sdu.s = o; break;
+        default: return ERROR;
+        }
+        first = false;
+    } while (1);
+out:
+    *out = simple_dur_to_int(sdu);
+    return first ? ERROR : OK;
+}
+
 static res parse_class(st s, enum icalproperty_class *clas) {
     char key[16];
     fscanf(s->f, "%15s", key);
@@ -278,6 +305,15 @@ static res prop(st s, struct edit_spec *es) {
         if (rem) return ERROR;
         if (literal(s, &str) != OK) return ERROR;
         es->recurrence_id = atol(str);
+    } else if (strcmp(key, "est") == 0) {
+        if (ev) return ERROR;
+        if (rem) {
+            es->rem_td.estimated_duration = 1;
+            return OK;
+        }
+        int d;
+        if (dur(s, &d) != OK) return ERROR;
+        es->td.estimated_duration = d;
     } else if (strcmp(key, "class") == 0) {
         if (rem) {
             if (ev) es->rem_ev.clas = ICAL_CLASS_PUBLIC;
@@ -487,6 +523,10 @@ void test_editor_parser() {
     test_prop(&s, "status needs-action", &es);
     assert(es.td.status == ICAL_STATUS_NEEDSACTION, "prop status");
 
+    init_edit_spec(&es);
+    es.type = COMP_TYPE_TODO;
+    test_prop(&s, "est 5s4d1h", &es);
+    assert(es.td.estimated_duration == 5 + 4*3600*24 + 1*3600, "prop est");
 
     init_edit_spec(&es);
     test_grammar(&s, &es,

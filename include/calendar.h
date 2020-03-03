@@ -47,6 +47,7 @@ struct todo {
     struct date start, due;
     enum icalproperty_status status;
     enum icalproperty_class clas;
+    int estimated_duration;
     // DEP: struct todo
 };
 
@@ -112,6 +113,8 @@ enum icalproperty_class icalcomponent_get_class(icalcomponent *c);
 void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v);
 void icalcomponent_set_color(icalcomponent *c, const char *v);
 void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind);
+void icalcomponent_set_estimatedduration(icalcomponent *c,
+        struct icaldurationtype v);
 
 /* subprocess stuff */
 struct subprocess_handle;

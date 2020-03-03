@@ -283,10 +283,18 @@ static int todo_priority_cmp(const struct todo *a, const struct todo *b) {
         || a->start.timestamp <= state.now;
     bool b_started = b->start.timestamp == -1
         || b->start.timestamp <= state.now;
+
+    const int sh = 60 * 10; // 10m
+    bool a_short = a->estimated_duration != -1 && a->estimated_duration <= sh;
+    bool b_short = b->estimated_duration != -1 && b->estimated_duration <= sh;
+
     if (a_started && !b_started) {
         return -1;
     } else if (b_started && !a_started) {
         return 1;
+    } else if (a_short != b_short) {
+        if (a_short) return -1;
+        else return 1;
     } else if (a->due.timestamp > 0 || b->due.timestamp > 0) {
         if (a->due.timestamp < 0) return 1;
         else if (b->due.timestamp < 0) return -1;

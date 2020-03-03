@@ -41,20 +41,33 @@ static void print_literal(FILE *f, const char *key, char *val) {
         fprintf(f, "#%s\n", key);
     }
 }
+static void print_dur(FILE *f, int v) {
+    struct simple_dur sdu = simple_dur_from_int(v);
+    if (sdu.d != 0) fprintf(f, "%dd", sdu.d);
+    if (sdu.h != 0) fprintf(f, "%dh", sdu.h);
+    if (sdu.m != 0) fprintf(f, "%dm", sdu.m);
+    if (sdu.s != 0) fprintf(f, "%ds", sdu.s);
+    if (sdu.d == 0 && sdu.h == 0 && sdu.m == 0 && sdu.s == 0)
+        fprintf(f, "0s");
+}
 
+// DEP: struct event
 static const char *event_usage =
     "# USAGE:\n"
     "# status tentative/confirmed/cancelled\n"
     "# class public/private\n"
     "# summary/location/desc/color `...`\n";
+// DEP: struct todo
 static const char *todo_usage =
     "# USAGE:\n"
     "# status completed/needs-action\n"
     "# class public/private\n"
-    "# summary/location/desc/color `...`\n";
+    "# summary/location/desc/color `...`\n"
+    "# est 1d2h3m4s\n";
 
 
 void print_event_template(FILE *f, struct event *ev, const char *uid,
+    // DEP: struct event
         time_t recurrence_id, icaltimezone *zone) {
     struct simple_date
         start_sd = simple_date_from_timet(ev->start.timestamp, zone),
@@ -81,6 +94,7 @@ void print_event_template(FILE *f, struct event *ev, const char *uid,
     fprintf(f, "%s", event_usage);
 }
 void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
+    // DEP: struct todo
     struct simple_date
         start_sd = simple_date_from_timet(td->start.timestamp, zone),
         due_sd = simple_date_from_timet(td->due.timestamp, zone);
@@ -93,6 +107,15 @@ void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
     fprintf(f, "#status %s\n", status_str(td->status));
     fprintf(f, "#due %s\n", due);
     fprintf(f, "#start %s\n", start);
+
+    if (td->estimated_duration != -1) {
+        fprintf(f, "est ");
+        print_dur(f, td->estimated_duration);
+        fprintf(f, "\n");
+    } else {
+        fprintf(f, "#est\n");
+    }
+
     print_literal(f, "desc", td->desc);
     fprintf(f, "#class %s\n", class_str(td->clas));
     if (td->uid) {
@@ -102,6 +125,7 @@ void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
 }
 
 void print_new_event_template(FILE *f, icaltimezone *zone) {
+    // DEP: struct event
     char start[32];
     struct simple_date now = simple_date_now(zone);
     snprintf(start, 32, "%04d-%02d-%02d", now.year, now.month, now.day);
@@ -124,6 +148,7 @@ void print_new_event_template(FILE *f, icaltimezone *zone) {
     );
 }
 void print_new_todo_template(FILE *f, icaltimezone *zone) {
+    // DEP: struct todo
     char start[32];
     struct simple_date now = simple_date_now(zone);
     snprintf(start, 32, "%04d-%02d-%02d", now.year, now.month, now.day);
@@ -134,6 +159,7 @@ void print_new_todo_template(FILE *f, icaltimezone *zone) {
         "#status\n"
         "#due %s\n"
         "#start %s\n"
+        "#est\n"
         "#desc\n"
         "#class\n"
         "#calendar\n"
@@ -222,6 +248,11 @@ void assign_todo_props(struct todo *dst, struct todo *src, struct todo *rem) {
         dst->clas = ICAL_CLASS_NONE;
     } else if (src->clas != ICAL_CLASS_NONE) {
         dst->clas = src->clas;
+    }
+    if (rem->estimated_duration != -1) {
+        dst->estimated_duration = -1;
+    } else if (src->estimated_duration != -1) {
+        dst->estimated_duration = src->estimated_duration;
     }
 }
 
@@ -407,6 +438,15 @@ static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
         }
         if (es->rem_td.clas != ICAL_CLASS_NONE) {
             icalcomponent_remove_properties(c, ICAL_CLASS_PROPERTY);
+        }
+
+        if (es->td.estimated_duration != -1) {
+            struct icaldurationtype v =
+                icaldurationtype_from_int(es->td.estimated_duration);
+            icalcomponent_set_estimatedduration(c, v);
+        }
+        if (es->rem_td.estimated_duration != -1) {
+            icalcomponent_remove_properties(c, ICAL_ESTIMATEDDURATION_PROPERTY);
         }
     } else {
         assert(false, "");

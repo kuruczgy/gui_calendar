@@ -13,6 +13,10 @@ struct simple_date {
     };
 };
 
+struct simple_dur {
+    int d, h, m, s;
+};
+
 struct date {
     /* the core of this structure: represents a UNIX timestamp.
      * the other `struct simple_date` values are calculated form this
@@ -35,5 +39,8 @@ bool simple_date_eq(struct simple_date a, struct simple_date b);
 struct simple_date simple_date_now(icaltimezone *zone);
 struct simple_date simple_date_from_timet(time_t t, icaltimezone *zone);
 time_t simple_date_to_timet(struct simple_date sd, icaltimezone *zone);
+
+struct simple_dur simple_dur_from_int(int v);
+int simple_dur_to_int(struct simple_dur sdu);
 
 #endif
