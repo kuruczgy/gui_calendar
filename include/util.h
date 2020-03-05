@@ -9,7 +9,7 @@
 #include "hashmap.h"
 
 struct layout_event {
-    int start, end;
+    long long int start, end;
     int max_n;
     int col;
     int idx;

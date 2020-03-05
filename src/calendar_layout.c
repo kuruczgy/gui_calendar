@@ -6,19 +6,19 @@
 #include "util.h"
 
 struct point {
-    int val;
+    long long int val;
     bool start;
     int index;
 };
 
 static int cmp_point(const void *pa, const void *pb) {
     const struct point *a = pa, *b = pb;
-    int val = a->val - b->val;
+    long long int val = a->val - b->val;
     if (val == 0) {
         if (!a->start && b->start) return -1;
         if (a->start && !b->start) return 1;
     }
-    return val;
+    return val < 0 ? -1 : 1;
 }
 
 static int first_free_bit(uint32_t n) {
