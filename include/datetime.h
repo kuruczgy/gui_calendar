@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <libical/ical.h>
 
+typedef long long int ts;
+
 struct simple_date {
     union {
         struct {
@@ -38,7 +40,14 @@ bool simple_date_eq(struct simple_date a, struct simple_date b);
 
 struct simple_date simple_date_now(icaltimezone *zone);
 struct simple_date simple_date_from_timet(time_t t, icaltimezone *zone);
+struct simple_date simple_date_from_ts(ts t, icaltimezone *zone);
 time_t simple_date_to_timet(struct simple_date sd, icaltimezone *zone);
+ts simple_date_to_ts(struct simple_date sd, icaltimezone *zone);
+void simple_date_normalize(struct simple_date *sd);
+int simple_date_days_in_month(struct simple_date sd);
+
+/* [a1, a2) and [b1, b2) intervals. */
+bool ts_overlap(time_t a1, time_t a2, time_t b1, time_t b2);
 
 struct simple_dur simple_dur_from_int(int v);
 int simple_dur_to_int(struct simple_dur sdu);

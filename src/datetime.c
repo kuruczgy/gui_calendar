@@ -127,6 +127,9 @@ struct simple_date simple_date_from_timet(time_t t, icaltimezone *zone) {
     icaltimetype tt = icaltime_from_timet_with_zone(t, 0, zone);
     return simple_date_from_icaltime(tt);
 }
+struct simple_date simple_date_from_ts(ts t, icaltimezone *zone) {
+    return simple_date_from_timet((time_t)t, zone);
+}
 
 time_t simple_date_to_timet(struct simple_date sd, icaltimezone *zone) {
     if (!valid_simple_date(sd)) return -1;
@@ -145,4 +148,31 @@ struct simple_dur simple_dur_from_int(int v) {
 
 int simple_dur_to_int(struct simple_dur sdu) {
     return sdu.d * 3600 * 24 + sdu.h * 3600 + sdu.m * 60 + sdu.s;
+}
+
+ts simple_date_to_ts(struct simple_date sd, icaltimezone *zone) {
+    return (ts)simple_date_to_timet(sd, zone);
+}
+
+void simple_date_normalize(struct simple_date *sd) {
+    struct icaltimetype tt = {
+        .year = sd->year,
+        .month = sd->month,
+        .day = sd->day,
+        .hour = sd->hour,
+        .minute = sd->minute,
+        .second = sd->second,
+        .is_date = 0,
+        .is_daylight = 0, // TODO: is this ok like this?
+    };
+    tt = icaltime_normalize(tt);
+    *sd = simple_date_from_icaltime(tt);
+}
+
+int simple_date_days_in_month(struct simple_date sd) {
+    return icaltime_days_in_month(sd.month, sd.year);
+}
+
+bool ts_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
+    return a1 < b2 && a2 > b1;
 }
