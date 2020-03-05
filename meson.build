@@ -35,24 +35,24 @@ xdg_shell_private_target = custom_target(
 
 incdir = include_directories('include')
 sources = [
-  'util.c',
-  'calendar.c',
-  'datetime.c',
-  'editor.c',
-  'editor_parser.c',
-  'pango.c',
-  'subprocess.c',
-  'colors.c',
-  'calendar_layout.c',
-  'libical_parse.c',
-  'keyboard.c',
-  'algo.c',
-  'render.c',
-  'application.c',
-  'util/hashmap.c',
+  'src/util.c',
+  'src/calendar.c',
+  'src/datetime.c',
+  'src/editor.c',
+  'src/editor_parser.c',
+  'src/pango.c',
+  'src/subprocess.c',
+  'src/colors.c',
+  'src/calendar_layout.c',
+  'src/libical_parse.c',
+  'src/keyboard.c',
+  'src/algo.c',
+  'src/render.c',
+  'src/application.c',
+  'src/util/hashmap.c',
 ]
 wayland_sources = [
-  'backend/wayland.c',
+  'src/backend/wayland.c',
   xdg_shell_header_target,
   xdg_shell_private_target,
 ]
@@ -72,11 +72,11 @@ lib_gui_calendar_common = static_library(
 
 executable(
   'smuc',
-  'main.c',
+  'src/main.c',
   wayland_sources,
-  'backend/fbdev.c',
-  'backend/svg.c',
-  'backend/image.c',
+  'src/backend/fbdev.c',
+  'src/backend/svg.c',
+  'src/backend/image.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
@@ -90,8 +90,8 @@ executable(
 
 test_main = executable(
   'test-editor',
-  'tests/test_main.c',
-  'backend/dummy.c',
+  'src/tests/test_main.c',
+  'src/backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
@@ -101,8 +101,8 @@ test('test-main', test_main)
 
 executable(
   'fuzz-editor',
-  'tests/fuzz_editor.c',
-  'backend/dummy.c',
+  'src/tests/fuzz_editor.c',
+  'src/backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
@@ -111,8 +111,8 @@ executable(
 
 executable(
   'fuzz-parse-ics',
-  'tests/fuzz_parse_ics.c',
-  'backend/dummy.c',
+  'src/tests/fuzz_parse_ics.c',
+  'src/backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
@@ -121,8 +121,8 @@ executable(
 
 executable(
   'fuzz-image',
-  'main.c',
-  'backend/dummy.c',
+  'src/main.c',
+  'src/backend/dummy.c',
   include_directories: incdir,
   dependencies: dependencies,
   link_with: lib_gui_calendar_common,
