@@ -8,6 +8,5 @@ typedef struct {
 } box;
 
 bool render_application(void *ud, cairo_t *cr);
-void render_calendar(cairo_t *cr, box b);
 
 #endif

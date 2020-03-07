@@ -50,6 +50,7 @@ sources = [
   'src/render.c',
   'src/application.c',
   'src/util/hashmap.c',
+  'src/views.c',
 ]
 wayland_sources = [
   'src/backend/wayland.c',

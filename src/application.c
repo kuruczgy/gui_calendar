@@ -9,7 +9,6 @@
 #include "backend.h"
 #include "render.h"
 #include "editor.h"
-#include "algo.h"
 
 struct state state = { 0 };
 
@@ -45,7 +44,7 @@ static void switch_mode_select() {
 static void print_event_template_callback(void *cl, FILE *f) {
     struct active_event *aev = cl;
     print_event_template(f, &aev->ers->base, aev->ers->uid,
-            aev->start.timestamp, state.zone->impl);
+            (time_t)aev->time.fr, state.zone->impl);
 }
 static void print_todo_template_callback(void *ud, FILE *f) {
     print_todo_template(f, (struct todo *)ud, state.zone->impl);
@@ -125,156 +124,156 @@ static void mode_select_append_sym(char sym) {
     }
 }
 
-struct event_filterer {
-    struct active_event *list;
-    int n;
-    time_t from, to;
-    bool show_priv;
-    struct calendar *cal; /* used for assigning tags */
+struct hashmap_counter_cl {
+    int cnt;
+    int (*cb)(void *data, void *cl);
+    void *cb_cl;
 };
-static void init_event_filterer(struct event_filterer *f) {
-    f->list = NULL;
-    f->n = 0;
-    f->from = -1;
-    f->to = -1;
-    f->show_priv = false;
+static int hashmap_counter(void *_cl, void *data) {
+    struct hashmap_counter_cl *cl = _cl;
+    cl->cnt += cl->cb(data, cl->cb_cl);
+    return MAP_OK;
 }
-static int filter_event_sets(void *cl, void *e_p) {
-    struct event_filterer *f = cl;
-    struct event_recur_set *ers = e_p;
+static int events_in_range_cnt(void *data, void *_cl) {
+    struct event_recur_set *ers = data;
+    struct ts_ran *ran = _cl;
+    int cnt = 0;
+    for (int i = 0; i < (ers->max != 0 ? ers->n : 1); ++i) {
+        time_t start, end;
+        event_recur_set_get(ers, i, &start, &end);
+        if (ts_ran_overlap(*ran, (struct ts_ran){ (ts)start, (ts)end })) ++cnt;
+    }
+    return cnt;
+}
+struct create_active_events_cl {
+    int max;
+    struct ts_ran ran;
+    struct calendar *cal;
+};
+static int create_active_events(void *_cl, void *data) {
+    struct create_active_events_cl *cl = _cl;
+    struct event_recur_set *ers = data;
     for (int i = 0; i < (ers->max != 0 ? ers->n : 1); ++i) {
         time_t start, end;
         struct event *ev = event_recur_set_get(ers, i, &start, &end);
-        if (f->from != -1 && !interval_overlap(f->from, f->to, start, end))
-            continue;
-        if (!f->show_priv && ev->clas == ICAL_CLASS_PRIVATE) continue;
-
-        if (f->list) f->list[f->n] = (struct active_event){
-            .ers = ers,
-            .start = date_from_timet(start, state.zone->impl),
-            .end = date_from_timet(end, state.zone->impl),
-            .local_start = simple_date_from_timet(start, state.zone->impl),
-            .local_end = simple_date_from_timet(end, state.zone->impl),
-            .ev = ev,
-            .tag = (struct event_tag){ .cal = f->cal }
-        };
-        f->n++;
+        if (ts_ran_overlap(cl->ran, (struct ts_ran){ (ts)start, (ts)end })) {
+            assert(state.active_event_n < cl->max, "too many active_events");
+            state.active_events[state.active_event_n++] =
+                    (struct active_event){
+                .ers = ers,
+                .time = (struct ts_ran){ (ts)start, (ts)end },
+                .ev = ev,
+                .tag = (struct event_tag){ .cal = cl->cal }
+            };
+        }
     }
     return MAP_OK;
 }
 
-static void discard_temp_structures() {
-    // discard existing structures
-    if (state.active_events) {
-        free(state.active_events);
-        free(state.active_event_layouts);
+static void update_views() {
+    /* free existing structures */
+    free(state.active_events);
+    destruct_tview(&state.tview);
+    destruct_tview(&state.top_tview);
+
+    /* construct tview time ranges */
+    struct tview_spec spec = {
+        .base = state.base,
+        .type = state.tview_type,
+        .n = state.tview_n,
+        .h1 = 0, .h2 = 24,
+        .zone = state.zone->impl
+    };
+    init_tview(&state.tview, &spec);
+    init_tview_range(&state.top_tview, &spec);
+
+    /* count overlapping events */
+    struct ts_ran ran = { spec.base, spec.to };
+    struct hashmap_counter_cl ccl = { 0, &events_in_range_cnt, &ran };
+    for (int i = 0; i < state.n_cal; ++i) {
+        if (state.cal_info[i].visible) {
+            hashmap_iterate(state.cal[i].event_sets, hashmap_counter, &ccl);
+        }
+    }
+    init_tview_slices(&state.tview, ccl.cnt);
+    init_tview_slices(&state.top_tview, ccl.cnt);
+    state.active_events = malloc_check(sizeof(struct active_event) * ccl.cnt);
+    state.active_event_n = 0;
+
+    /* create active_event structs */
+    struct create_active_events_cl crcl = {
+        .max = ccl.cnt,
+        .ran = ran
+    };
+    for (int i = 0; i < state.n_cal; ++i) {
+        if (state.cal_info[i].visible) {
+            crcl.cal = &state.cal[i];
+            hashmap_iterate(state.cal[i].event_sets,
+                &create_active_events, &crcl);
+        }
+    }
+
+    /* populate tviews from the active_events list */
+    for (int i = 0; i < state.active_event_n; ++i) {
+        struct active_event *aev = &state.active_events[i];
+        struct tobject obj = (struct tobject){
+            .time = aev->time,
+            .type = TOBJECT_EVENT,
+            .ers = aev->ers, // TODO: not much point in this...
+            .ev = aev->ev,
+            .aev = aev
+        };
+        if (!aev->ev->all_day) {
+            tview_try_put(&state.tview, obj);
+        } else {
+            tview_try_put(&state.top_tview, obj);
+        }
+    }
+
+    /* calculate layouts */
+    tview_update_layout(&state.tview);
+    tview_update_layout(&state.top_tview);
+
+    /* debug info */
+    struct tview *tv = &state.tview;
+    char buf1[32], buf2[32];
+    format_simple_date(buf1, 32,
+        simple_date_from_ts(state.base, state.zone->impl));
+    fprintf(stderr, "=== current view ===\n");
+    fprintf(stderr, "state.base: %s;\t", buf1);
+    switch (state.tview_type) {
+    case TVIEW_DAYS: fprintf(stderr, "DAYS"); break;
+    case TVIEW_WEEKS: fprintf(stderr, "WEEKS"); break;
+    case TVIEW_MONTHS: fprintf(stderr, "MONTHS"); break;
+    case TVIEW_YEARS: fprintf(stderr, "YEARS"); break;
+    default: assert(false, "wrong tview_type");
+    }
+    fprintf(stderr, "\n");
+
+    fprintf(stderr, "min_content: ");
+    print_simple_dur(stderr, simple_dur_from_int((int)tv->min_content));
+    fprintf(stderr, "; max_content: ");
+    print_simple_dur(stderr, simple_dur_from_int((int)tv->max_content));
+    fprintf(stderr, "; max_len: ");
+    print_simple_dur(stderr, simple_dur_from_int((int)tv->max_len));
+    fprintf(stderr, "\n");
+
+    for (int i = 0; i < tv->n; ++i) {
+        struct tslice *tsl = &tv->s[i];
+        format_simple_date(buf1, 32,
+            simple_date_from_ts(tsl->ran.fr, state.zone->impl));
+        format_simple_date(buf2, 32,
+            simple_date_from_ts(tsl->ran.to, state.zone->impl));
+        fprintf(stderr, "- s[%d]: %s - %s\t%d/%d objs\n",
+            i, buf1, buf2, tsl->n, tsl->max);
     }
 }
 
 static void update_active_events() {
-    discard_temp_structures();
-
     /* clear any modes that depend on current event structures */
     if (state.keystate == KEYSTATE_SELECT) state.keystate = KEYSTATE_BASE;
 
-    /* count active events */
-    struct event_filterer filterer;
-    init_event_filterer(&filterer);
-    filterer.from = state.base,
-    filterer.to = state.base + state.view_days * 3600 * 24;
-    filterer.show_priv = true;
-    for (int i = 0; i < state.n_cal; i++) {
-        if (state.cal_info[i].visible) {
-            hashmap_iterate(state.cal[i].event_sets,
-                    filter_event_sets, &filterer);
-        }
-    }
-
-    /* allocate memory based on counts */
-    state.active_event_n = filterer.n;
-    state.active_events =
-        malloc_check(sizeof(struct active_event) * state.active_event_n);
-    int aelmax = state.active_event_n * (state.view_days + 1);
-    state.active_event_layouts =
-        malloc_check(sizeof(struct active_event_layout) * aelmax);
-    state.active_event_layout_n = 0;
-
-    /* populate the lists */
-    filterer.n = 0;
-    filterer.list = state.active_events;
-    for (int i = 0; i < state.n_cal; i++) {
-        filterer.cal = &state.cal[i];
-        if (state.cal_info[i].visible) {
-            hashmap_iterate(state.cal[i].event_sets,
-                    filter_event_sets, &filterer);
-        }
-    }
-
-    /* create the 2D layout */
-    struct layout_event *la =
-        malloc(sizeof(struct layout_event) * state.active_event_n);
-    int min_sec = 3600 * 24 + 1, max_sec = -1;
-    state.all_day_max_n = 0;
-    for (int d = -1; d < state.view_days; d++) {
-        // TODO: what if day not 24h long?
-        time_t slot_base = d == -1 ? state.base : state.base + 3600 * 24 * d;
-        time_t slot_len = d == -1 ? 3600 * 24 * state.view_days : 3600 * 24;
-        int l = 0;
-        for (int k = 0; k < state.active_event_n; k++) {
-            struct active_event *aev = &state.active_events[k];
-            if (d == -1) { /* all day events */
-                if (!aev->ev->all_day) continue;
-            } else {
-                if (! interval_overlap(slot_base, slot_base + slot_len,
-                        aev->start.timestamp, aev->end.timestamp)) continue;
-            }
-            time_t start_sec = max(0, aev->start.timestamp - slot_base);
-            time_t end_sec = min(slot_len, aev->end.timestamp - slot_base);
-            if (d != -1 && aev->ev->all_day &&
-                    start_sec == 0 && end_sec == slot_len) {
-                continue;
-            }
-
-            assert(start_sec < end_sec, "bad layout start and end times");
-            assert(l < state.active_event_n, "too many events");
-            la[l++] = (struct layout_event){
-                .start = start_sec,
-                .end = end_sec,
-                .idx = k
-            };
-        }
-        calendar_layout(la, l);
-        for (int i = 0; i < l; ++i) {
-            struct layout_event layout = la[i];
-            assert(state.active_event_layout_n < aelmax, "");
-            state.active_event_layouts[state.active_event_layout_n++] =
-                    (struct active_event_layout){
-                .aev = &state.active_events[layout.idx],
-                .start = layout.start,
-                .end = layout.end,
-                .max_n = layout.max_n,
-                .col = layout.col,
-                .day_i = d
-            };
-            if (d == -1) {
-                state.all_day_max_n = max(state.all_day_max_n, layout.max_n);
-            } else {
-                min_sec = min(min_sec, layout.start);
-                max_sec = max(max_sec, layout.end);
-            }
-        }
-    }
-    free(la);
-
-    // do event fitting stuff
-    if (min_sec > max_sec) min_sec = 0, max_sec = 3600 * 24;
-    range r;
-    r.from = max(0, min_sec / 3600);
-    r.to = min(24, (max_sec + 3599) / 3600);
-    if (r.to <= r.from) r = (range){ 0, 24 };
-    state.hours_view_events = r;
-    state.hours_view_manual = (range){ -1, -1 };
-    update_actual_fit();
+    update_views();
 }
 
 /* provides a partial ordering over todos */
@@ -368,30 +367,6 @@ static void update_active_todos() {
         state.active_todos[i] = state.active_todos_tag[i].td;
 }
 
-void update_actual_fit() { 
-    if (state.hours_view_manual.from != -1) {
-        state.hours_view = state.hours_view_manual;
-    } else {
-        int min_sec = state.hours_view_events.from * 3600,
-            max_sec = state.hours_view_events.to * 3600;
-        struct tm t = timet_to_tm_with_zone(state.now, state.zone->impl);
-        int now_sec = day_sec(t);
-        time_t diff = time(NULL) - state.base;
-        if (!(diff > state.view_days * 3600 * 24 || diff < 0)) {
-            // fprintf(stderr, "fit now_sec: %f\n", now_sec / 3600.0);
-            if (now_sec < min_sec) min_sec = now_sec;
-            if (now_sec > max_sec) max_sec = now_sec;
-        }
-        range r;
-        r.from = max(0, min_sec / 3600);
-        r.to = min(24, (max_sec + 3599) / 3600);
-        state.hours_view = r;
-    }
-    assert(state.hours_view.to > state.hours_view.from
-            && state.hours_view.to <= 24
-            && state.hours_view.from >= 0, "wrong from/to hour");
-}
-
 static void reload_calendars() {
     for (int i = 0; i < state.n_cal; i++) {
         update_calendar_from_storage(&state.cal[i], state.zone->impl);
@@ -399,6 +374,20 @@ static void reload_calendars() {
     update_active_events();
     update_active_todos();
     state.dirty = true;
+}
+
+static void adjust_base(int n) {
+    struct simple_date sd = simple_date_from_ts(state.base, state.zone->impl);
+    sd.second = sd.minute = sd.hour = 0;
+    switch (state.tview_type) {
+    case TVIEW_DAYS: sd.day += state.tview.n * n; break;
+    case TVIEW_WEEKS: sd.day += 7 * 4 * n; break;
+    case TVIEW_MONTHS: sd.day = 1; sd.month = 1; sd.year += n; break;
+    case TVIEW_YEARS: sd.day = 1; sd.month = 1; sd.year += n; break;
+    default: assert(false, "wrong tview_type");
+    }
+    simple_date_normalize(&sd);
+    state.base = simple_date_to_ts(sd, state.zone->impl);
 }
 
 static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
@@ -424,17 +413,17 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             state.dirty = true;
             break;
         case 'l':
-            timet_adjust_days(&state.base, state.zone->impl, state.view_days);
+            adjust_base(1);
             update_active_events();
             state.dirty = true;
             break;
         case 'h':
-            timet_adjust_days(&state.base, state.zone->impl, -state.view_days);
+            adjust_base(-1);
             update_active_events();
             state.dirty = true;
             break;
         case 't':
-            state.base = get_day_base(state.zone->impl, state.view_days > 1);
+            state.base = get_day_base(state.zone->impl, true);
             update_active_events();
             state.dirty = true;
             break;
@@ -491,15 +480,23 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
         bool update = false;
         switch(sym) {
         case 'h':
-            state.view_days = 30;
+            state.tview_n = 12;
+            state.tview_type = TVIEW_MONTHS;
             update = true;
             break;
         case 'j':
-            state.view_days = 7;
+            state.tview_n = 4;
+            state.tview_type = TVIEW_WEEKS;
             update = true;
             break;
         case 'k':
-            state.view_days = 1;
+            state.tview_n = 7;
+            state.tview_type = TVIEW_DAYS;
+            update = true;
+            break;
+        case 'l':
+            state.tview_n = 1;
+            state.tview_type = TVIEW_DAYS;
             update = true;
             break;
         }
@@ -579,20 +576,22 @@ static char * get_event_recur_set_color(void * p) {
 int application_main(struct application_options opts, struct backend *backend) {
     state = (struct state){
         .n_cal = 0,
-        .view_days = -1,
         .window_width = -1,
         .window_height = -1,
         .sp = NULL,
         .active_events = NULL,
-        .active_event_layouts = NULL,
         .active_todos = NULL,
         .show_private_events = false,
         .keystate = KEYSTATE_BASE,
         .now = time(NULL),
-        .interactive = backend->vptr->is_interactive(backend)
+        .interactive = backend->vptr->is_interactive(backend),
+        .tview = (struct tview){ .n = -1, .s = NULL },
+        .top_tview = (struct tview){ .n = -1, .s = NULL },
+        .tview_n = 7,
+        .tview_type = TVIEW_DAYS,
     };
 
-    state.view_days = opts.view_days;
+    // TODO: state.view_days = opts.view_days;
 
     for (int i = 0; i < 16; ++i) {
         /* init cal_info */
@@ -625,7 +624,7 @@ int application_main(struct application_options opts, struct backend *backend) {
     state.editor = editor;
 
     state.zone = new_timezone("Europe/Budapest");
-    state.base = get_day_base(state.zone->impl, state.view_days == 7);
+    state.base = get_day_base(state.zone->impl, true);
 
     for (int i = 0; i < opts.argc; i++) {
         struct calendar *cal = &state.cal[state.n_cal];
@@ -669,7 +668,6 @@ int application_main(struct application_options opts, struct backend *backend) {
     state.dirty = true;
     backend->vptr->run(backend);
 
-    discard_temp_structures();
     for (int i = 0; i < state.n_cal; i++) {
         destruct_calendar(&state.cal[i]);
     }

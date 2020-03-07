@@ -4,6 +4,7 @@
 #include "backend.h"
 #include "pango.h"
 #include "datetime.h"
+#include "views.h"
 
 struct calendar_info {
     bool visible;
@@ -17,16 +18,9 @@ struct event_tag {
 
 struct active_event {
     struct event_recur_set *ers;
-    struct date start, end;
-    struct simple_date local_start, local_end;
+    struct ts_ran time;
     struct event *ev;
     struct event_tag tag;
-};
-
-struct active_event_layout {
-    struct active_event *aev;
-    // day_i == -1 means an all day event
-    int start, end, max_n, col, day_i;
 };
 
 struct todo_tag {
@@ -48,9 +42,11 @@ struct state {
     int n_cal;
 
     struct active_event *active_events;
-    struct active_event_layout *active_event_layouts;
-    int active_event_n, active_event_layout_n;
-    int all_day_max_n;
+    int active_event_n;
+
+    enum tview_type tview_type;
+    struct tview tview, top_tview;
+    int tview_n;
 
     struct todo **active_todos;
     struct todo_tag *active_todos_tag;
@@ -58,10 +54,6 @@ struct state {
 
     struct cal_timezone *zone;
     time_t base;
-    int view_days;
-    range hours_view_events;
-    range hours_view;
-    range hours_view_manual;
     time_t now;
 
     int window_width, window_height;

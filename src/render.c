@@ -16,8 +16,34 @@ static const char *usage =
     " c: reset visibility\r"
     " r: reload calendars\r"
     " p: toggle private view\r"
-    " i{h,j,k}: select view mode\r"
+    " i{h,j,k,l}: select view mode\r"
     " [1-9]: toggle calendar visibility\r";
+
+typedef struct {
+    union {
+        struct { double x, y; };
+        float v[2];
+    };
+} v2;
+typedef struct {
+    double x, y, w, h;
+} fbox;
+
+static fbox fbox_slice(fbox b, int n, int i, bool dir) {
+    fbox nb;
+    if (dir) {
+        nb.x = b.x + b.w / n * i;
+        nb.y = b.y;
+        nb.w = b.w / n;
+        nb.h = b.h;
+    } else {
+        nb.x = b.x;
+        nb.y = b.y + b.h / n * i;
+        nb.w = b.w;
+        nb.h = b.h / n;
+    }
+    return nb;
+}
 
 static bool same_day(struct simple_date a, struct simple_date b) {
     return
@@ -97,51 +123,31 @@ static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
             ((c >> 24) & 0xFF) / 255.0);
 }
 
-static void render_event(cairo_t *cr, box b, box all_day_b,
-        struct active_event_layout *ael) {
-    struct active_event *aev = ael->aev;
-    struct event *ev = aev->ev;
-
-    int num_days = state.view_days;
-
-    // TODO: what if day not 24h long?
-    time_t slot_base = ael->day_i == -1 ?
-            state.base : state.base + 3600 * 24 * ael->day_i;
-    time_t slot_len = ael->day_i == -1 ? 3600 * 24 * num_days : 3600 * 24;
-    assert(interval_overlap(
-                aev->start.timestamp, aev->end.timestamp,
-                slot_base, slot_base + slot_len
-    ), "event does not overlap with slot");
-
-    int from_sec = state.hours_view.from * 3600;
-    int to_sec = state.hours_view.to * 3600;
-    int interval_sec = to_sec - from_sec;
-
-    int pad = 2;
-    float x, y, w, h;
-    box ab;
-    if (ael->day_i == -1) {
-        ab = all_day_b;
-        x = (float)all_day_b.w / slot_len * ael->start + pad;
-        y = (float)all_day_b.h / ael->max_n * ael->col + pad;
-        w = (float)all_day_b.w / slot_len * (ael->end - ael->start) - 2 * pad;
-        h = (float)all_day_b.h / ael->max_n - 2 * pad;
+struct tview_params {
+    bool dir;
+    double pad;
+    double sep_line;
+    /* skip view_ran.fr from the start of each slice, and end at view_ran.to */
+    struct ts_ran view_ran;
+};
+static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
+        struct tview_params p) {
+    assert(obj->type = TOBJECT_EVENT, "object not event");
+    struct event *ev = obj->ev;
+    double x, y, w, h;
+    if (p.dir) {
+        x = round(b.x + p.pad);
+        y = round(b.y);
+        w = round(b.w - 2 * p.pad);
+        h = round(b.h);
     } else {
-        ab = b;
-        float sw = (float)b.w / num_days;
-        float dw = sw / ael->max_n;
-        x = sw * ael->day_i + dw * ael->col + pad;
-        y = (float)b.h * (ael->start - from_sec) / interval_sec;
-        w = dw - 2*pad;
-        h = (float)b.h * (ael->end - ael->start) / interval_sec;
+        x = round(b.x);
+        y = round(b.y + p.pad);
+        w = round(b.w);
+        h = round(b.h - 2 * p.pad);
     }
-    cairo_translate(cr, ab.x, ab.y);
 
-    x = roundf(x);
-    y = roundf(y);
-    w = roundf(w);
-    h = roundf(h);
-
+    /* calculate color stuff */
     uint32_t color = ev->color;
     if (!color) color = 0xFF20D0D0;
     if (ev->status == ICAL_STATUS_TENTATIVE ||
@@ -151,10 +157,13 @@ static void render_event(cairo_t *cr, box b, box all_day_b,
     double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
         + ((color >> 16) & 0xFF);
     lightness /= 255.0;
+
+    /* fill base rect */
     cairo_set_source_argb(cr, color);
     cairo_rectangle(cr, x, y, w, h);
     cairo_fill(cr);
 
+    /* draw various labels */
     if (state.show_private_events || ev->clas != ICAL_CLASS_PRIVATE) {
         bool light = lightness < 0.9 ? true : false;
         uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
@@ -168,10 +177,7 @@ static void render_event(cairo_t *cr, box b, box all_day_b,
 
         cairo_move_to(cr, x, y);
         state.tr->p.width = w; state.tr->p.height = h - loc_h;
-        char *text = text_format("%02d:%02d-%02d:%02d %s",
-                aev->local_start.hour, aev->local_start.minute,
-                aev->local_end.hour, aev->local_end.minute,
-                ev->summary);
+        char *text = text_format("%s", ev->summary);
         text_print_free(cr, state.tr, text);
 
         if (ev->location) {
@@ -183,6 +189,8 @@ static void render_event(cairo_t *cr, box b, box all_day_b,
         }
     }
 
+    /* draw keycode tags */
+    struct active_event *aev = obj->aev;
     if (state.keystate == KEYSTATE_SELECT) {
         uint32_t c = (color ^ 0x00FFFFFF) | 0xFF000000;
         cairo_set_source_argb(cr, c);
@@ -195,8 +203,163 @@ static void render_event(cairo_t *cr, box b, box all_day_b,
         text_print_own(cr, state.tr, aev->tag.code);
         state.tr->p.scale = 1.0;
     }
+}
+static void render_tslice(cairo_t *cr, struct tslice *tsl, ts len, fbox b,
+        struct tview_params p) {
+    struct ts_ran ran = tsl->ran;
+    for (int i = 0; i < tsl->n; ++i) {
+        struct tobject *obj = &tsl->objs[i];
+        struct ts_ran time = obj->time;
+        time.fr = max(time.fr, ran.fr);
+        time.to = min(time.to, ran.to);
+        double pa = (time.fr - ran.fr - p.view_ran.fr) / (double)len;
+        double pb = (time.to - ran.fr - p.view_ran.fr) / (double)len;
+        double pl = pb - pa;
+        fbox nb;
+        if (p.dir) {
+            nb.x = b.x + b.w / obj->max_n * obj->col;
+            nb.y = b.y + b.h * pa;
+            nb.w = b.w / obj->max_n;
+            nb.h = b.h * pl;
+        } else {
+            nb.x = b.x + b.w * pa;
+            nb.y = b.y + b.h / obj->max_n * obj->col;
+            nb.w = b.w * pl;
+            nb.h = b.h / obj->max_n;
+        }
+        if (obj->type == TOBJECT_EVENT) {
+            render_tobject_event(cr, obj, nb, p);
+        } else {
+            assert(false, "unknown tobject type");
+        }
+    }
 
-    cairo_translate(cr, -ab.x, -ab.y);
+    /* draw time marker red line */
+    ts now = ts_now();
+    if (ts_ran_in(ran, now)) {
+        double pa = (now - ran.fr - p.view_ran.fr) / (double)len;
+        fbox nb;
+        if (p.dir) {
+            nb.x = b.x;
+            nb.y = b.y + b.h * pa;
+            nb.w = b.w;
+            nb.h = 0;
+        } else {
+            nb.x = b.x + b.w * pa;
+            nb.y = b.y;
+            nb.w = 0;
+            nb.h = b.h;
+        }
+        cairo_set_line_width(cr, 2);
+        cairo_move_to(cr, nb.x, nb.y);
+        cairo_line_to(cr, nb.x + nb.w, nb.y + nb.h);
+        cairo_set_source_rgba(cr, 255, 0, 0, 255);
+        cairo_stroke(cr);
+    }
+}
+static void render_tview(cairo_t *cr, struct tview *tv, fbox b,
+        struct tview_params p) {
+    ts len = p.view_ran.to - p.view_ran.fr;
+
+    /* draw lines */
+    cairo_set_line_width(cr, 1);
+    for (int l = 0;; ++l) {
+        bool any = false;
+        for (int i = 0; i < tv->n; ++i) {
+            struct tslice *tsl = &tv->s[i];
+            if (tsl->lines.n <= l) continue;
+            any = true;
+            ts t = tsl->lines.s[l];
+            double pa = (t - tsl->ran.fr - p.view_ran.fr) / (double)len;
+            if (pa < 0 || pa > 1) continue;
+            fbox nb = fbox_slice(b, tv->n, i, p.dir);
+            double x1, x2, y1, y2;
+            if (p.dir) {
+                x1 = nb.x; x2 = nb.x + nb.w;
+                y1 = y2 = round(nb.y + pa * nb.h + .5) - .5;
+            } else {
+                x1 = x2 = round(nb.x + pa * nb.w + .5) - .5;
+                y1 = nb.y; y2 = nb.y + nb.w;
+            }
+            cairo_set_source_argb(cr, 0xFF000000);
+            cairo_move_to(cr, x1, y1);
+            cairo_line_to(cr, x2, y2);
+            cairo_stroke(cr);
+        }
+        if (!any) break;
+    }
+
+    /* draw slices */
+    for (int i = 0; i < tv->n; ++i) {
+        struct tslice *tsl = &tv->s[i];
+        fbox nb = fbox_slice(b, tv->n, i, p.dir);
+        render_tslice(cr, tsl, len, nb, p);
+
+        /* draw lines between slices */
+        cairo_set_source_argb(cr, 0xFF000000);
+        cairo_set_line_width(cr, p.sep_line);
+        if (p.dir) {
+            cairo_move_to(cr, b.x + b.w / tv->n * i, b.y);
+            cairo_line_to(cr, b.x + b.w / tv->n * i, b.y + b.h);
+        } else {
+            cairo_move_to(cr, b.x, b.y + b.h / tv->n * i);
+            cairo_line_to(cr, b.x + b.w, b.y + b.h / tv->n * i);
+        }
+        cairo_stroke(cr);
+    }
+}
+static void render_tview_header(cairo_t *cr, struct tview *tv, fbox b,
+        struct tview_params p) {
+    cairo_set_source_argb(cr, 0xFF000000);
+    cairo_set_line_width(cr, p.sep_line);
+    for (int i = 0; i < tv->n; ++i) {
+        fbox nb = fbox_slice(b, tv->n, i, p.dir);
+        double x1, x2, y1, y2;
+        if (p.dir) {
+            x1 = x2 = b.x + b.w / tv->n * i;
+            y1 = b.y; y2 = b.y + b.h;
+        } else {
+            x1 = b.x; x2 = b.x + b.w;
+            y1 = y2 = b.y + b.h / tv->n * i;
+        }
+        cairo_move_to(cr, x1, y1);
+        cairo_line_to(cr, x2, y2);
+        cairo_stroke(cr);
+
+        state.tr->p.scale = 1.5;
+        text_print_center(cr, (box){ nb.x, nb.y, nb.w, nb.h },
+            tv->s[i].header_label);
+        state.tr->p.scale = 1.0;
+    }
+}
+static void render_tview_strip(cairo_t *cr, struct tview *tv, fbox b,
+        struct tview_params p) {
+    cairo_set_source_argb(cr, 0xFF000000);
+    ts len = p.view_ran.to - p.view_ran.fr;
+    char buf[64];
+    for (int l = 0;; ++l) {
+        bool any = false;
+        for (int i = 0; i == 0; ++i) {
+            struct tslice *tsl = &tv->s[i];
+            if (tsl->lines.n <= l) continue;
+            any = true;
+
+            double x, y;
+            ts t = tsl->lines.s[l] - tsl->ran.fr - p.view_ran.fr;
+            double pa = t / (double)len;
+            if (pa < 0 || pa > 1) continue;
+            if (p.dir) {
+                x = b.x + b.w / 2;
+                y = b.y + b.h * pa;
+            } else {
+                x = b.x + b.w * pa;
+                y = b.y + b.h / 2;
+            }
+            snprintf(buf, 64, "%02d", l);
+            draw_text(cr, x, y, buf);
+        }
+        if (!any) break;
+    }
 }
 
 static void render_sidebar(cairo_t *cr, box b) {
@@ -257,126 +420,6 @@ static void render_sidebar(cairo_t *cr, box b) {
     cairo_move_to(cr, b.w, 0);
     cairo_line_to(cr, b.w, b.h);
     cairo_stroke(cr);
-    cairo_identity_matrix(cr);
-}
-
-static void render_header(cairo_t *cr, box b) {
-    cairo_translate(cr, b.x, b.y);
-
-    cairo_set_source_rgba(cr, 0, 0, 0, 255);
-
-    cairo_move_to(cr, 0, b.h);
-    cairo_line_to(cr, b.w, b.h);
-    cairo_stroke(cr);
-
-    int num_days = state.view_days;
-    float sw = (float)b.w / num_days;
-    for (int i = 1; i < num_days; i++) {
-        float pos = roundf(sw*i);
-        cairo_move_to(cr, pos, 0);
-        cairo_line_to(cr, pos, b.h);
-    }
-    cairo_stroke(cr);
-
-    char *days[] = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
-    char buf[64];
-    for (int i = 0; i < num_days; i++) {
-        time_t time_off = state.base + 3600 * 24 * i;
-        struct icaltimetype t = icaltime_from_timet_with_zone(
-            time_off, false, state.zone->impl);
-        int dow = icaltime_day_of_week(t);
-        snprintf(buf, 64, "%s: %d-%d",
-                days[(dow+5)%7], t.month, t.day);
-        state.tr->p.scale = 1.5;
-        text_print_center(cr, (box){ i*sw, 0, sw, b.h }, buf);
-        state.tr->p.scale = 1.0;
-    }
-
-    cairo_identity_matrix(cr);
-}
-
-static void render_calendar_events(cairo_t *cr, box b, box all_day_b) {
-    for (int i = 0; i < state.active_event_layout_n; ++i) {
-        struct active_event_layout *ael = &state.active_event_layouts[i];
-        render_event(cr, b, all_day_b, ael);
-    }
-}
-
-void render_calendar(cairo_t *cr, box b) {
-    cairo_translate(cr, b.x, b.y);
-
-    int num_days = state.view_days;
-    int time_strip_w = 30, top_strip_h = 50 * state.all_day_max_n;
-    float sw = (float)(b.w - time_strip_w) / num_days;
-
-    cairo_set_source_argb(cr, 0xFF000000);
-
-    // draw separator lines
-    if (top_strip_h > 0) {
-        cairo_set_line_width(cr, 1);
-        cairo_move_to(cr, time_strip_w, top_strip_h + 0.5);
-        cairo_line_to(cr, b.w, top_strip_h + 0.5);
-        cairo_stroke(cr);
-
-        cairo_set_line_width(cr, 2);
-        cairo_move_to(cr, time_strip_w, 0);
-        cairo_line_to(cr, time_strip_w, top_strip_h);
-        cairo_stroke(cr);
-    }
-
-    // draw vertical lines
-    cairo_translate(cr, time_strip_w, top_strip_h);
-    for (int i = 0; i < num_days; i++) {
-        float pos = roundf(sw*i);
-        cairo_move_to(cr, pos, 0);
-        cairo_line_to(cr, pos, b.h - top_strip_h);
-    }
-    cairo_stroke(cr);
-
-    // draw horizontal lines
-    cairo_set_line_width(cr, 1);
-    cairo_set_source_argb(cr, 0xFF555555);
-    range r = state.hours_view;
-    for (int i = r.from + 1; i < r.to; i++) {
-        int y = (b.h - top_strip_h) * (i - r.from) / (r.to - r.from);
-        cairo_move_to(cr, 0, y + 0.5);
-        cairo_line_to(cr, b.w - time_strip_w, y + 0.5);
-    }
-    cairo_stroke(cr);
-    cairo_set_line_width(cr, 2);
-
-    // draw hour labels
-    cairo_translate(cr, -time_strip_w, 0);
-    char buf[64];
-    for (int i = r.from + 1; i < r.to; i++) {
-        int y = (b.h - top_strip_h) * (i - r.from) / (r.to - r.from);
-        snprintf(buf, 64, "%02d", i);
-        draw_text(cr, time_strip_w / 2, y, buf);
-    }
-
-    // draw all the events
-    cairo_translate(cr, 0, -top_strip_h);
-    render_calendar_events(cr,
-        (box){ time_strip_w, top_strip_h, b.w-time_strip_w, b.h-top_strip_h },
-        (box){ time_strip_w, 0, b.w - time_strip_w, top_strip_h }
-    );
-
-    // draw time marker red line
-    cairo_translate(cr, time_strip_w, top_strip_h);
-    time_t now = state.now;
-    struct tm t = timet_to_tm_with_zone(now, state.zone->impl);
-    int now_sec = day_sec(t);
-    int interval_sec = (r.to - r.from) * 3600;
-    int day_sec = 24 * 3600;
-    int day_i = (now - state.base) / day_sec;
-    int y = (b.h - top_strip_h) * (now_sec - r.from * 3600) / interval_sec;
-    if (now >= state.base) {
-        cairo_move_to(cr, day_i * sw, y);
-        cairo_line_to(cr, (day_i+1) * sw, y);
-        cairo_set_source_rgba(cr, 255, 0, 0, 255);
-        cairo_stroke(cr);
-    }
-
     cairo_identity_matrix(cr);
 }
 
@@ -503,7 +546,6 @@ bool render_application(void *ud, cairo_t *cr) {
     time_t now = time(NULL);
     if (state.now != now) {
         state.now = now;
-        update_actual_fit();
         state.dirty = true;
     }
     if (state.window_width != w ||
@@ -522,16 +564,51 @@ bool render_application(void *ud, cairo_t *cr) {
     int time_strip_w = 30;
     int sidebar_w = 120;
     int header_h = 60;
+    assert(state.top_tview.n == 1, "top_tview wrong slices");
+    int top_h = 50 * state.top_tview.s[0].max_overlap;
 
     const char *view_name = "";
     switch (state.main_view) {
     case VIEW_CALENDAR:
-        render_calendar(cr,
-            (box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
-        render_header(cr, (box){
-            sidebar_w + time_strip_w, 0,
-            w-sidebar_w-time_strip_w, header_h
-        });
+        ;
+        fbox cal_box = { sidebar_w, 0, w - sidebar_w, h };
+        fbox header_box = {
+            cal_box.x + time_strip_w, cal_box.y,
+            cal_box.w - time_strip_w, header_h
+        };
+        fbox time_strip_box = {
+            cal_box.x, cal_box.y + header_h + top_h,
+            time_strip_w, cal_box.h - header_h - top_h
+        };
+        fbox top_box = {
+            cal_box.x + time_strip_w, cal_box.y + header_h,
+            cal_box.w - time_strip_w, top_h
+        };
+        fbox main_box = {
+            cal_box.x + time_strip_w, cal_box.y + header_h + top_h,
+            cal_box.w - time_strip_w, cal_box.h - header_h - top_h
+        };
+        struct tview_params params = {
+            .dir = true,
+            .pad = 2,
+            .sep_line = 2,
+        };
+
+        if (state.tview_type == TVIEW_DAYS) {
+            params.view_ran = (struct ts_ran){
+                state.tview.min_content, state.tview.max_content };
+        } else {
+            params.view_ran = (struct ts_ran){ 0, state.tview.max_len };
+        }
+        render_tview(cr, &state.tview, main_box, params);
+        render_tview_header(cr, &state.tview, header_box, params);
+        if (state.tview_type == TVIEW_DAYS) {
+            render_tview_strip(cr, &state.tview, time_strip_box, params);
+        }
+
+        params.dir = false;
+        params.view_ran = (struct ts_ran){ 0, state.top_tview.max_len };
+        render_tview(cr, &state.top_tview, top_box, params);
         view_name = "calendar";
         break;
     case VIEW_TODO:
@@ -552,7 +629,9 @@ bool render_application(void *ud, cairo_t *cr) {
                 t.tm_hour, t.tm_min, t.tm_sec,
                 view_name);
         state.tr->p.width = -1 /* sidebar_w */; state.tr->p.height = header_h;
+        state.tr->p.scale = 0.9;
         text_print_free(cr, state.tr, text);
+        state.tr->p.scale = 1.0;
     }
 
     state.dirty = false;
