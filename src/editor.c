@@ -9,14 +9,6 @@
 #include "editor.h"
 #include "util.h"
 
-static void print_time_prop(char *buf, size_t size, struct simple_date sd) {
-    if (sd.year == -1) {
-        buf[0] = '\0';
-    } else {
-        snprintf(buf, size, "%04d-%02d-%02d %02d:%02d",
-            sd.year, sd.month, sd.day, sd.hour, sd.minute);
-    }
-}
 static const char * status_str(enum icalproperty_status v) {
     switch (v) {
     case ICAL_STATUS_TENTATIVE: return "tentative";
@@ -41,15 +33,6 @@ static void print_literal(FILE *f, const char *key, char *val) {
         fprintf(f, "#%s\n", key);
     }
 }
-static void print_dur(FILE *f, int v) {
-    struct simple_dur sdu = simple_dur_from_int(v);
-    if (sdu.d != 0) fprintf(f, "%dd", sdu.d);
-    if (sdu.h != 0) fprintf(f, "%dh", sdu.h);
-    if (sdu.m != 0) fprintf(f, "%dm", sdu.m);
-    if (sdu.s != 0) fprintf(f, "%ds", sdu.s);
-    if (sdu.d == 0 && sdu.h == 0 && sdu.m == 0 && sdu.s == 0)
-        fprintf(f, "0s");
-}
 
 // DEP: struct event
 static const char *event_usage =
@@ -73,8 +56,8 @@ void print_event_template(FILE *f, struct event *ev, const char *uid,
         start_sd = simple_date_from_timet(ev->start.timestamp, zone),
         end_sd = simple_date_from_timet(ev->end.timestamp, zone);
     char start[32], end[32];
-    print_time_prop(start, 32, start_sd);
-    print_time_prop(end, 32, end_sd);
+    format_simple_date(start, 32, start_sd);
+    format_simple_date(end, 32, end_sd);
 
     fprintf(f, "update event\n");
     print_literal(f, "summary", ev->summary);
@@ -99,8 +82,8 @@ void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
         start_sd = simple_date_from_timet(td->start.timestamp, zone),
         due_sd = simple_date_from_timet(td->due.timestamp, zone);
     char start[32], due[32];
-    print_time_prop(start, 32, start_sd);
-    print_time_prop(due, 32, due_sd);
+    format_simple_date(start, 32, start_sd);
+    format_simple_date(due, 32, due_sd);
 
     fprintf(f, "update todo\n");
     print_literal(f, "summary", td->summary);
@@ -110,7 +93,7 @@ void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
 
     if (td->estimated_duration != -1) {
         fprintf(f, "est ");
-        print_dur(f, td->estimated_duration);
+        print_simple_dur(f, simple_dur_from_int(td->estimated_duration));
         fprintf(f, "\n");
     } else {
         fprintf(f, "#est\n");

@@ -1,3 +1,5 @@
+#include <time.h>
+
 #include "datetime.h"
 #undef assert
 #include "util.h"
@@ -119,6 +121,9 @@ struct simple_date simple_date_now(icaltimezone *zone) {
     struct icaltimetype tt = icaltime_current_time_with_zone(zone);
     return simple_date_from_icaltime(tt);
 }
+ts ts_now() {
+    return (ts)time(NULL);
+}
 
 struct simple_date simple_date_from_timet(time_t t, icaltimezone *zone) {
     if (t == -1) {
@@ -175,4 +180,44 @@ int simple_date_days_in_month(struct simple_date sd) {
 
 bool ts_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
     return a1 < b2 && a2 > b1;
+}
+
+static int simple_date_day_of_week(struct simple_date sd) {
+    icaltimetype t = simple_date_to_icaltime(sd);
+    return icaltime_day_of_week(t);
+}
+
+const char * simple_date_day_of_week_name(struct simple_date sd) {
+    const char *days[] =
+        { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+    int dow = simple_date_day_of_week(sd);
+    return days[(dow+5)%7];
+}
+int simple_date_week_number(struct simple_date sd) {
+    icaltimetype t = simple_date_to_icaltime(sd);
+    return icaltime_week_number(t);
+}
+
+bool ts_ran_overlap(struct ts_ran a, struct ts_ran b) {
+    return ts_overlap(a.fr, a.to, b.fr, b.to);
+}
+bool ts_ran_in(struct ts_ran a, ts t) {
+    return a.fr <= t && t < a.to;
+}
+
+void format_simple_date(char *buf, size_t size, struct simple_date sd) {
+    if (sd.year == -1) {
+        buf[0] = '\0';
+    } else {
+        snprintf(buf, size, "%04d-%02d-%02d %02d:%02d",
+            sd.year, sd.month, sd.day, sd.hour, sd.minute);
+    }
+}
+void print_simple_dur(FILE *f, struct simple_dur sdu) {
+    if (sdu.d != 0) fprintf(f, "%dd", sdu.d);
+    if (sdu.h != 0) fprintf(f, "%dh", sdu.h);
+    if (sdu.m != 0) fprintf(f, "%dm", sdu.m);
+    if (sdu.s != 0) fprintf(f, "%ds", sdu.s);
+    if (sdu.d == 0 && sdu.h == 0 && sdu.m == 0 && sdu.s == 0)
+        fprintf(f, "0s");
 }

@@ -6,6 +6,9 @@
 
 typedef long long int ts;
 
+/* range: [fr, to) */
+struct ts_ran { ts fr, to; };
+
 struct simple_date {
     union {
         struct {
@@ -45,11 +48,20 @@ time_t simple_date_to_timet(struct simple_date sd, icaltimezone *zone);
 ts simple_date_to_ts(struct simple_date sd, icaltimezone *zone);
 void simple_date_normalize(struct simple_date *sd);
 int simple_date_days_in_month(struct simple_date sd);
+const char * simple_date_day_of_week_name(struct simple_date sd);
+int simple_date_week_number(struct simple_date sd);
 
 /* [a1, a2) and [b1, b2) intervals. */
 bool ts_overlap(time_t a1, time_t a2, time_t b1, time_t b2);
+ts ts_now();
+bool ts_ran_overlap(struct ts_ran a, struct ts_ran b);
+bool ts_ran_in(struct ts_ran a, ts t);
 
 struct simple_dur simple_dur_from_int(int v);
 int simple_dur_to_int(struct simple_dur sdu);
+
+void format_simple_date(char *buf, size_t size, struct simple_date sd);
+void print_simple_dur(FILE *f, struct simple_dur sdu);
+
 
 #endif
