@@ -17,9 +17,7 @@ static const char *usage =
     " r: reload calendars\r"
     " p: toggle private view\r"
     " i{h,j,k}: select view mode\r"
-    " [1-9]: toggle calendar visibility\r"
-    " +/-: inc./dec. vertical scale\r"
-    " up/down: move 1 hour up/down\r";
+    " [1-9]: toggle calendar visibility\r";
 
 static bool same_day(struct simple_date a, struct simple_date b) {
     return

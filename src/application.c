@@ -479,60 +479,6 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                     update_active_todos();
                     state.dirty = true;
                 }
-            } else if (mods & 1) { /* shift modifier */
-                if (key == 13) { /* KEY_EQUALS */
-                    if (state.hours_view_manual.from == -1) {
-                        state.hours_view_manual = state.hours_view_events;
-                        update_actual_fit();
-                        state.dirty = true;
-                    }
-                    if (state.hours_view_manual.to > state.hours_view_manual.from + 1) {
-                        --state.hours_view_manual.to;
-                        update_actual_fit();
-                        state.dirty = true;
-                    }
-                }
-                if (key == 12) { /* KEY_MINUS */
-                    if (state.hours_view_manual.from == -1) {
-                        state.hours_view_manual = state.hours_view_events;
-                        update_actual_fit();
-                        state.dirty = true;
-                    }
-                    if (state.hours_view_manual.to < 24) {
-                        ++state.hours_view_manual.to;
-                        update_actual_fit();
-                        state.dirty = true;
-                    }
-                    if (state.hours_view_manual.from > 0) {
-                        --state.hours_view_manual.from;
-                        update_actual_fit();
-                        state.dirty = true;
-                    }
-                }
-            } else if (key == 103) { /* KEY_UP */
-                if (state.hours_view_manual.from == -1) {
-                    state.hours_view_manual = state.hours_view_events;
-                    update_actual_fit();
-                    state.dirty = true;
-                }
-                if (state.hours_view_manual.from > 0) {
-                    --state.hours_view_manual.from;
-                    --state.hours_view_manual.to;
-                    update_actual_fit();
-                    state.dirty = true;
-                }
-            } else if (key == 108) { /* KEY_DOWN */
-                if (state.hours_view_manual.from == -1) {
-                    state.hours_view_manual = state.hours_view_events;
-                    update_actual_fit();
-                    state.dirty = true;
-                }
-                if (state.hours_view_manual.to < 24) {
-                    ++state.hours_view_manual.from;
-                    ++state.hours_view_manual.to;
-                    update_actual_fit();
-                    state.dirty = true;
-                }
             }
             break;
         default:
