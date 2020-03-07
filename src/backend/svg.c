@@ -47,7 +47,7 @@ static void get_window_size(struct backend *backend, int *width, int *height) {
     *height = self->height;
 }
 
-static void set_callbacks(struct backend *backend, 
+static void set_callbacks(struct backend *backend,
         paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb, void *ud) {
     struct self *self = backend->self;
     self->p_cb = p_cb;

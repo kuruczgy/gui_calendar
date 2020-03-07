@@ -51,7 +51,7 @@ FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid) {
     // size_t n = pread(fd, buf, 1024, 0);
     // fprintf(stderr, "file read:\n%.*s===\n", (int)n, buf);
     FILE *res = fdopen(fd, "r");
-    
+
     unlink(name);
     free(name);
     free(*handle);
