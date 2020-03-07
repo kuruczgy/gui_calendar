@@ -9,6 +9,7 @@
 #include "backend.h"
 #include "render.h"
 #include "editor.h"
+#include "algo.h"
 
 struct state state = { 0 };
 

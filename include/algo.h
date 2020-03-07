@@ -2,6 +2,15 @@
 #define GUI_CALENDAR_ALGO_H
 #include <stddef.h>
 
+struct layout_event {
+    int start, end;
+    int max_n;
+    int col;
+    int idx;
+};
+
+void calendar_layout(struct layout_event *e, int N);
+
 /* Given an array of n elements, finds the next permutation in
  * lexicographical order with a different k-prefix; in effect, it
  * generates all k-permutations of the array.

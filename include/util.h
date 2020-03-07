@@ -8,19 +8,10 @@
 #include <stdlib.h>
 #include "hashmap.h"
 
-struct layout_event {
-    long long int start, end;
-    int max_n;
-    int col;
-    int idx;
-};
-
 int os_create_anonymous_file(off_t size);
 char* create_tmpfile_template();
 int set_cloexec_or_close(int fd);
 uint32_t lookup_color(const char *name);
-
-void calendar_layout(struct layout_event *e, int N);
 
 void assert(bool, const char *);
 

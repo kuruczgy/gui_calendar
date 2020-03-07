@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "util.h"
+#include "algo.h"
 
 struct point {
     long long int val;
