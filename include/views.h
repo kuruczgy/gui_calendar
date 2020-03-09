@@ -8,7 +8,8 @@ struct active_event;
 struct icaltimezone;
 
 enum tobject_type {
-    TOBJECT_EVENT
+    TOBJECT_EVENT,
+    TOBJECT_TODO
 };
 
 struct tobject {

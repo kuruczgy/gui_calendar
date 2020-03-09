@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include "application.h"
 #include "util.h"
+#include "algo.h"
 #include "keyboard.h"
 #include "backend.h"
 #include "render.h"
@@ -141,7 +142,11 @@ static int events_in_range_cnt(void *data, void *_cl) {
     for (int i = 0; i < (ers->max != 0 ? ers->n : 1); ++i) {
         time_t start, end;
         event_recur_set_get(ers, i, &start, &end);
-        if (ts_ran_overlap(*ran, (struct ts_ran){ (ts)start, (ts)end })) ++cnt;
+        if (ran->fr == -1) {
+            ++cnt;
+        } else if (ts_ran_overlap(*ran, (struct ts_ran){(ts)start,(ts)end})) {
+            ++cnt;
+        }
     }
     return cnt;
 }
@@ -169,6 +174,66 @@ static int create_active_events(void *_cl, void *data) {
     }
     return MAP_OK;
 }
+struct get_event_ranges_cl {
+    struct ts_ran *E;
+    int n, max;
+};
+static int get_event_ranges(void *_cl, void *data) {
+    struct get_event_ranges_cl *cl = _cl;
+    struct event_recur_set *ers = data;
+    for (int i = 0; i < (ers->max != 0 ? ers->n : 1); ++i) {
+        time_t start, end;
+        struct event *ev = event_recur_set_get(ers, i, &start, &end);
+        if (ev->status != ICAL_STATUS_CONFIRMED) continue;
+        assert(cl->n < cl->max, "too many ranges");
+        cl->E[cl->n++] = (struct ts_ran){ (ts)start, (ts)end };
+    }
+    return MAP_OK;
+}
+
+static void iter_visible_cals(int (*cb)(void*, void*), void* cl) {
+    for (int i = 0; i < state.n_cal; ++i) {
+        if (state.cal_info[i].visible) {
+            hashmap_iterate(state.cal[i].event_sets, cb, cl);
+        }
+    }
+}
+static void itar_all_cals(int (*cb)(void*, void*), void* cl) {
+    for (int i = 0; i < state.n_cal; ++i) {
+        hashmap_iterate(state.cal[i].event_sets, cb, cl);
+    }
+}
+
+static struct ts_ran * schedule_active_todos() {
+    /* count all visible events */
+    struct ts_ran ran = { -1, -1 };
+    struct hashmap_counter_cl ccl = { 0, &events_in_range_cnt, &ran };
+    iter_visible_cals(&hashmap_counter, &ccl);
+
+    struct ts_ran *E = malloc_check(sizeof(struct ts_ran) * ccl.cnt);
+    struct get_event_ranges_cl ercl = { E, 0, ccl.cnt };
+    itar_all_cals(&get_event_ranges, &ercl);
+
+    struct ts_ran *G = todo_schedule(state.now, ercl.n, E,
+            state.active_todo_n, state.active_todos);
+
+    free(E);
+
+    /* debug */
+    char buf1[32], buf2[32];
+    fprintf(stderr, "> todo schedule\n");
+    for (int i = 0; i < state.active_todo_n; ++i) {
+        struct todo *td = state.active_todos[i];
+        format_simple_date(buf1, 32,
+            simple_date_from_ts(G[i].fr, state.zone->impl));
+        format_simple_date(buf2, 32,
+            simple_date_from_ts(G[i].to, state.zone->impl));
+        fprintf(stderr, "- todo[%d] %s - %s\tsum: `%s`\n",
+            i, buf1, buf2, td->summary);
+    }
+
+    return G;
+}
 
 static void update_views() {
     /* free existing structures */
@@ -190,14 +255,16 @@ static void update_views() {
     /* count overlapping events */
     struct ts_ran ran = { spec.base, spec.to };
     struct hashmap_counter_cl ccl = { 0, &events_in_range_cnt, &ran };
-    for (int i = 0; i < state.n_cal; ++i) {
-        if (state.cal_info[i].visible) {
-            hashmap_iterate(state.cal[i].event_sets, hashmap_counter, &ccl);
-        }
-    }
-    init_tview_slices(&state.tview, ccl.cnt);
-    init_tview_slices(&state.top_tview, ccl.cnt);
-    state.active_events = malloc_check(sizeof(struct active_event) * ccl.cnt);
+    iter_visible_cals(hashmap_counter, &ccl);
+
+    /* schedule todos */
+    struct ts_ran *G = schedule_active_todos();
+    int max_n = ccl.cnt + state.active_todo_n;
+
+    /* allocate slices */
+    init_tview_slices(&state.tview, max_n);
+    init_tview_slices(&state.top_tview, max_n);
+    state.active_events = malloc_check(sizeof(struct active_event) * max_n);
     state.active_event_n = 0;
 
     /* create active_event structs */
@@ -229,6 +296,18 @@ static void update_views() {
             tview_try_put(&state.top_tview, obj);
         }
     }
+
+    /* populate tviews with scheduled todos */
+    for (int i = 0; i < state.active_todo_n; ++i) {
+        struct tobject obj = (struct tobject){
+            .time = G[i],
+            .type = TOBJECT_TODO,
+            .td = state.active_todos[i]
+        };
+        tview_try_put(&state.tview, obj);
+    }
+
+    free(G);
 
     /* calculate layouts */
     tview_update_layout(&state.tview);
@@ -269,13 +348,6 @@ static void update_views() {
     }
 }
 
-static void update_active_events() {
-    /* clear any modes that depend on current event structures */
-    if (state.keystate == KEYSTATE_SELECT) state.keystate = KEYSTATE_BASE;
-
-    update_views();
-}
-
 /* provides a partial ordering over todos */
 static int todo_priority_cmp(const struct todo *a, const struct todo *b) {
     /* -1: a first, 1: b first, 0: equal */
@@ -288,11 +360,7 @@ static int todo_priority_cmp(const struct todo *a, const struct todo *b) {
     bool a_short = a->estimated_duration != -1 && a->estimated_duration <= sh;
     bool b_short = b->estimated_duration != -1 && b->estimated_duration <= sh;
 
-    if (a_started && !b_started) {
-        return -1;
-    } else if (b_started && !a_started) {
-        return 1;
-    } else if (a_short != b_short) {
+    if (a_short != b_short) {
         if (a_short) return -1;
         else return 1;
     } else if (a->due.timestamp > 0 || b->due.timestamp > 0) {
@@ -367,12 +435,21 @@ static void update_active_todos() {
         state.active_todos[i] = state.active_todos_tag[i].td;
 }
 
+static void update_active_objects() {
+    /* clear any modes that depend on current event structures */
+    if (state.keystate == KEYSTATE_SELECT) state.keystate = KEYSTATE_BASE;
+
+    update_active_todos();
+
+    /* this depends on update_active_todos */
+    update_views();
+}
+
 static void reload_calendars() {
     for (int i = 0; i < state.n_cal; i++) {
         update_calendar_from_storage(&state.cal[i], state.zone->impl);
     }
-    update_active_events();
-    update_active_todos();
+    update_active_objects();
     state.dirty = true;
 }
 
@@ -414,17 +491,17 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             break;
         case 'l':
             adjust_base(1);
-            update_active_events();
+            update_active_objects();
             state.dirty = true;
             break;
         case 'h':
             adjust_base(-1);
-            update_active_events();
+            update_active_objects();
             state.dirty = true;
             break;
         case 't':
             state.base = get_day_base(state.zone->impl, true);
-            update_active_events();
+            update_active_objects();
             state.dirty = true;
             break;
         case 'n':
@@ -444,8 +521,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             for (int i = 0; i < state.n_cal; ++i) {
                 state.cal_info[i].visible = state.cal_default_visible[i];
             }
-            update_active_events();
-            update_active_todos();
+            update_active_objects();
             state.dirty = true;
             break;
         case 'r':
@@ -453,8 +529,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             break;
         case 'p':
             state.show_private_events = !state.show_private_events;
-            update_active_events();
-            update_active_todos();
+            update_active_objects();
             state.dirty = true;
             break;
         case 'i':
@@ -465,8 +540,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                 --n; /* key 1->0 .. key 9->8 */
                 if (n < state.n_cal) {
                     state.cal_info[n].visible = ! state.cal_info[n].visible;
-                    update_active_events();
-                    update_active_todos();
+                    update_active_objects();
                     state.dirty = true;
                 }
             }
@@ -501,7 +575,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             break;
         }
         if (update) {
-            update_active_events();
+            update_active_objects();
             state.dirty = true;
         }
         state.keystate = KEYSTATE_BASE;
@@ -555,9 +629,9 @@ static void application_handle_child(void *ud, pid_t pid) {
 
     if (apply_edit_spec_to_calendar(&es, cal) == 0) {
         if (es.type == COMP_TYPE_EVENT) {
-            update_active_events();
+            update_active_objects();
         } else if (es.type == COMP_TYPE_TODO) {
-            update_active_todos();
+            update_active_objects();
         } else {
             assert(false, "");
         }
@@ -652,8 +726,7 @@ int application_main(struct application_options opts, struct backend *backend) {
         if (++state.n_cal >= 16) break;
     }
 
-    update_active_events();
-    update_active_todos();
+    update_active_objects();
 
     state.backend = backend;
     state.backend->vptr->set_callbacks(state.backend,

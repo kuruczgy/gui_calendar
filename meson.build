@@ -47,6 +47,7 @@ sources = [
   'src/keyboard.c',
   'src/algo/perm.c',
   'src/algo/calendar_layout.c',
+  'src/algo/todo_schedule.c',
   'src/render.c',
   'src/application.c',
   'src/util/hashmap.c',

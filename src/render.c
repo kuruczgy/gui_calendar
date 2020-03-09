@@ -130,9 +130,37 @@ struct tview_params {
     /* skip view_ran.fr from the start of each slice, and end at view_ran.to */
     struct ts_ran view_ran;
 };
+static void render_tobject_todo(cairo_t *cr, struct tobject *obj, fbox b,
+        struct tview_params p) {
+    double x, y, w, h;
+    if (p.dir) {
+        x = round(b.x + p.pad);
+        y = round(b.y);
+        w = round(b.w - 2 * p.pad);
+        h = round(b.h);
+    } else {
+        x = round(b.x);
+        y = round(b.y + p.pad);
+        w = round(b.w);
+        h = round(b.h - 2 * p.pad);
+    }
+
+    /* fill base rect */
+    uint32_t color = 0xAA00AA00;
+    cairo_set_source_argb(cr, color);
+    cairo_rectangle(cr, x, y, w, h);
+    cairo_fill(cr);
+
+    /* draw label */
+    cairo_set_source_argb(cr, 0xFF000000);
+    cairo_move_to(cr, x, y);
+    state.tr->p.width = w; state.tr->p.height = h;
+    char *text = text_format("TODO: %s", obj->td->summary);
+    text_print_free(cr, state.tr, text);
+}
 static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
         struct tview_params p) {
-    assert(obj->type = TOBJECT_EVENT, "object not event");
+    assert(obj->type == TOBJECT_EVENT, "object not event");
     struct event *ev = obj->ev;
     double x, y, w, h;
     if (p.dir) {
@@ -177,7 +205,14 @@ static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
 
         cairo_move_to(cr, x, y);
         state.tr->p.width = w; state.tr->p.height = h - loc_h;
-        char *text = text_format("%s", ev->summary);
+        struct simple_date local_start =
+                simple_date_from_ts(obj->aev->time.fr, state.zone->impl);
+        struct simple_date local_end =
+                simple_date_from_ts(obj->aev->time.to, state.zone->impl);
+        char *text = text_format("%02d:%02d-%02d:%02d %s",
+                local_start.hour, local_start.minute,
+                local_end.hour, local_end.minute,
+                ev->summary);
         text_print_free(cr, state.tr, text);
 
         if (ev->location) {
@@ -229,6 +264,8 @@ static void render_tslice(cairo_t *cr, struct tslice *tsl, ts len, fbox b,
         }
         if (obj->type == TOBJECT_EVENT) {
             render_tobject_event(cr, obj, nb, p);
+        } else if (obj->type == TOBJECT_TODO) {
+            render_tobject_todo(cr, obj, nb, p);
         } else {
             assert(false, "unknown tobject type");
         }
