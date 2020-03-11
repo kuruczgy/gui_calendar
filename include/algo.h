@@ -5,7 +5,7 @@
 #include "calendar.h"
 
 struct layout_event {
-    int start, end;
+    struct ts_ran time;
     int max_n;
     int col;
     int idx;

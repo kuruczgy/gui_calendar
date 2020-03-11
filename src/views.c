@@ -165,8 +165,7 @@ void tview_update_layout(struct tview *tv) {
         for (int k = 0; k < tsl->n; ++k) {
             struct tobject *obj = &tsl->objs[k];
             la[k] = (struct layout_event){
-                .start = (long long int)obj->time.fr, //TODO: these casts
-                .end = (long long int)obj->time.to,
+                .time = obj->time,
                 .idx = k
             };
         }

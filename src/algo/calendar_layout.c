@@ -7,14 +7,14 @@
 #include "algo.h"
 
 struct point {
-    long long int val;
+    ts val;
     bool start;
     int index;
 };
 
 static int cmp_point(const void *pa, const void *pb) {
     const struct point *a = pa, *b = pb;
-    long long int val = a->val - b->val;
+    ts val = a->val - b->val;
     if (val == 0) {
         if (!a->start && b->start) return -1;
         if (a->start && !b->start) return 1;
@@ -37,9 +37,9 @@ void calendar_layout(struct layout_event *e, int N) {
     struct point *points = malloc(sizeof(struct point) * N * 2);
     for (int i = 0; i < N; ++i) {
         points[2*i] = (struct point){
-            .val = e[i].start, .start = true, .index = i };
+            .val = e[i].time.fr, .start = true, .index = i };
         points[2*i+1] = (struct point){
-            .val = e[i].end, .start = false, .index = i };
+            .val = e[i].time.to, .start = false, .index = i };
     }
     qsort(points, N * 2, sizeof(struct point), &cmp_point);
 
