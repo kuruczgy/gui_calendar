@@ -52,7 +52,8 @@ static const struct todo default_todo = {
     .due = default_date,
     .status = ICAL_STATUS_NONE,
     .clas = ICAL_CLASS_NONE,
-    .estimated_duration = -1
+    .estimated_duration = -1,
+    .percent_complete = -1
 };
 
 void init_event(struct event *ev) { *ev = default_event; }
@@ -131,6 +132,7 @@ void copy_todo(struct todo *dst, const struct todo *src) {
     dst->status = src->status;
     dst->clas = src->clas;
     dst->estimated_duration = src->estimated_duration;
+    dst->percent_complete = src->percent_complete;
 }
 
 /* object methods */

@@ -59,6 +59,17 @@ void icalcomponent_set_estimatedduration(icalcomponent *c,
     }
 }
 
+void icalcomponent_set_percentcomplete(icalcomponent *c, int v) {
+    icalproperty *p = icalcomponent_get_first_property(c,
+            ICAL_PERCENTCOMPLETE_PROPERTY);
+    if (!p) {
+        p = icalproperty_new_percentcomplete(v);
+        icalcomponent_add_property(c, p);
+    } else {
+        icalproperty_set_percentcomplete(p, v);
+    }
+}
+
 void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind) {
     icalproperty *p = icalcomponent_get_first_property(c, kind);
     while (p) {
@@ -233,6 +244,12 @@ int libical_parse_todo(icalcomponent *c, struct calendar *cal,
     if (p) {
         struct icaldurationtype v = icalproperty_get_estimatedduration(p);
         td->estimated_duration = icaldurationtype_as_int(v);
+    }
+
+    p = icalcomponent_get_first_property(c, ICAL_PERCENTCOMPLETE_PROPERTY);
+    if (p) {
+        int v = icalproperty_get_percentcomplete(p);
+        td->percent_complete = v;
     }
 
     hashmap_put(cal->todos, td->uid, td); // TODO: memory leak

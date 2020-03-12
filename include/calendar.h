@@ -48,6 +48,7 @@ struct todo {
     enum icalproperty_status status;
     enum icalproperty_class clas;
     int estimated_duration;
+    int percent_complete;
     // DEP: struct todo
 };
 
@@ -115,6 +116,7 @@ void icalcomponent_set_color(icalcomponent *c, const char *v);
 void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind);
 void icalcomponent_set_estimatedduration(icalcomponent *c,
         struct icaldurationtype v);
+void icalcomponent_set_percentcomplete(icalcomponent *c, int v);
 
 /* subprocess stuff */
 struct subprocess_handle;

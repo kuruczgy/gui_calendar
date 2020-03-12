@@ -40,7 +40,8 @@ uprop =
     ( ( "start" | "end" | "due" ), ws, dt ) |
     ( ( "summary" | "location" | "desc" | "color" ), ws, literal ) |
     ( ( "uid" | "instance" ), ws, literal ) |
-    ( "est", ws, integer ) |
+    ( "est", ws, dur ) |
+    ( "perc", ws, integer ) |
     ( "class", ws, ( "private" | "public" ) ) |
     ( "status", ws, status-val ) |
     ( "calendar", ws, ( integer | literal ) ) ;
@@ -316,6 +317,13 @@ static res prop(st s, struct edit_spec *es) {
         int d;
         if (dur(s, &d) != OK) return ERROR;
         es->td.estimated_duration = d;
+    } else if (strcmp(key, "perc") == 0) {
+        if (ev) return ERROR;
+        if (rem) {
+            es->rem_td.percent_complete = 1;
+            return OK;
+        }
+        if (integer(s, &es->td.percent_complete) != OK) return ERROR;
     } else if (strcmp(key, "class") == 0) {
         if (rem) {
             if (ev) es->rem_ev.clas = ICAL_CLASS_PUBLIC;

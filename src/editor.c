@@ -47,7 +47,8 @@ static const char *todo_usage =
     "# status completed/needs-action/in-process\n"
     "# class public/private\n"
     "# summary/location/desc/color `...`\n"
-    "# est 1d2h3m4s\n";
+    "# est 1d2h3m4s\n"
+    "# perc 39\n";
 
 
 void print_event_template(FILE *f, struct event *ev, const char *uid,
@@ -100,6 +101,12 @@ void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
         fprintf(f, "#est\n");
     }
 
+    if (td->percent_complete != -1) {
+        fprintf(f, "perc %d\n", td->percent_complete);
+    } else {
+        fprintf(f, "#perc\n");
+    }
+
     print_literal(f, "desc", td->desc);
     fprintf(f, "#class %s\n", class_str(td->clas));
     if (td->uid) {
@@ -144,6 +151,7 @@ void print_new_todo_template(FILE *f, icaltimezone *zone) {
         "#due %s\n"
         "#start %s\n"
         "#est\n"
+        "#perc\n"
         "#desc\n"
         "#class\n"
         "#calendar\n"
@@ -237,6 +245,11 @@ void assign_todo_props(struct todo *dst, struct todo *src, struct todo *rem) {
         dst->estimated_duration = -1;
     } else if (src->estimated_duration != -1) {
         dst->estimated_duration = src->estimated_duration;
+    }
+    if (rem->percent_complete != -1) {
+        dst->percent_complete = -1;
+    } else if (src->percent_complete != -1) {
+        dst->percent_complete = src->percent_complete;
     }
 }
 
@@ -431,6 +444,13 @@ static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
         }
         if (es->rem_td.estimated_duration != -1) {
             icalcomponent_remove_properties(c, ICAL_ESTIMATEDDURATION_PROPERTY);
+        }
+
+        if (es->td.percent_complete != -1) {
+            icalcomponent_set_percentcomplete(c, es->td.percent_complete);
+        }
+        if (es->rem_td.percent_complete != -1) {
+            icalcomponent_remove_properties(c, ICAL_PERCENTCOMPLETE_PROPERTY);
         }
     } else {
         assert(false, "");

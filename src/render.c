@@ -470,6 +470,7 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
          inprocess = td->status == ICAL_STATUS_INPROCESS;
     bool not_started = td->start.timestamp != -1
         && td->start.timestamp > state.now;
+    double perc = td->percent_complete / 100.0;
     int hpad = 5;
 
     int w = b.w - 80;
@@ -494,10 +495,18 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
         cairo_fill(cr);
     }
     if (inprocess) {
+        double w = b.w - 80;
+        if (perc > 0) w *= perc;
         cairo_set_source_argb(cr, 0xFF88FF88);
-        cairo_rectangle(cr, 0, 0, b.w - 80, b.h);
+        cairo_rectangle(cr, 0, 0, w, b.h);
+        cairo_fill(cr);
+    } else if (perc > 0) {
+        double w = (b.w - 80) * perc;
+        cairo_set_source_argb(cr, 0xFF8888FF);
+        cairo_rectangle(cr, 0, 0, w, b.h);
         cairo_fill(cr);
     }
+
     cairo_set_source_argb(cr, not_started ? 0xFF888888 : 0xFF000000);
 
     /* draw text in the slots */
