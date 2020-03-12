@@ -30,7 +30,7 @@ int set_cloexec_or_close(int fd) {
 }
 
 char* create_tmpfile_template() {
-    static const char template[] = "/tmpfile-XXXXXX";
+    static const char template[] = "/tmpfile-cal-XXXXXX";
     const char *path;
     char *name;
 
