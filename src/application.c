@@ -356,11 +356,17 @@ static int todo_priority_cmp(const struct todo *a, const struct todo *b) {
     bool b_started = b->start.timestamp == -1
         || b->start.timestamp <= state.now;
 
+    bool a_inprocess = a->status == ICAL_STATUS_INPROCESS;
+    bool b_inprocess = b->status == ICAL_STATUS_INPROCESS;
+
     const int sh = 60 * 10; // 10m
     bool a_short = a->estimated_duration != -1 && a->estimated_duration <= sh;
     bool b_short = b->estimated_duration != -1 && b->estimated_duration <= sh;
 
-    if (a_short != b_short) {
+    if (a_inprocess != b_inprocess) {
+        if (a_inprocess) return -1;
+        else return 1;
+    } else if (a_short != b_short) {
         if (a_short) return -1;
         else return 1;
     } else if (a->due.timestamp > 0 || b->due.timestamp > 0) {

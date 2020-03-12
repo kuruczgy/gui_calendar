@@ -35,7 +35,7 @@ dur = dur-comp, { dur-comp } ;
 
 (* function `prop` *)
 status-val = "tentative" | "confirmed" |
-    "cancelled" | "needs-action" | "completed" ;
+    "cancelled" | "needs-action" | "completed" | "in-process" ;
 uprop =
     ( ( "start" | "end" | "due" ), ws, dt ) |
     ( ( "summary" | "location" | "desc" | "color" ), ws, literal ) |
@@ -244,6 +244,8 @@ static res parse_status(st s, enum icalproperty_status *status) {
         *status = ICAL_STATUS_NEEDSACTION ;
     } else if (strcmp(key, "completed") == 0) {
         *status = ICAL_STATUS_COMPLETED ;
+    } else if (strcmp(key, "in-process") == 0) {
+        *status = ICAL_STATUS_INPROCESS;
     } else {
         return ERROR;
     }

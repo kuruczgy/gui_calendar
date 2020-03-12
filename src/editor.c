@@ -16,6 +16,7 @@ static const char * status_str(enum icalproperty_status v) {
     case ICAL_STATUS_CANCELLED: return "cancelled";
     case ICAL_STATUS_COMPLETED: return "completed";
     case ICAL_STATUS_NEEDSACTION: return "needs-action";
+    case ICAL_STATUS_INPROCESS: return "in-process";
     default: return "";
     }
 }
@@ -43,7 +44,7 @@ static const char *event_usage =
 // DEP: struct todo
 static const char *todo_usage =
     "# USAGE:\n"
-    "# status completed/needs-action\n"
+    "# status completed/needs-action/in-process\n"
     "# class public/private\n"
     "# summary/location/desc/color `...`\n"
     "# est 1d2h3m4s\n";

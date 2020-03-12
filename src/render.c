@@ -466,7 +466,8 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
 
     /* prepare all the info we need */
     struct todo *td = tag->td;
-    bool overdue = td->due.timestamp != -1 && td->due.timestamp < state.now;
+    bool overdue = td->due.timestamp != -1 && td->due.timestamp < state.now,
+         inprocess = td->status == ICAL_STATUS_INPROCESS;
     bool not_started = td->start.timestamp != -1
         && td->start.timestamp > state.now;
     int hpad = 5;
@@ -490,6 +491,11 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
     if (overdue) {
         cairo_set_source_argb(cr, 0xFFD05050);
         cairo_rectangle(cr, b.w - 80, 0, 80, b.h);
+        cairo_fill(cr);
+    }
+    if (inprocess) {
+        cairo_set_source_argb(cr, 0xFF88FF88);
+        cairo_rectangle(cr, 0, 0, b.w - 80, b.h);
         cairo_fill(cr);
     }
     cairo_set_source_argb(cr, not_started ? 0xFF888888 : 0xFF000000);
