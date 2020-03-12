@@ -60,8 +60,8 @@ int check_edit_spec(struct edit_spec *es);
 void print_event_template(FILE *f, struct event *ev, const char *uid,
         time_t recurrence_id, icaltimezone *zone);
 void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone);
-void print_new_event_template(FILE *f, icaltimezone *zone);
-void print_new_todo_template(FILE *f, icaltimezone *zone);
+void print_new_event_template(FILE *f, icaltimezone *zone, int cal);
+void print_new_todo_template(FILE *f, icaltimezone *zone, int cal);
 int parse_edit_template(FILE *f, struct edit_spec *es, icaltimezone *zone);
 
 int apply_edit_spec_to_calendar(struct edit_spec *es, struct calendar *cal);

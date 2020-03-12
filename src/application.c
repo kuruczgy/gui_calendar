@@ -50,11 +50,22 @@ static void print_event_template_callback(void *cl, FILE *f) {
 static void print_todo_template_callback(void *ud, FILE *f) {
     print_todo_template(f, (struct todo *)ud, state.zone->impl);
 }
+static int get_first_visible_cal_index() {
+    for (int i = 0; i < state.n_cal; ++i) {
+        if (state.cal_info[i].visible) {
+            return i;
+        }
+    }
+    assert(state.n_cal > 0, "no calendars");
+    return 0;
+}
 static void print_new_event_template_callback(void *cl, FILE *f) {
-    print_new_event_template(f, state.zone->impl);
+    int cal = get_first_visible_cal_index();
+    print_new_event_template(f, state.zone->impl, cal + 1);
 }
 static void print_new_todo_template_callback(void *cl, FILE *f) {
-    print_new_todo_template(f, state.zone->impl);
+    int cal = get_first_visible_cal_index();
+    print_new_todo_template(f, state.zone->impl, cal + 1);
 }
 static void launch_event_editor(struct active_event *aev) {
     if (!state.sp) {
@@ -72,16 +83,14 @@ static void launch_todo_editor(struct todo *td, struct calendar *cal) {
 }
 static void launch_new_event_editor() {
     if (!state.sp) {
-        assert(state.n_cal > 0, "no calendars");
-        state.sp_calendar = &state.cal[0];
+        state.sp_calendar = NULL;
         state.sp = subprocess_new_input(state.editor[0],
             state.editor + 1, &print_new_event_template_callback, NULL);
     }
 }
 static void launch_new_todo_editor() {
     if (!state.sp) {
-        assert(state.n_cal > 0, "no calendars");
-        state.sp_calendar = &state.cal[0];
+        state.sp_calendar = NULL;
         state.sp = subprocess_new_input(state.editor[0],
             state.editor + 1, &print_new_todo_template_callback, NULL);
     }

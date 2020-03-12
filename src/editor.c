@@ -115,7 +115,7 @@ void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
     fprintf(f, "%s", todo_usage);
 }
 
-void print_new_event_template(FILE *f, icaltimezone *zone) {
+void print_new_event_template(FILE *f, icaltimezone *zone, int cal) {
     // DEP: struct event
     char start[32];
     struct simple_date now = simple_date_now(zone);
@@ -131,14 +131,14 @@ void print_new_event_template(FILE *f, icaltimezone *zone) {
         "#color\n"
         "#class\n"
         "#status\n"
-        "#calendar\n"
+        "calendar %d\n"
         "%s"
         "# calendar 1/2/...\n",
-        start,
+        start, cal,
         event_usage
     );
 }
-void print_new_todo_template(FILE *f, icaltimezone *zone) {
+void print_new_todo_template(FILE *f, icaltimezone *zone, int cal) {
     // DEP: struct todo
     char start[32];
     struct simple_date now = simple_date_now(zone);
@@ -154,10 +154,10 @@ void print_new_todo_template(FILE *f, icaltimezone *zone) {
         "#perc\n"
         "#desc\n"
         "#class\n"
-        "#calendar\n"
+        "calendar %d\n"
         "%s"
         "# calendar 1/2/...\n",
-        start, start,
+        start, start, cal,
         todo_usage
     );
 }
