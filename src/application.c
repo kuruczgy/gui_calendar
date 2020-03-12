@@ -198,21 +198,21 @@ static void iter_visible_cals(int (*cb)(void*, void*), void* cl) {
         }
     }
 }
-static void itar_all_cals(int (*cb)(void*, void*), void* cl) {
+static void iter_all_cals(int (*cb)(void*, void*), void* cl) {
     for (int i = 0; i < state.n_cal; ++i) {
         hashmap_iterate(state.cal[i].event_sets, cb, cl);
     }
 }
 
 static struct ts_ran * schedule_active_todos() {
-    /* count all visible events */
+    /* count all events */
     struct ts_ran ran = { -1, -1 };
     struct hashmap_counter_cl ccl = { 0, &events_in_range_cnt, &ran };
-    iter_visible_cals(&hashmap_counter, &ccl);
+    iter_all_cals(&hashmap_counter, &ccl);
 
     struct ts_ran *E = malloc_check(sizeof(struct ts_ran) * ccl.cnt);
     struct get_event_ranges_cl ercl = { E, 0, ccl.cnt };
-    itar_all_cals(&get_event_ranges, &ercl);
+    iter_all_cals(&get_event_ranges, &ercl);
 
     struct ts_ran *G = todo_schedule(state.now, ercl.n, E,
             state.active_todo_n, state.active_todos);
