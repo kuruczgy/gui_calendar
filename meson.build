@@ -3,6 +3,7 @@ project('smuc', 'c', default_options : [ 'c_std=c11' ])
 cc = meson.get_compiler('c')
 
 wayland_client = dependency('wayland-client')
+wayland_cursor = dependency('wayland-cursor')
 cairo          = dependency('cairo')
 pango          = dependency('pango')
 pangocairo     = dependency('pangocairo')
@@ -59,7 +60,7 @@ wayland_sources = [
   xdg_shell_private_target,
 ]
 dependencies = [
-  wayland_client, cairo, pango, pangocairo, libical, m
+  wayland_client, wayland_cursor, cairo, pango, pangocairo, libical, m
 ]
 
 add_global_arguments('-Wno-parentheses', language : 'c')

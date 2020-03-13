@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 
 #include <wayland-client.h>
+#include <wayland-cursor.h>
 #include <cairo.h>
 
 #include "xdg-shell-client-protocol.h"
@@ -31,6 +32,7 @@ struct display {
     void *pool_data;
     struct wl_seat *wl_seat;
     struct wl_keyboard *keyboard;
+    struct wl_pointer *pointer;
     paint_cb p_cb;
     keyboard_cb k_cb;
     child_cb c_cb;
@@ -55,6 +57,8 @@ struct window {
     struct buffer buffers[2];
     struct buffer *prev_buffer;
     struct wl_callback *callback;
+    struct wl_surface *cursor_surface;
+    struct wl_cursor_image *cursor_image;
     bool wait_for_configure;
     bool running;
 };
@@ -225,6 +229,19 @@ create_window(struct display *display, int width, int height) {
     wl_surface_commit(window->surface);
     window->wait_for_configure = true;
 
+    // load cursor stuff
+    struct wl_cursor_theme *cursor_theme =
+        wl_cursor_theme_load(NULL, 24, display->wl_shm);
+    struct wl_cursor *cursor =
+        wl_cursor_theme_get_cursor(cursor_theme, "left_ptr");
+    assert(cursor->image_count > 0, "wrong cursor->image_count");
+    window->cursor_image = cursor->images[0];
+    struct wl_buffer *cursor_buffer =
+        wl_cursor_image_get_buffer(window->cursor_image);
+    window->cursor_surface = wl_compositor_create_surface(display->compositor);
+    wl_surface_attach(window->cursor_surface, cursor_buffer, 0, 0);
+    wl_surface_commit(window->cursor_surface);
+
     return window;
 }
 
@@ -352,6 +369,39 @@ static const struct wl_keyboard_listener keyboard_listener = {
     .repeat_info = keyboard_repeat_info,
 };
 
+// wl_pointer_listener
+static void pointer_enter(void *data, struct wl_pointer *pointer,
+        uint32_t serial, struct wl_surface *surface,
+        wl_fixed_t x, wl_fixed_t y) {
+    struct display *d = data;
+    struct wl_cursor_image *img = d->window->cursor_image;
+    wl_pointer_set_cursor(pointer, serial, d->window->cursor_surface,
+        img->hotspot_x, img->hotspot_y);
+}
+static void pointer_leave(void *data, struct wl_pointer *pointer,
+        uint32_t serial, struct wl_surface *surface) {
+    // Who cares
+}
+static void pointer_motion(void *data, struct wl_pointer *pointer,
+        uint32_t time, wl_fixed_t x, wl_fixed_t y) {
+    // Who cares
+}
+void pointer_button(void *data, struct wl_pointer *pointer, uint32_t serial,
+        uint32_t time, uint32_t button, uint32_t state) {
+    // Who cares
+}
+void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time,
+        uint32_t axis, wl_fixed_t value) {
+    // Who cares
+}
+const struct wl_pointer_listener pointer_listener = {
+    .enter = pointer_enter,
+    .leave = pointer_leave,
+    .motion = pointer_motion,
+    .button = pointer_button,
+    .axis = pointer_axis
+};
+
 // wl_seat_listener
 
 static void seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
@@ -361,9 +411,13 @@ static void seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
         wl_keyboard_release(d->keyboard);
         d->keyboard = NULL;
     }
-    if ((caps & WL_SEAT_CAPABILITY_KEYBOARD)) {
+    if (caps & WL_SEAT_CAPABILITY_KEYBOARD) {
         d->keyboard = wl_seat_get_keyboard(wl_seat);
         wl_keyboard_add_listener(d->keyboard, &keyboard_listener, d);
+    }
+    if (caps & WL_SEAT_CAPABILITY_POINTER) {
+        d->pointer = wl_seat_get_pointer(wl_seat);
+        wl_pointer_add_listener(d->pointer, &pointer_listener, d);
     }
 }
 
