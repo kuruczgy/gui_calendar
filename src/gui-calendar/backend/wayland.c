@@ -17,6 +17,7 @@
 #include "xdg-shell-client-protocol.h"
 
 #include "config.h"
+#include "core.h"
 #include "util.h"
 
 struct window;
@@ -82,7 +83,7 @@ static const struct wl_buffer_listener wl_buffer_listener = {
 static int
 create_shm_pool(struct display *display, int size) {
     int fd = os_create_anonymous_file(size);
-    assert(fd >= 0, "anon file");
+    asrt(fd >= 0, "anon file");
     if (fd < 0) {
         fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
             size, strerror(errno));
@@ -203,7 +204,7 @@ create_window(struct display *display, int width, int height) {
     struct window *window;
 
     window = malloc(sizeof(struct window));
-    assert(window, "oom");
+    asrt(window, "oom");
 
     window->callback = NULL;
     window->running = true;
@@ -216,12 +217,12 @@ create_window(struct display *display, int width, int height) {
 
     window->xdg_surface = xdg_wm_base_get_xdg_surface(display->wm_base,
             window->surface);
-    assert(window->xdg_surface, "xdg_surface");
+    asrt(window->xdg_surface, "xdg_surface");
     xdg_surface_add_listener(window->xdg_surface, &xdg_surface_listener,
             window);
 
     window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
-    assert(window->xdg_toplevel, "xdg_toplevel");
+    asrt(window->xdg_toplevel, "xdg_toplevel");
     xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener,
             window);
 
@@ -234,7 +235,7 @@ create_window(struct display *display, int width, int height) {
         wl_cursor_theme_load(NULL, 24, display->wl_shm);
     struct wl_cursor *cursor =
         wl_cursor_theme_get_cursor(cursor_theme, "left_ptr");
-    assert(cursor->image_count > 0, "wrong cursor->image_count");
+    asrt(cursor->image_count > 0, "wrong cursor->image_count");
     window->cursor_image = cursor->images[0];
     struct wl_buffer *cursor_buffer =
         wl_cursor_image_get_buffer(window->cursor_image);
@@ -288,11 +289,11 @@ redraw(void *data, struct wl_callback *callback, uint32_t time)
     struct buffer *buffer;
 
     buffer = window_next_buffer(window);
-    assert(buffer, !callback ? "Failed to create the first buffer.\n" :
+    asrt(buffer, !callback ? "Failed to create the first buffer.\n" :
             "Both buffers busy at redraw(). Server bug?\n");
 
     cairo_t *cr = cairo_create(buffer->cairo_surface);
-    assert(window->display->p_cb, "no paint callback!");
+    asrt(window->display->p_cb, "no paint callback!");
     bool damage = window->display->p_cb(window->display->ud, cr);
     cairo_destroy(cr);
 
@@ -555,9 +556,9 @@ struct backend backend_init_wayland() {
     struct display *display;
 
     display = malloc(sizeof *display);
-    assert(display, "oom");
+    asrt(display, "oom");
     display->display = wl_display_connect(NULL);
-    assert(display->display, "wl_display_connect");
+    asrt(display->display, "wl_display_connect");
 
     display->wl_seat = NULL;
     display->keyboard = NULL;
@@ -570,13 +571,13 @@ struct backend backend_init_wayland() {
     display->registry = wl_display_get_registry(display->display);
     wl_registry_add_listener(display->registry, &wl_registry_listener, display);
     wl_display_roundtrip(display->display);
-    assert(display->wl_shm, "wl_shm");
-    assert(display->wm_base, "xdg_wm_base");
-    assert(display->compositor, "wl_compositor");
+    asrt(display->wl_shm, "wl_shm");
+    asrt(display->wm_base, "xdg_wm_base");
+    asrt(display->compositor, "wl_compositor");
 
     // TODO: maximum screen size
-    assert(create_shm_pool(display, 1920 * 1200 * 4) == 0, "create_shm_pool");
-    assert(display->pool, "pool");
+    asrt(create_shm_pool(display, 1920 * 1200 * 4) == 0, "create_shm_pool");
+    asrt(display->pool, "pool");
 
     wl_display_roundtrip(display->display);
 

@@ -11,7 +11,7 @@
 #include <sys/mman.h>
 
 #include "backend.h"
-#include "util.h"
+#include "core.h"
 
 struct self {
     paint_cb p_cb;
@@ -34,7 +34,7 @@ static void gui_run(struct backend *backend) {
             self->width, self->height);
     cr = cairo_create(surface);
 
-    assert(self->p_cb, "no paint callback!");
+    asrt(self->p_cb, "no paint callback!");
     self->p_cb(self->ud, cr);
     cairo_surface_write_to_png(surface, self->filename);
 

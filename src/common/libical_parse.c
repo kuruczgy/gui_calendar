@@ -1,11 +1,12 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "util.h"
-#include "calendar.h"
 #include <sys/stat.h>
 #include <dirent.h>
+
+#include "core.h"
+#include "util.h"
+#include "calendar.h"
 
 enum icalproperty_class icalcomponent_get_class(icalcomponent *c) {
     icalproperty *p =
@@ -81,7 +82,7 @@ void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind) {
 struct cal_timezone *new_timezone(const char *location) {
     struct cal_timezone *zone = malloc(sizeof(struct cal_timezone));
     zone->impl = icaltimezone_get_builtin_timezone(location);
-    assert(zone->impl, "icaltimezone_get_builtin_timezone failed\n");
+    asrt(zone->impl, "icaltimezone_get_builtin_timezone failed\n");
 
     const char *tznames = icaltimezone_get_tznames(zone->impl);
     int l = strlen(location) + strlen(tznames) + 4;
@@ -153,7 +154,7 @@ int libical_parse_event(icalcomponent *c, struct calendar *cal,
         ev = &ers->base;
         hashmap_put(cal->event_sets, ers->uid, ers);
     }
-    assert(ev && ers, "");
+    asrt(ev && ers, "");
 
     /* extract info into an event object */
     init_event(ev);
@@ -296,7 +297,7 @@ void update_calendar_from_storage(struct calendar *cal,
         icaltimezone *local_zone) {
     const char *path = cal->storage;
     struct stat sb;
-    assert(stat(path, &sb) == 0, "stat");
+    asrt(stat(path, &sb) == 0, "stat");
 
     struct timespec loaded = cal->loaded;
     clock_gettime(CLOCK_REALTIME, &cal->loaded);
@@ -307,15 +308,15 @@ void update_calendar_from_storage(struct calendar *cal,
         }
         fclose(f);
     } else {
-        assert(S_ISDIR(sb.st_mode), "not dir");
+        asrt(S_ISDIR(sb.st_mode), "not dir");
         DIR *d;
         struct dirent *dir;
         int dir_fd;
         char buf[1024];
-        assert(d = opendir(path), "opendir");
+        asrt(d = opendir(path), "opendir");
         dir_fd = dirfd(d);
         while(dir = readdir(d)) {
-            assert(fstatat(dir_fd, dir->d_name, &sb, 0) == 0, "stat");
+            asrt(fstatat(dir_fd, dir->d_name, &sb, 0) == 0, "stat");
             if (!S_ISREG(sb.st_mode)) continue;
             if (!timespec_leq(loaded, sb.st_mtim)) continue;
             int l = strlen(dir->d_name);
@@ -333,12 +334,12 @@ void update_calendar_from_storage(struct calendar *cal,
             if (displayname && cal->name) continue;
             snprintf(buf, 1024, "%s/%s", path, dir->d_name);
             FILE *f = fopen(buf, "rb");
-            assert(f, "could not open");
+            asrt(f, "could not open");
             if (displayname) {
-                assert(!cal->name, "calendar already has name");
+                asrt(!cal->name, "calendar already has name");
                 int cnt = fread(buf, 1, 1024, f);
-                assert(cnt > 0, "meta");
-                assert(cal->name == NULL, "name null");
+                asrt(cnt > 0, "meta");
+                asrt(cal->name == NULL, "name null");
                 cal->name = malloc(cnt+1);
                 memcpy(cal->name, buf, cnt);
                 cal->name[cnt] = '\0';
@@ -349,6 +350,6 @@ void update_calendar_from_storage(struct calendar *cal,
             }
             fclose(f);
         }
-        assert(closedir(d) == 0, "closedir");
+        asrt(closedir(d) == 0, "closedir");
     }
 }

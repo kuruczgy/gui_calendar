@@ -2,9 +2,10 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "editor.h"
-#include "util.h"
+#include "core.h"
 
 /*
 
@@ -112,14 +113,14 @@ static res dt(st s, struct simple_date *sd) {
     if (len == 1 || len == 2) {
         c = peek(s);
         if (c == '-') { /* month */
-            assert(eat(s, '-') == OK, "");
+            asrt(eat(s, '-') == OK, "");
             t[1] = num;
             get_digits(s, &num, &len);
             if (len != 1 && len != 2) return ERROR;
             t[2] = num;
             goto time;
         } else if (c == ':') { /* time */
-            assert(eat(s, ':') == OK, "");
+            asrt(eat(s, ':') == OK, "");
             t[3] = num;
             get_digits(s, &num, &len);
             if (len != 1 && len != 2) return ERROR;
@@ -140,11 +141,11 @@ static res dt(st s, struct simple_date *sd) {
         return ERROR;
     }
 
-    assert(false, "bad control flow");
+    asrt(false, "bad control flow");
 time:
     c = peek(s);
     if (c != ' ') return OK;
-    assert(eat(s, ' ') == OK, "");
+    asrt(eat(s, ' ') == OK, "");
     get_digits(s, &num, &len);
     if (len != 1 && len != 2) return ERROR;
     t[3] = num;
@@ -360,7 +361,7 @@ static res grammar(st s, struct edit_spec *es) {
     int c;
     if (header(s, &es->method, &es->type) != OK) return ERROR;
     while (1) {
-        while ((c = peek(s)) == '\n') assert(get(s) == '\n', "");
+        while ((c = peek(s)) == '\n') asrt(get(s) == '\n', "");
         if (c == EOF) break;
         if (c == '#') {
             while ((c = peek(s)) != '\n') get(s);
@@ -430,7 +431,7 @@ bad:
         in,
         out[0], out[1], out[2], out[3], out[4],
         sd.t[0], sd.t[1], sd.t[2], sd.t[3], sd.t[4]);
-    assert(false, "test_dt error");
+    asrt(false, "test_dt error");
 }
 
 static void test_header(char *in, enum edit_method m, enum comp_type t) {
@@ -441,10 +442,10 @@ static void test_header(char *in, enum edit_method m, enum comp_type t) {
 
     fprintf(stderr, "test_header `%s`\n", in);
     res r = header(&s, &method, &type);
-    assert(r == OK, "res not ok");
+    asrt(r == OK, "res not ok");
 
-    assert(method == m, "method not ok");
-    assert(type == t, "type not ok");
+    asrt(method == m, "method not ok");
+    asrt(type == t, "type not ok");
     fclose(f);
 }
 
@@ -453,8 +454,8 @@ static void test_literal(char *in, char *out) {
     struct parser_state s = { f };
     char *o = NULL;
     res r = literal(&s, &o);
-    assert(r == OK, "test_literal error");
-    assert(strcmp(out, o) == 0, "test_literal not equal");
+    asrt(r == OK, "test_literal error");
+    asrt(strcmp(out, o) == 0, "test_literal not equal");
     free(o);
     fclose(f);
 }
@@ -504,39 +505,39 @@ void test_editor_parser() {
 
     init_edit_spec(&es);
     test_prop(&s, "start 05-3 12:45", &es);
-    assert(simple_date_eq(s.start, make_simple_date(-1, 5, 3, 12, 45, -1)),
+    asrt(simple_date_eq(s.start, make_simple_date(-1, 5, 3, 12, 45, -1)),
         "prop start");
 
     init_edit_spec(&es);
     test_prop(&s, "end 4", &es);
-    assert(simple_date_eq(s.end, make_simple_date(-1, -1, 4, -1, -1, -1)),
+    asrt(simple_date_eq(s.end, make_simple_date(-1, -1, 4, -1, -1, -1)),
         "prop end");
 
     init_edit_spec(&es);
     test_prop(&s, "location `a\n\ns\n`", &es);
-    assert(strcmp(es.ev.location, "a\n\ns\n") == 0, "prop location");
+    asrt(strcmp(es.ev.location, "a\n\ns\n") == 0, "prop location");
 
     init_edit_spec(&es);
     test_prop(&s, "uid `asdfg`", &es);
-    assert(strcmp(es.uid, "asdfg") == 0, "prop uid");
+    asrt(strcmp(es.uid, "asdfg") == 0, "prop uid");
 
     init_edit_spec(&es);
     test_prop(&s, "instance `12345`", &es);
-    assert(es.recurrence_id == 12345, "prop instance");
+    asrt(es.recurrence_id == 12345, "prop instance");
 
     init_edit_spec(&es);
     test_prop(&s, "class private", &es);
-    assert(es.ev.clas == ICAL_CLASS_PRIVATE, "prop class");
+    asrt(es.ev.clas == ICAL_CLASS_PRIVATE, "prop class");
 
     init_edit_spec(&es);
     es.type = COMP_TYPE_TODO;
     test_prop(&s, "status needs-action", &es);
-    assert(es.td.status == ICAL_STATUS_NEEDSACTION, "prop status");
+    asrt(es.td.status == ICAL_STATUS_NEEDSACTION, "prop status");
 
     init_edit_spec(&es);
     es.type = COMP_TYPE_TODO;
     test_prop(&s, "est 5s4d1h", &es);
-    assert(es.td.estimated_duration == 5 + 4*3600*24 + 1*3600, "prop est");
+    asrt(es.td.estimated_duration == 5 + 4*3600*24 + 1*3600, "prop est");
 
     init_edit_spec(&es);
     test_grammar(&s, &es,
@@ -551,15 +552,15 @@ void test_editor_parser() {
         "desc `some\nsome\ndesc`\n"
         "calendar `asdfg`\n"
     );
-    assert(es.type == COMP_TYPE_EVENT, "");
-    assert(simple_date_eq(s.start, make_simple_date(2020, 4, 5, 12, 0, -1)),
+    asrt(es.type == COMP_TYPE_EVENT, "");
+    asrt(simple_date_eq(s.start, make_simple_date(2020, 4, 5, 12, 0, -1)),
         "grammar prop start");
-    assert(simple_date_eq(s.end, make_simple_date(-1, -1, -1, 13, 0, -1)),
+    asrt(simple_date_eq(s.end, make_simple_date(-1, -1, -1, 13, 0, -1)),
         "grammar prop end");
-    assert(strcmp(es.ev.summary, "lol") == 0, "");
-    assert(strcmp(es.ev.location, "somewhere") == 0, "");
-    assert(strcmp(es.ev.desc, "some\nsome\ndesc") == 0, "");
-    assert(es.rem_ev.status != ICAL_STATUS_NONE, "");
-    assert(strcmp(es.calendar_uid, "asdfg") == 0, "");
-    assert(es.calendar_num == 12345, "");
+    asrt(strcmp(es.ev.summary, "lol") == 0, "");
+    asrt(strcmp(es.ev.location, "somewhere") == 0, "");
+    asrt(strcmp(es.ev.desc, "some\nsome\ndesc") == 0, "");
+    asrt(es.rem_ev.status != ICAL_STATUS_NONE, "");
+    asrt(strcmp(es.calendar_uid, "asdfg") == 0, "");
+    asrt(es.calendar_num == 12345, "");
 }

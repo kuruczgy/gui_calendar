@@ -1,4 +1,5 @@
 #include <cairo/cairo.h>
+#include <cairo/cairo-svg.h>
 #include <fcntl.h>
 #include <linux/types.h>
 
@@ -11,18 +12,17 @@
 #include <sys/mman.h>
 
 #include "backend.h"
-#include "util.h"
+#include "core.h"
 
 struct self {
+    int width, height;
     paint_cb p_cb;
     void *ud;
-    int width, height;
+    const char *filename;
 };
 
 static void destroy(struct backend *backend) {
-    struct self *self = backend->self;
-    fprintf(stderr, "destroying dummy display\n");
-    free(self);
+    free(backend->self);
 }
 
 static void gui_run(struct backend *backend) {
@@ -30,10 +30,10 @@ static void gui_run(struct backend *backend) {
     cairo_surface_t *surface;
     cairo_t *cr;
 
-    surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, 0, 0);
+    surface = cairo_svg_surface_create(self->filename,
+            self->width, self->height);
+    cairo_svg_surface_set_document_unit(surface, CAIRO_SVG_UNIT_PX);
     cr = cairo_create(surface);
-
-    assert(self->p_cb, "no paint callback!");
     self->p_cb(self->ud, cr);
 
     /* Destroy and release all cairo related contexts */
@@ -66,14 +66,14 @@ static struct backend_methods methods = {
     .is_interactive = &is_interactive
 };
 
-struct backend backend_init_dummy() {
-    fprintf(stderr, "creating dummy display\n");
-    struct self *self;
-    self = malloc(sizeof(struct self));
-    assert(self, "oom");
-
-    self->p_cb = NULL;
-    self->ud = NULL;
-
+struct backend backend_init_svg(const char *filename, int width, int height) {
+    struct self *self = malloc_check(sizeof(struct self));
+    *self = (struct self){
+        .width = width,
+        .height = height,
+        .p_cb = NULL,
+        .ud = NULL,
+        .filename = filename
+    };
     return (struct backend){ .vptr = &methods, .self = self };
 }

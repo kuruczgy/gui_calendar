@@ -6,7 +6,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <libical/ical.h>
-#undef assert
+
 #include "hashmap.h"
 #include "datetime.h"
 
@@ -123,5 +123,9 @@ struct subprocess_handle;
 struct subprocess_handle* subprocess_new_input(const char *file,
         const char *argv[], void (*cb)(void*, FILE*), void *ud);
 FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
+
+/* calendar utility functions */
+const char * cal_status_str(enum icalproperty_status v);
+const char * cal_class_str(enum icalproperty_class v);
 
 #endif

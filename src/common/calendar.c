@@ -1,11 +1,11 @@
-#include "calendar.h"
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
 
+#include "calendar.h"
+#include "core.h"
 #include "util.h"
 
 /* new object functions: also allocate memory */
@@ -140,12 +140,12 @@ struct event * event_recur_set_get(struct event_recur_set *ers, int i,
         time_t *start, time_t *end) {
     /* special case if only a single event */
     if (ers->max == 0) {
-        assert(i == 0, "");
+        asrt(i == 0, "");
         *start = ers->base.start.timestamp;
         *end = ers->base.end.timestamp;
         return &ers->base;
     }
-    assert(i >= 0 && i < ers->max, "");
+    asrt(i >= 0 && i < ers->max, "");
 
     /* check for customized recurrence-id instances */
     time_t recurrence_id = ers->set[i];

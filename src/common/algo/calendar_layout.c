@@ -1,9 +1,9 @@
-
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
-#include "util.h"
+
+#include "core.h"
 #include "algo.h"
 
 struct point {
@@ -65,16 +65,16 @@ void calendar_layout(struct layout_event *e, int N) {
 
         if (!p->start) {
             int col = e[p->index].col;
-            assert(col >= 0, "fuck 1");
+            asrt(col >= 0, "fuck 1");
             mask &= ~(1 << e[p->index].col);
         }
 
         active_n += p->start ? 1 : -1;
-        assert(active_n >= 0, "fuck 2");
+        asrt(active_n >= 0, "fuck 2");
         if (active_n > max_n) max_n = active_n;
 
         if (active_n == 0) {
-            assert(mask == 0, "fuck 3");
+            asrt(mask == 0, "fuck 3");
             // graph component boundary
             for (int k = 0; k < component_size; k++) {
                 e[component[k]].max_n = max_n;

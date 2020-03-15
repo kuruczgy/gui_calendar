@@ -1,8 +1,7 @@
 #include <time.h>
 
 #include "datetime.h"
-#undef assert
-#include "util.h"
+#include "core.h"
 
 static bool valid_simple_date(struct simple_date sd) {
     return
@@ -101,7 +100,7 @@ static struct simple_date simple_date_from_icaltime(icaltimetype t) {
 }
 
 static icaltimetype simple_date_to_icaltime(struct simple_date sd) {
-    assert(valid_simple_date(sd), "invalid simple_date");
+    asrt(valid_simple_date(sd), "invalid simple_date");
     struct icaltimetype tt = {
         .year = sd.year,
         .month = sd.month,
@@ -178,7 +177,7 @@ int simple_date_days_in_month(struct simple_date sd) {
     return icaltime_days_in_month(sd.month, sd.year);
 }
 
-bool ts_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
+bool ts_overlap(ts a1, ts a2, ts b1, ts b2) {
     return a1 < b2 && a2 > b1;
 }
 
@@ -204,6 +203,9 @@ bool ts_ran_overlap(struct ts_ran a, struct ts_ran b) {
 bool ts_ran_in(struct ts_ran a, ts t) {
     return a.fr <= t && t < a.to;
 }
+
+ts min_ts(ts a, ts b) { return a < b ? a : b; }
+ts max_ts(ts a, ts b) { return a < b ? b : a; }
 
 void format_simple_date(char *buf, size_t size, struct simple_date sd) {
     if (sd.year == -1) {

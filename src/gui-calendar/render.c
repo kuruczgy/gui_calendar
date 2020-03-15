@@ -3,7 +3,7 @@
 #include "render.h"
 #include "pango.h"
 #include "application.h"
-#include "util.h"
+#include "core.h"
 
 static const char *usage =
     "Usage:\r"
@@ -160,7 +160,7 @@ static void render_tobject_todo(cairo_t *cr, struct tobject *obj, fbox b,
 }
 static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
         struct tview_params p) {
-    assert(obj->type == TOBJECT_EVENT, "object not event");
+    asrt(obj->type == TOBJECT_EVENT, "object not event");
     struct event *ev = obj->ev;
     double x, y, w, h;
     if (p.dir) {
@@ -201,7 +201,7 @@ static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
             state.tr->p.width = w; state.tr->p.height = -1;
             text_get_size(cr, state.tr, ev->location);
         }
-        int loc_h = ev->location ? min(h / 2, state.tr->p.height) : 0;
+        int loc_h = ev->location ? mini(h / 2, state.tr->p.height) : 0;
 
         cairo_move_to(cr, x, y);
         state.tr->p.width = w; state.tr->p.height = h - loc_h;
@@ -245,8 +245,8 @@ static void render_tslice(cairo_t *cr, struct tslice *tsl, ts len, fbox b,
     for (int i = 0; i < tsl->n; ++i) {
         struct tobject *obj = &tsl->objs[i];
         struct ts_ran time = obj->time;
-        time.fr = max(time.fr, ran.fr);
-        time.to = min(time.to, ran.to);
+        time.fr = max_ts(time.fr, ran.fr);
+        time.to = min_ts(time.to, ran.to);
         double pa = (time.fr - ran.fr - p.view_ran.fr) / (double)len;
         double pb = (time.to - ran.fr - p.view_ran.fr) / (double)len;
         double pl = pb - pa;
@@ -267,7 +267,7 @@ static void render_tslice(cairo_t *cr, struct tslice *tsl, ts len, fbox b,
         } else if (obj->type == TOBJECT_TODO) {
             render_tobject_todo(cr, obj, nb, p);
         } else {
-            assert(false, "unknown tobject type");
+            asrt(false, "unknown tobject type");
         }
     }
 
@@ -481,12 +481,12 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
     if (td->summary) {
         state.tr->p.width = w/n - 2*hpad; state.tr->p.height = -1;
         text_get_size(cr, state.tr, td->summary);
-        b.h = max(b.h, state.tr->p.height);
+        b.h = maxi(b.h, state.tr->p.height);
     }
     if (td->desc) {
         state.tr->p.width = w/n - 2*hpad; state.tr->p.height = -1;
         text_get_size(cr, state.tr, td->desc);
-        b.h = max(b.h, state.tr->p.height);
+        b.h = maxi(b.h, state.tr->p.height);
     }
 
     if (overdue) {
@@ -616,7 +616,7 @@ bool render_application(void *ud, cairo_t *cr) {
     int time_strip_w = 30;
     int sidebar_w = 120;
     int header_h = 60;
-    assert(state.top_tview.n == 1, "top_tview wrong slices");
+    asrt(state.top_tview.n == 1, "top_tview wrong slices");
     int top_h = 50 * state.top_tview.s[0].max_overlap;
 
     const char *view_name = "";

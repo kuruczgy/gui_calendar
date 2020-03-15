@@ -14,9 +14,10 @@
 #include <math.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <time.h>
 
 #include "backend.h"
-#include "util.h"
+#include "core.h"
 
 typedef struct _cairo_linuxfb_device {
     int fb_fd;
@@ -172,10 +173,10 @@ struct backend backend_init_fbdev() {
     fprintf(stderr, "fbdev::create_display called\n");
     struct display *display;
     display = malloc(sizeof *display);
-    assert(display, "oom");
+    asrt(display, "oom");
 
     display->dev = malloc(sizeof(cairo_linuxfb_device_t));
-    assert(display->dev, "oom");
+    asrt(display->dev, "oom");
     char fb_node[16] = "/dev/fb0";
     display->fbsurface = cairo_linuxfb_surface_create(display->dev, fb_node);
     display->fbcr = cairo_create(display->fbsurface);

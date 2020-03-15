@@ -1,4 +1,3 @@
-
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,6 +5,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/random.h>
+#include <stdio.h>
+
+#include "core.h"
 #include "util.h"
 
 /* start weston section: most of this is from the weston examples */
@@ -85,9 +87,6 @@ os_create_anonymous_file(off_t size)
 
 /* end weston section */
 
-time_t min(time_t a, time_t b) { return a < b ? a : b; }
-time_t max(time_t a, time_t b) { return a < b ? b : a; }
-
 /* string handling stuff */
 
 char *str_dup(const char *s) {
@@ -99,23 +98,8 @@ char *str_dup(const char *s) {
     return n;
 }
 
-int get_line(FILE *f, char *buf, int s, int *n) {
-    int i = 0, c;
-    while((c = fgetc(f)) != EOF) {
-        if (c == '\r') continue;
-        if (c == '\n') {
-            *n = min(s-1, i);
-            buf[*n] = '\0';
-            return 0;
-        }
-        if (i < s) buf[i] = c;
-        ++i;
-    }
-    return -1;
-}
-
 void trim_end(char *s) {
-    assert(s, "trim_end NULL");
+    asrt(s, "trim_end NULL");
     int i = strlen(s);
     while (i > 0 && isspace(s[i - 1])) --i;
     s[i] = '\0';
@@ -124,22 +108,10 @@ void trim_end(char *s) {
 void generate_uid(char buf[64]) {
     static char rnd[16];
     int n = getrandom(rnd, 16, 0);
-    assert(n == 16, "getrandom failed");
+    asrt(n == 16, "getrandom failed");
     for (int i = 0; i < 16; ++i)
         sprintf(buf + 2 * i, "%02x", (unsigned char)rnd[i]);
     buf[32] = '\0';
-}
-
-void
-assert(bool b, const char *msg) {
-    if (!b) {
-        fprintf(stderr, "assert error msg: %s\n", msg);
-#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-        abort();
-#else
-        exit(1);
-#endif
-    }
 }
 
 /* From the iCalendar RFC: The "DTEND" property for a "VEVENT" calendar
@@ -149,10 +121,6 @@ assert(bool b, const char *msg) {
  */
 bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
     return a1 < b2 && a2 > b1;
-}
-
-int day_sec(struct tm t) {
-    return 3600 * t.tm_hour + 60 * t.tm_min + t.tm_sec;
 }
 
 struct iter_cl {
@@ -194,4 +162,3 @@ const char * most_frequent(map_t source, char *(*cb)(void*)) {
     return cl.key[maxi];
 }
 
-extern inline void * malloc_check(size_t size);

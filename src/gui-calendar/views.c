@@ -3,8 +3,7 @@
 #include "views.h"
 #include "pango.h"
 #include "algo.h"
-#undef assert
-#include "util.h"
+#include "core.h"
 
 void destruct_tslice(struct tslice *tsl) {
     free(tsl->lines.s);
@@ -66,7 +65,7 @@ void init_tview_range(struct tview *tv, struct tview_spec *spec) {
 }
 
 void init_tview(struct tview *tv, struct tview_spec *spec) {
-    if (spec->type == TVIEW_RANGE) assert(spec->n == 1, "wrong spec");
+    if (spec->type == TVIEW_RANGE) asrt(spec->n == 1, "wrong spec");
     alloc_n_slices(tv, spec->n);
     tv->max_len = -1;
     struct simple_date base = simple_date_from_ts(spec->base, spec->zone);
@@ -129,11 +128,11 @@ void init_tview(struct tview *tv, struct tview_spec *spec) {
             r->to = simple_date_to_ts(base, spec->zone);
             break;
         default:
-            assert(false, "wrong tview type");
+            asrt(false, "wrong tview type");
             break;
         }
         ts len = r->to - r->fr;
-        tv->max_len = max(tv->max_len, len);
+        tv->max_len = max_ts(tv->max_len, len);
     }
     spec->to = tv->s[tv->n - 1].ran.to;
     tv->min_content = tv->max_len + 1; tv->max_content = -1;
@@ -143,14 +142,14 @@ bool tview_try_put(struct tview *tv, struct tobject obj) {
     for (int i = 0; i < tv->n; ++i) {
         struct tslice *tsl = &tv->s[i];
         if (ts_ran_overlap(tsl->ran, obj.time)) {
-            assert(tsl->n < tsl->max, "tslice reached max limit");
+            asrt(tsl->n < tsl->max, "tslice reached max limit");
             tsl->objs[tsl->n++] = obj;
             struct ts_ran ran = {
                 obj.time.fr - tsl->ran.fr, obj.time.to - tsl->ran.fr };
             if (ran.fr < tv->min_content)
-                tv->min_content = max(ran.fr, 0);
+                tv->min_content = max_ts(ran.fr, 0);
             if (ran.to > tv->max_content)
-                tv->max_content = min(ran.to, tsl->ran.to - tsl->ran.fr);
+                tv->max_content = min_ts(ran.to, tsl->ran.to - tsl->ran.fr);
             inserted = true;
         }
     }
@@ -161,7 +160,7 @@ void tview_update_layout(struct tview *tv) {
         malloc_check(sizeof(struct layout_event) * tv->max);
     for (int i = 0; i < tv->n; ++i) {
         struct tslice *tsl = &tv->s[i];
-        assert(tsl->n <= tv->max, "too small tview max");
+        asrt(tsl->n <= tv->max, "too small tview max");
         for (int k = 0; k < tsl->n; ++k) {
             struct tobject *obj = &tsl->objs[k];
             la[k] = (struct layout_event){

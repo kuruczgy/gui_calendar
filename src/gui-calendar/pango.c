@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "pango.h"
-#include "util.h"
+#include "core.h"
 
 struct text_renderer* text_renderer_new(const char *font) {
     struct text_renderer *tr = malloc(sizeof(struct text_renderer));
@@ -27,7 +27,7 @@ void text_renderer_free(struct text_renderer *tr) {
 static PangoLayout *create_pango_layout(cairo_t *cr, struct text_renderer *tr) {
     PangoLayout *l = pango_cairo_create_layout(cr);
     PangoAttrList *a = pango_attr_list_new();
-    assert(tr->p.text, "text");
+    asrt(tr->p.text, "text");
     pango_layout_set_text(l, tr->p.text, -1);
 
     pango_attr_list_insert(a, pango_attr_scale_new(tr->p.scale));
@@ -83,7 +83,7 @@ char* text_format(const char *fmt, ...) {
     va_end(args);
 
     char *buf = malloc(length);
-    assert(buf, "malloc error");
+    asrt(buf, "malloc error");
     va_start(args, fmt);
     vsnprintf(buf, length, fmt, args);
     va_end(args);

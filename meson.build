@@ -1,7 +1,11 @@
 project('smuc', 'c', default_options : [ 'c_std=c11' ])
 
+# Compiler setup
 cc = meson.get_compiler('c')
+add_global_arguments('-Wno-parentheses', language : 'c')
+add_global_arguments('-D_XOPEN_SOURCE=700', language : 'c')
 
+# Dependencies
 wayland_client = dependency('wayland-client')
 wayland_cursor = dependency('wayland-cursor')
 cairo          = dependency('cairo')
@@ -34,55 +38,79 @@ xdg_shell_private_target = custom_target(
   output: '@0@-client-protocol.c'.format(base_file),
 )
 
+# Source files
 incdir = include_directories('include')
-sources = [
-  'src/util.c',
-  'src/calendar.c',
-  'src/datetime.c',
-  'src/editor.c',
-  'src/editor_parser.c',
-  'src/pango.c',
-  'src/subprocess.c',
-  'src/colors.c',
-  'src/libical_parse.c',
-  'src/keyboard.c',
-  'src/algo/perm.c',
-  'src/algo/calendar_layout.c',
-  'src/algo/todo_schedule.c',
-  'src/render.c',
-  'src/application.c',
-  'src/util/hashmap.c',
-  'src/views.c',
+
+lib_core = static_library(
+  'core',
+  'src/core/core.c',
+  include_directories: incdir
+)
+
+src_container = [
+  'src/container/hashmap.c'
+]
+lib_container = static_library(
+  'container',
+  src_container,
+  include_directories: incdir,
+  link_with: lib_core
+)
+
+src_common = [
+  'src/common/colors.c',
+  'src/common/calendar.c',
+  'src/common/datetime.c',
+  'src/common/libical_parse.c',
+  'src/common/subprocess.c',
+  'src/common/util.c',
+  'src/common/algo/perm.c',
+  'src/common/algo/calendar_layout.c',
+  'src/common/algo/todo_schedule.c',
+]
+dep_common = [ libical ]
+lib_common = static_library(
+  'common',
+  src_common,
+  include_directories: incdir,
+  dependencies: dep_common,
+  link_with: [ lib_core, lib_container ]
+)
+
+src_gui_calendar = [
+  'src/gui-calendar/application.c',
+  'src/gui-calendar/editor.c',
+  'src/gui-calendar/editor_parser.c',
+  'src/gui-calendar/keyboard.c',
+  'src/gui-calendar/render.c',
+  'src/gui-calendar/pango.c',
+  'src/gui-calendar/views.c',
+]
+dep_gui_calendar = [
+  wayland_client, wayland_cursor, cairo, pango, pangocairo, m
 ]
 wayland_sources = [
-  'src/backend/wayland.c',
+  'src/gui-calendar/backend/wayland.c',
   xdg_shell_header_target,
   xdg_shell_private_target,
 ]
-dependencies = [
-  wayland_client, wayland_cursor, cairo, pango, pangocairo, libical, m
-]
-
-add_global_arguments('-Wno-parentheses', language : 'c')
-add_global_arguments('-D_XOPEN_SOURCE=700', language : 'c')
-
-lib_gui_calendar_common = static_library(
-  'gui-calendar-common',
-  sources,
+lib_gui_calendar = static_library(
+  'gui-calendar',
+  src_gui_calendar,
+  wayland_sources,
+  'src/gui-calendar/backend/fbdev.c',
+  'src/gui-calendar/backend/svg.c',
+  'src/gui-calendar/backend/image.c',
   include_directories: incdir,
-  dependencies: dependencies
+  dependencies: dep_gui_calendar,
+  link_with: [ lib_core, lib_common, lib_container ]
 )
-
 executable(
   'smuc',
-  'src/main.c',
-  wayland_sources,
-  'src/backend/fbdev.c',
-  'src/backend/svg.c',
-  'src/backend/image.c',
+  'src/gui-calendar/main.c',
   include_directories: incdir,
-  dependencies: dependencies,
-  link_with: lib_gui_calendar_common,
+  dependencies: dep_gui_calendar,
+  link_with: lib_gui_calendar,
   c_args : [
     '-DCONFIG_BACKEND_WAYLAND',
     '-DCONFIG_BACKEND_FBDEV',
@@ -94,10 +122,10 @@ executable(
 test_main = executable(
   'test-editor',
   'src/tests/test_main.c',
-  'src/backend/dummy.c',
+  'src/gui-calendar/backend/dummy.c',
   include_directories: incdir,
-  dependencies: dependencies,
-  link_with: lib_gui_calendar_common,
+  dependencies: dep_gui_calendar,
+  link_with: lib_gui_calendar,
   c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 test('test-main', test_main)
@@ -105,29 +133,29 @@ test('test-main', test_main)
 executable(
   'fuzz-editor',
   'src/tests/fuzz_editor.c',
-  'src/backend/dummy.c',
+  'src/gui-calendar/backend/dummy.c',
   include_directories: incdir,
-  dependencies: dependencies,
-  link_with: lib_gui_calendar_common,
+  dependencies: dep_gui_calendar,
+  link_with: lib_gui_calendar,
   c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 
 executable(
   'fuzz-parse-ics',
   'src/tests/fuzz_parse_ics.c',
-  'src/backend/dummy.c',
+  'src/gui-calendar/backend/dummy.c',
   include_directories: incdir,
-  dependencies: dependencies,
-  link_with: lib_gui_calendar_common,
+  dependencies: dep_gui_calendar,
+  link_with: lib_gui_calendar,
   c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 
 executable(
   'fuzz-image',
-  'src/main.c',
-  'src/backend/dummy.c',
+  'src/gui-calendar/main.c',
+  'src/gui-calendar/backend/dummy.c',
   include_directories: incdir,
-  dependencies: dependencies,
-  link_with: lib_gui_calendar_common,
+  dependencies: dep_gui_calendar,
+  link_with: lib_gui_calendar,
   c_args : '-DCONFIG_BACKEND_DUMMY'
 )

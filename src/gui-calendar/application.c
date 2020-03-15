@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include "application.h"
+#include "core.h"
 #include "util.h"
 #include "algo.h"
 #include "keyboard.h"
@@ -25,7 +27,7 @@ static void switch_mode_select() {
         state.mode_select_len = g.k;
         for (int i = 0; i < state.active_event_n; ++i) {
             const char *code = key_gen_get(&g);
-            assert(code, "not enough codes");
+            asrt(code, "not enough codes");
             strcpy(state.active_events[i].tag.code, code);
         }
     } else if (state.main_view == VIEW_TODO) {
@@ -34,11 +36,11 @@ static void switch_mode_select() {
         state.mode_select_len = g.k;
         for (int i = 0; i < state.active_todo_n; ++i) {
             const char *code = key_gen_get(&g);
-            assert(code, "not enough codes");
+            asrt(code, "not enough codes");
             strcpy(state.active_todos_tag[i].code, code);
         }
     } else {
-        assert(false, "unknown view");
+        asrt(false, "unknown view");
     }
 }
 
@@ -56,7 +58,7 @@ static int get_first_visible_cal_index() {
             return i;
         }
     }
-    assert(state.n_cal > 0, "no calendars");
+    asrt(state.n_cal > 0, "no calendars");
     return 0;
 }
 static void print_new_event_template_callback(void *cl, FILE *f) {
@@ -123,7 +125,7 @@ static void mode_select_finish() {
             }
         }
     } else {
-        assert(false, "unknown mode");
+        asrt(false, "unknown mode");
     }
 }
 
@@ -171,7 +173,7 @@ static int create_active_events(void *_cl, void *data) {
         time_t start, end;
         struct event *ev = event_recur_set_get(ers, i, &start, &end);
         if (ts_ran_overlap(cl->ran, (struct ts_ran){ (ts)start, (ts)end })) {
-            assert(state.active_event_n < cl->max, "too many active_events");
+            asrt(state.active_event_n < cl->max, "too many active_events");
             state.active_events[state.active_event_n++] =
                     (struct active_event){
                 .ers = ers,
@@ -194,7 +196,7 @@ static int get_event_ranges(void *_cl, void *data) {
         time_t start, end;
         struct event *ev = event_recur_set_get(ers, i, &start, &end);
         if (ev->status != ICAL_STATUS_CONFIRMED) continue;
-        assert(cl->n < cl->max, "too many ranges");
+        asrt(cl->n < cl->max, "too many ranges");
         cl->E[cl->n++] = (struct ts_ran){ (ts)start, (ts)end };
     }
     return MAP_OK;
@@ -334,7 +336,7 @@ static void update_views() {
     case TVIEW_WEEKS: fprintf(stderr, "WEEKS"); break;
     case TVIEW_MONTHS: fprintf(stderr, "MONTHS"); break;
     case TVIEW_YEARS: fprintf(stderr, "YEARS"); break;
-    default: assert(false, "wrong tview_type");
+    default: asrt(false, "wrong tview_type");
     }
     fprintf(stderr, "\n");
 
@@ -360,10 +362,10 @@ static void update_views() {
 /* provides a partial ordering over todos */
 static int todo_priority_cmp(const struct todo *a, const struct todo *b) {
     /* -1: a first, 1: b first, 0: equal */
-    bool a_started = a->start.timestamp == -1
-        || a->start.timestamp <= state.now;
-    bool b_started = b->start.timestamp == -1
-        || b->start.timestamp <= state.now;
+    // bool a_started = a->start.timestamp == -1
+    //     || a->start.timestamp <= state.now;
+    // bool b_started = b->start.timestamp == -1
+    //     || b->start.timestamp <= state.now;
 
     bool a_inprocess = a->status == ICAL_STATUS_INPROCESS;
     bool b_inprocess = b->status == ICAL_STATUS_INPROCESS;
@@ -443,7 +445,7 @@ static void update_active_todos() {
             hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
         }
     }
-    assert(n == f.n, "todo count mismatch");
+    asrt(n == f.n, "todo count mismatch");
     qsort(state.active_todos_tag, state.active_todo_n,
             sizeof(struct todo_tag), &todo_tag_cmp);
     for (int i = 0; i < state.active_todo_n; ++i)
@@ -476,7 +478,7 @@ static void adjust_base(int n) {
     case TVIEW_WEEKS: sd.day += 7 * 4 * n; break;
     case TVIEW_MONTHS: sd.day = 1; sd.month = 1; sd.year += n; break;
     case TVIEW_YEARS: sd.day = 1; sd.month = 1; sd.year += n; break;
-    default: assert(false, "wrong tview_type");
+    default: asrt(false, "wrong tview_type");
     }
     simple_date_normalize(&sd);
     state.base = simple_date_to_ts(sd, state.zone->impl);
@@ -561,7 +563,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             }
             break;
         default:
-            assert(key_is_sym(key), "bad key symbol");
+            asrt(key_is_sym(key), "bad key symbol");
             break;
         }
         break;
@@ -597,13 +599,14 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
         break;
     }
     default:
-        assert(false, "bad keystate");
+        asrt(false, "bad keystate");
         break;
     }
 }
 
 static void application_handle_child(void *ud, pid_t pid) {
     int res;
+
     struct calendar *cal = state.sp_calendar;
     FILE *f = subprocess_get_result(&(state.sp), pid);
     if (!state.sp) state.sp_calendar = NULL;
@@ -619,7 +622,7 @@ static void application_handle_child(void *ud, pid_t pid) {
     }
 
     if (es.method == EDIT_METHOD_CREATE) {
-        assert(!es.uid, "uid already exists");
+        asrt(!es.uid, "uid already exists");
         char uid_buf[64];
         generate_uid(uid_buf);
         es.uid = str_dup(uid_buf);
@@ -648,7 +651,7 @@ static void application_handle_child(void *ud, pid_t pid) {
         } else if (es.type == COMP_TYPE_TODO) {
             update_active_objects();
         } else {
-            assert(false, "");
+            asrt(false, "");
         }
         state.dirty = true;
     } else {
@@ -704,8 +707,8 @@ int application_main(struct application_options opts, struct backend *backend) {
     if (opts.editor) editor_buffer = opts.editor;
     if (opts.terminal) term_buffer = opts.terminal;
 
-    assert(editor_buffer[0], "please set editor!");
-    assert(term_buffer[0], "please set terminal emulator!");
+    asrt(editor_buffer[0], "please set editor!");
+    asrt(term_buffer[0], "please set terminal emulator!");
     const char *editor[] = { term_buffer, term_buffer,
         editor_buffer, "{file}", NULL };
     fprintf(stderr, "editor command: %s, term command: %s\n",
