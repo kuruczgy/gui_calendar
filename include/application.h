@@ -5,6 +5,7 @@
 #include "pango.h"
 #include "datetime.h"
 #include "views.h"
+#include "uexpr.h"
 
 struct calendar_info {
     bool visible;
@@ -21,6 +22,7 @@ struct active_event {
     struct ts_ran time;
     struct event *ev;
     struct event_tag tag;
+    bool fade;
 };
 
 struct todo_tag {
@@ -60,11 +62,14 @@ struct state {
 
     struct subprocess_handle *sp;
     struct calendar *sp_calendar;
+    bool sp_expr;
 
     const char **editor;
     char mode_select_code[33];
     int mode_select_code_n;
     int mode_select_len;
+
+    uexpr expr;
 
     bool show_private_events;
 
@@ -97,6 +102,7 @@ struct application_options {
 extern struct state state;
 
 void update_actual_fit();
+bool cal_uexpr_for_active_event(uexpr e, struct active_event *aev);
 int application_main(struct application_options opts, struct backend *backend);
 
 #endif

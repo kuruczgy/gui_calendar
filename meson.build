@@ -48,7 +48,8 @@ lib_core = static_library(
 )
 
 src_container = [
-  'src/container/hashmap.c'
+  'src/container/hashmap.c',
+  'src/container/vec.c'
 ]
 lib_container = static_library(
   'container',
@@ -77,8 +78,25 @@ lib_common = static_library(
   link_with: [ lib_core, lib_container ]
 )
 
+src_uexpr = [
+  'src/uexpr/uexpr.c'
+]
+lib_uexpr = static_library(
+  'uexpr',
+  src_uexpr,
+  include_directories: incdir,
+  link_with: [ lib_core, lib_container ]
+)
+executable(
+  'uexpr',
+  'src/uexpr/main.c',
+  include_directories: incdir,
+  link_with: lib_uexpr
+)
+
 src_gui_calendar = [
   'src/gui-calendar/application.c',
+  'src/gui-calendar/uexpr_cal.c',
   'src/gui-calendar/editor.c',
   'src/gui-calendar/editor_parser.c',
   'src/gui-calendar/keyboard.c',
@@ -103,7 +121,7 @@ lib_gui_calendar = static_library(
   'src/gui-calendar/backend/image.c',
   include_directories: incdir,
   dependencies: dep_gui_calendar,
-  link_with: [ lib_core, lib_common, lib_container ]
+  link_with: [ lib_core, lib_common, lib_container, lib_uexpr ]
 )
 executable(
   'smuc',

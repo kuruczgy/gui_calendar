@@ -69,6 +69,11 @@ static void print_new_todo_template_callback(void *cl, FILE *f) {
     int cal = get_first_visible_cal_index();
     print_new_todo_template(f, state.zone->impl, cal + 1);
 }
+static void print_expr_callback(void *cl, FILE *f) {
+    if (state.expr) {
+        uexpr_print(state.expr, f);
+    }
+}
 static void launch_event_editor(struct active_event *aev) {
     if (!state.sp) {
         state.sp_calendar = aev->tag.cal;
@@ -95,6 +100,13 @@ static void launch_new_todo_editor() {
         state.sp_calendar = NULL;
         state.sp = subprocess_new_input(state.editor[0],
             state.editor + 1, &print_new_todo_template_callback, NULL);
+    }
+}
+static void launch_expr_editor() {
+    if (!state.sp) {
+        state.sp_expr = true;
+        state.sp = subprocess_new_input(state.editor[0],
+            state.editor + 1, &print_expr_callback, NULL);
     }
 }
 
@@ -172,15 +184,21 @@ static int create_active_events(void *_cl, void *data) {
     for (int i = 0; i < (ers->max != 0 ? ers->n : 1); ++i) {
         time_t start, end;
         struct event *ev = event_recur_set_get(ers, i, &start, &end);
+        struct active_event aev = (struct active_event){
+            .ers = ers,
+            .time = (struct ts_ran){ (ts)start, (ts)end },
+            .ev = ev,
+            .tag = (struct event_tag){ .cal = cl->cal },
+            .fade = false
+        };
+        if (state.expr) {
+            if (!cal_uexpr_for_active_event(state.expr, &aev)) {
+                // uexpr returned false. we ignore it for now
+            }
+        }
         if (ts_ran_overlap(cl->ran, (struct ts_ran){ (ts)start, (ts)end })) {
             asrt(state.active_event_n < cl->max, "too many active_events");
-            state.active_events[state.active_event_n++] =
-                    (struct active_event){
-                .ers = ers,
-                .time = (struct ts_ran){ (ts)start, (ts)end },
-                .ev = ev,
-                .tag = (struct event_tag){ .cal = cl->cal }
-            };
+            state.active_events[state.active_event_n++] = aev;
         }
     }
     return MAP_OK;
@@ -534,6 +552,9 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             switch_mode_select();
             state.dirty = true;
             break;
+        case 'f':
+            launch_expr_editor();
+            break;
         case 'c':
             for (int i = 0; i < state.n_cal; ++i) {
                 state.cal_info[i].visible = state.cal_default_visible[i];
@@ -608,9 +629,18 @@ static void application_handle_child(void *ud, pid_t pid) {
     int res;
 
     struct calendar *cal = state.sp_calendar;
+    bool sp_expr = state.sp_expr;
+    state.sp_expr = false;
     FILE *f = subprocess_get_result(&(state.sp), pid);
     if (!state.sp) state.sp_calendar = NULL;
     if (!f) return;
+
+    if (sp_expr) {
+        // editing expr
+        if (state.expr) uexpr_destroy(state.expr);
+        state.expr = uexpr_parse(f);
+        return;
+    }
 
     struct edit_spec es;
     init_edit_spec(&es);
@@ -681,6 +711,8 @@ int application_main(struct application_options opts, struct backend *backend) {
         .top_tview = (struct tview){ .n = -1, .s = NULL },
         .tview_n = 7,
         .tview_type = TVIEW_DAYS,
+        .expr = NULL,
+        .sp_expr = false
     };
 
     // TODO: state.view_days = opts.view_days;
