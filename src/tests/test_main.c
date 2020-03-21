@@ -43,4 +43,8 @@ int main() {
     test_lookup_color();
     test_editor_parser();
     test_todo_schedule();
+
+    struct cats cs;
+    cats_init(&cs, "cat1,cat2,,cat4,");
+    asrt(cs.n == 5, "");
 }

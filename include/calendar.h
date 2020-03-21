@@ -15,6 +15,12 @@ struct cal_timezone {
     char *desc;
 };
 
+struct cats {
+    char *data;
+    char **list;
+    int n, l; // l: length of data - 1
+};
+
 struct event {
     char *summary;
     struct date start, end;
@@ -24,6 +30,7 @@ struct event {
     char *desc;
     enum icalproperty_status status;
     enum icalproperty_class clas;
+    struct cats cats;
     bool all_day;
     // DEP: struct event
 };
@@ -49,6 +56,7 @@ struct todo {
     enum icalproperty_class clas;
     int estimated_duration;
     int percent_complete;
+    struct cats cats;
     // DEP: struct todo
 };
 
@@ -80,17 +88,19 @@ int libical_parse_ics(FILE *f, struct calendar *cal, icaltimezone *local_zone);
 icalcomponent* libical_component_from_file(FILE *f);
 
 /* note: you must initialize base before calling free_event_recur_set */
-struct event_recur_set * new_event_recur_set(const char *uid, int max);
+struct event_recur_set * event_recur_set_create(const char *uid, int max);
 
 /* object init functions */
-void init_calendar(struct calendar* cal);
-void init_event(struct event *ev);
-void init_todo(struct todo *td);
+void calendar_init(struct calendar* cal);
+void event_init(struct event *ev);
+void todo_init(struct todo *td);
+void cats_init(struct cats *cs, const char *text);
 
 /* object destruct functions */
-void destruct_calendar(struct calendar *cal);
-void destruct_event(struct event *ev);
-void destruct_todo(struct todo *td);
+void calendar_finish(struct calendar *cal);
+void event_finish(struct event *ev);
+void todo_finish(struct todo *td);
+void cats_finish(struct cats *cs);
 
 /* object free functions: also free memory */
 void free_event_recur_set(struct event_recur_set *ers);
@@ -103,6 +113,7 @@ void copy_todo(struct todo *dst, const struct todo *src);
 struct event * event_recur_set_get(struct event_recur_set *ers, int i,
         time_t *start, time_t *end);
 void event_update_derived(struct event *ev);
+char * cats_to_str(struct cats *cs);
 
 /* takes ownership of event */
 int save_event(struct event ev, char **uid_ptr, struct calendar *cal, bool del,

@@ -722,7 +722,7 @@ int application_main(struct application_options opts, struct backend *backend) {
         struct calendar *cal = &state.cal[state.n_cal];
 
         /* init */
-        init_calendar(cal);
+        calendar_init(cal);
 
         /* read */
         cal->storage = str_dup(opts.argv[i]);
@@ -760,7 +760,7 @@ int application_main(struct application_options opts, struct backend *backend) {
     backend->vptr->run(backend);
 
     for (int i = 0; i < state.n_cal; i++) {
-        destruct_calendar(&state.cal[i]);
+        calendar_finish(&state.cal[i]);
     }
     free_timezone(state.zone);
     text_renderer_free(state.tr);

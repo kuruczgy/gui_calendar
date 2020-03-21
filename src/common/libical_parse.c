@@ -72,10 +72,9 @@ void icalcomponent_set_percentcomplete(icalcomponent *c, int v) {
 }
 
 void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind) {
-    icalproperty *p = icalcomponent_get_first_property(c, kind);
-    while (p) {
+    icalproperty *p;
+    while (p = icalcomponent_get_first_property(c, kind)) {
         icalcomponent_remove_property(c, p);
-        p = icalcomponent_get_next_property(c, kind);
     }
 }
 
@@ -100,6 +99,32 @@ const char *get_timezone_desc(struct cal_timezone *zone) {
 char* read_stream(char *s, size_t size, void *d)
 {
     return fgets(s, size, (FILE*)d);
+}
+
+static struct cats get_cats(icalcomponent *c) {
+    char *s = NULL;
+    int len = 0;
+    icalproperty *p =
+        icalcomponent_get_first_property(c, ICAL_CATEGORIES_PROPERTY);
+    while (p) {
+        const char *text = icalproperty_get_categories(p);
+        int l = strlen(text);
+        s = realloc(s, len + l + 2);
+        if (len == 0) {
+            memcpy(s, text, l);
+            len += l;
+        } else {
+            s[len++] = ',';
+            memcpy(s + len, text, l);
+            len += l;
+        }
+        s[len] = 0;
+        p = icalcomponent_get_next_property(c, ICAL_CATEGORIES_PROPERTY);
+    }
+    struct cats res;
+    cats_init(&res, s);
+    free(s);
+    return res;
 }
 
 int libical_parse_event(icalcomponent *c, struct calendar *cal,
@@ -150,14 +175,14 @@ int libical_parse_event(icalcomponent *c, struct calendar *cal,
 
     if (!ers) {
         /* we create the whole recurrence set */
-        ers = new_event_recur_set(uid, rrule ? 100 : 0);
+        ers = event_recur_set_create(uid, rrule ? 100 : 0);
         ev = &ers->base;
         hashmap_put(cal->event_sets, ers->uid, ers);
     }
     asrt(ev && ers, "");
 
     /* extract info into an event object */
-    init_event(ev);
+    event_init(ev);
     struct icaltimetype
         dtstart = icalcomponent_get_dtstart(c),
         dtend = icalcomponent_get_dtend(c);
@@ -190,6 +215,7 @@ int libical_parse_event(icalcomponent *c, struct calendar *cal,
         ev->color = lookup_color(text);
         ev->color_str = str_dup(text);
     }
+    ev->cats = get_cats(c);
 
     if (rrule) {
         if (rdate || exdate) {
@@ -219,7 +245,7 @@ int libical_parse_todo(icalcomponent *c, struct calendar *cal,
         icaltimezone *local_zone) {
     // DEP: struct todo
     struct todo *td = malloc(sizeof(struct todo));
-    init_todo(td);
+    todo_init(td);
 
     struct icaltimetype
         dtstart = icalcomponent_get_dtstart(c),
@@ -252,6 +278,8 @@ int libical_parse_todo(icalcomponent *c, struct calendar *cal,
         int v = icalproperty_get_percentcomplete(p);
         td->percent_complete = v;
     }
+
+    td->cats = get_cats(c);
 
     hashmap_put(cal->todos, td->uid, td); // TODO: memory leak
     return 0;

@@ -36,19 +36,28 @@ static void print_literal(FILE *f, const char *key, char *val) {
         fprintf(f, "#%s\n", key);
     }
 }
+static void print_cats(FILE *f, struct cats *cs) {
+    if (cs->n > 0) {
+        char *str = cats_to_str(cs);
+        fprintf(f, "cats `%s`\n", str);
+        free(str);
+    } else {
+        fprintf(f, "#cats\n");
+    }
+}
 
 // DEP: struct event
 static const char *event_usage =
     "# USAGE:\n"
     "# status tentative/confirmed/cancelled\n"
     "# class public/private\n"
-    "# summary/location/desc/color `...`\n";
+    "# summary/location/desc/color/cats `...`\n";
 // DEP: struct todo
 static const char *todo_usage =
     "# USAGE:\n"
     "# status completed/needs-action/in-process\n"
     "# class public/private\n"
-    "# summary/location/desc/color `...`\n"
+    "# summary/location/desc/color/cats `...`\n"
     "# est 1d2h3m4s\n"
     "# perc 39\n";
 
@@ -69,6 +78,7 @@ void print_event_template(FILE *f, struct event *ev, const char *uid,
     fprintf(f, "end %s\n", end);
     print_literal(f, "location", ev->location);
     print_literal(f, "desc", ev->desc);
+    print_cats(f, &ev->cats);
     print_literal(f, "color", ev->color_str);
     fprintf(f, "#class %s\n", cal_class_str(ev->clas));
     fprintf(f, "#status %s\n", cal_status_str(ev->status));
@@ -110,6 +120,7 @@ void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
     }
 
     print_literal(f, "desc", td->desc);
+    print_cats(f, &td->cats);
     fprintf(f, "#class %s\n", cal_class_str(td->clas));
     if (td->uid) {
         fprintf(f, "uid `%s`\n", td->uid);
@@ -130,6 +141,7 @@ void print_new_event_template(FILE *f, icaltimezone *zone, int cal) {
         "end \n"
         "#location\n"
         "#desc\n"
+        "#cats\n"
         "#color\n"
         "#class\n"
         "#status\n"
@@ -155,6 +167,7 @@ void print_new_todo_template(FILE *f, icaltimezone *zone, int cal) {
         "#est\n"
         "#perc\n"
         "#desc\n"
+        "#cats\n"
         "#class\n"
         "calendar %d\n"
         "%s"
@@ -165,11 +178,11 @@ void print_new_todo_template(FILE *f, icaltimezone *zone, int cal) {
 }
 
 void init_edit_spec(struct edit_spec *es) {
-    init_event(&es->ev);
-    init_event(&es->rem_ev);
+    event_init(&es->ev);
+    event_init(&es->rem_ev);
 
-    init_todo(&es->td);
-    init_todo(&es->rem_td);
+    todo_init(&es->td);
+    todo_init(&es->rem_td);
 
     es->calendar_uid = NULL;
     es->calendar_num = -1;
@@ -205,6 +218,16 @@ void assign_date(struct date *dst, struct date src, struct date rem) {
         dst->timestamp = src.timestamp;
     }
 }
+void assign_cats(struct cats *dst, struct cats *src, struct cats *rem) {
+    if (rem->n == -1) {
+        cats_finish(dst);
+        cats_init(dst, NULL);
+    } else if (src->n > 0) {
+        cats_finish(dst);
+        *dst = *src;
+        cats_init(src, NULL);
+    }
+}
 void assign_event_props(struct event *dst, struct event *src,
         struct event *rem) {
     // DEP: struct event
@@ -224,6 +247,7 @@ void assign_event_props(struct event *dst, struct event *src,
     } else if (src->clas != ICAL_CLASS_NONE) {
         dst->clas = src->clas;
     }
+    assign_cats(&dst->cats, &src->cats, &rem->cats);
     // all_day is ignored, since it is not nullable
 }
 void assign_todo_props(struct todo *dst, struct todo *src, struct todo *rem) {
@@ -253,6 +277,7 @@ void assign_todo_props(struct todo *dst, struct todo *src, struct todo *rem) {
     } else if (src->percent_complete != -1) {
         dst->percent_complete = src->percent_complete;
     }
+    assign_cats(&dst->cats, &src->cats, &rem->cats);
 }
 
 static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
@@ -270,7 +295,7 @@ static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
             break;
         case EDIT_METHOD_CREATE:
             asrt(res == MAP_MISSING, "creating, but found");
-            ers = new_event_recur_set(es->uid, 0);
+            ers = event_recur_set_create(es->uid, 0);
             copy_event(&ers->base, &es->ev);
             event_update_derived(&ers->base);
             res = hashmap_put(cal->event_sets, ers->uid, ers);
@@ -310,7 +335,7 @@ static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
             asrt(res == MAP_OK, "todo not found");
             res = hashmap_remove(cal->todos, es->uid);
             asrt(res == MAP_OK, "failed to remove");
-            destruct_todo(td);
+            todo_finish(td);
             free(td);
             fprintf(stderr, "[editor memory] deleted todo %s\n", es->uid);
             break;
@@ -359,6 +384,17 @@ static void comp_assign_datetime(icalcomponent *c, enum icalproperty_kind kind,
         icalcomponent_remove_properties(c, kind);
     }
 }
+static void comp_assign_cats(icalcomponent *c, struct cats *src, bool rem) {
+    icalcomponent_remove_properties(c, ICAL_CATEGORIES_PROPERTY);
+    if (!rem) {
+        if (src->n > 0) {
+            char *cats_str = cats_to_str(src);
+            icalproperty *p = icalproperty_new_categories(cats_str);
+            icalcomponent_add_property(c, p);
+            free(cats_str);
+        }
+    }
+}
 
 static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
     if (es->type == COMP_TYPE_EVENT) {
@@ -390,6 +426,8 @@ static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
         if (es->rem_ev.clas != ICAL_CLASS_NONE) {
             icalcomponent_remove_properties(c, ICAL_CLASS_PROPERTY);
         }
+
+        comp_assign_cats(c, &es->ev.cats, es->rem_ev.cats.n == -1);
     } else if (es->type == COMP_TYPE_TODO) {
         // DEP: struct todo
 
@@ -431,6 +469,8 @@ static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
         if (es->rem_td.percent_complete != -1) {
             icalcomponent_remove_properties(c, ICAL_PERCENTCOMPLETE_PROPERTY);
         }
+
+        comp_assign_cats(c, &es->td.cats, es->rem_td.cats.n == -1);
     } else {
         asrt(false, "");
     }

@@ -39,7 +39,7 @@ status-val = "tentative" | "confirmed" |
     "cancelled" | "needs-action" | "completed" | "in-process" ;
 uprop =
     ( ( "start" | "end" | "due" ), ws, dt ) |
-    ( ( "summary" | "location" | "desc" | "color" ), ws, literal ) |
+    ( ( "summary" | "location" | "desc" | "color" | "cats" ), ws, literal ) |
     ( ( "uid" | "instance" ), ws, literal ) |
     ( "est", ws, dur ) |
     ( "perc", ws, integer ) |
@@ -301,6 +301,18 @@ static res prop(st s, struct edit_spec *es) {
         if (literal(s, &str) != OK) return ERROR;
         if (!ev) return ERROR;
         es->ev.color_str = str;
+    } else if (strcmp(key, "cats") == 0) {
+        if (rem) {
+            if (ev) es->rem_ev.cats.n = -1;
+            else es->rem_td.cats.n = -1;
+            return OK;
+        }
+        if (literal(s, &str) != OK) return ERROR;
+        if (ev) {
+            cats_init(&es->ev.cats, str);
+        } else {
+            cats_init(&es->td.cats, str);
+        }
     } else if (strcmp(key, "uid") == 0) {
         if (rem) return ERROR;
         if (literal(s, &str) != OK) return ERROR;
