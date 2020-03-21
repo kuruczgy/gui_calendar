@@ -58,6 +58,7 @@ struct window {
     struct buffer buffers[2];
     struct buffer *prev_buffer;
     struct wl_callback *callback;
+    struct wl_cursor_theme *cursor_theme;
     struct wl_surface *cursor_surface;
     struct wl_cursor_image *cursor_image;
     bool wait_for_configure;
@@ -231,10 +232,11 @@ create_window(struct display *display, int width, int height) {
     window->wait_for_configure = true;
 
     // load cursor stuff
-    struct wl_cursor_theme *cursor_theme =
+    window->cursor_theme =
         wl_cursor_theme_load(NULL, 24, display->wl_shm);
+    asrt(window->cursor_theme, "cursor theme");
     struct wl_cursor *cursor =
-        wl_cursor_theme_get_cursor(cursor_theme, "left_ptr");
+        wl_cursor_theme_get_cursor(window->cursor_theme, "left_ptr");
     asrt(cursor->image_count > 0, "wrong cursor->image_count");
     window->cursor_image = cursor->images[0];
     struct wl_buffer *cursor_buffer =
@@ -249,6 +251,8 @@ create_window(struct display *display, int width, int height) {
 static void
 destroy_window(struct window *window)
 {
+    if (window->cursor_surface) wl_surface_destroy(window->cursor_surface);
+    if (window->cursor_theme) wl_cursor_theme_destroy(window->cursor_theme);
     if (window->callback) wl_callback_destroy(window->callback);
     destroy_buffer(&window->buffers[0]);
     destroy_buffer(&window->buffers[1]);
@@ -475,6 +479,7 @@ static void destroy_display(struct backend *backend)
     destroy_window(display->window);
 
     if (display->keyboard) wl_keyboard_destroy(display->keyboard);
+    if (display->pointer) wl_pointer_destroy(display->pointer);
     if (display->wl_seat) wl_seat_destroy(display->wl_seat);
     if (display->pool) wl_shm_pool_destroy(display->pool);
     if (display->wl_shm) wl_shm_destroy(display->wl_shm);
