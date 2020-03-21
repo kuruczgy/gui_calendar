@@ -178,8 +178,7 @@ static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
     /* calculate color stuff */
     uint32_t color = ev->color;
     if (!color) color = 0xFF20D0D0;
-    if (ev->status == ICAL_STATUS_TENTATIVE ||
-            ev->status == ICAL_STATUS_CANCELLED) {
+    if (obj->aev->fade) {
         color = (color & 0x00FFFFFF) | 0x30000000;
     }
     double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
@@ -192,7 +191,7 @@ static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
     cairo_fill(cr);
 
     /* draw various labels */
-    if (state.show_private_events || ev->clas != ICAL_CLASS_PRIVATE) {
+    if (!obj->aev->hide) {
         bool light = lightness < 0.9 ? true : false;
         uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
         cairo_set_source_argb(cr, fg);
@@ -607,6 +606,7 @@ bool render_application(void *ud, cairo_t *cr) {
         state.dirty = true;
     }
     if (!state.dirty) return false;
+    struct stopwatch sw = sw_start();
     static int frame_counter = 0;
     ++frame_counter;
 
@@ -687,5 +687,6 @@ bool render_application(void *ud, cairo_t *cr) {
     }
 
     state.dirty = false;
+    // sw_end_print(sw, "render_application");
     return true;
 }

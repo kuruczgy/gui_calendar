@@ -139,7 +139,10 @@ static void ast_node_finish(ast_node *node) {
     case OP_OR:
     case OP_EQ:
     case OP_IN:
+        vec_free(&node->args);
+        break;
     case OP_NEG:
+        vec_free(&node->args);
         break;
     }
 }
@@ -246,12 +249,12 @@ static int list(st s, enum op op) {
         while (1) {
             t = peek(s);
             int i = term(s);
-            if (i == -1) return -1;
+            if (i == -1) return -1; // TODO: leak
             vec_append(&n.args, &i);
             t = get(s);
             if (t.c == end) break;
             if (t.c != sep)
-                return -1;
+                return -1; // TODO: leak
         }
     } else {
         t = get(s);
@@ -362,7 +365,7 @@ struct context {
     uexpr_get get;
     uexpr_set set;
 };
-static void free_value(struct value v) {
+static void value_finish(struct value v) {
     switch (v.type) {
     case TYPE_STRING:
         str_free(&v.string);
@@ -370,7 +373,7 @@ static void free_value(struct value v) {
     case TYPE_LIST:
         for (int i = 0; i < v.list.len; ++i) {
             struct value *vp = vec_get(&v.list, i);
-            free_value(*vp);
+            value_finish(*vp);
         }
         vec_free(&v.list);
         break;
@@ -380,17 +383,40 @@ static void free_value(struct value v) {
         break;
     }
 }
+static struct value value_copy(struct value v) {
+    struct value res;
+    switch (v.type) {
+    case TYPE_STRING:
+        res.type = TYPE_STRING;
+        res.string = str_copy(&v.string);
+        return res;
+    case TYPE_LIST:
+        res.type = TYPE_LIST;
+        res.list = vec_new_empty(sizeof(struct value));
+        for (int i = 0; i < v.list.len; ++i) {
+            struct value *vp = vec_get(&v.list, i);
+            struct value resi = value_copy(*vp);
+            vec_append(&res.list, &resi);
+        }
+        return res;
+    case TYPE_BOOLEAN:
+    case TYPE_VOID:
+    case TYPE_ERROR:
+        return v;
+    }
+    asrt(false, "");
+    return v; // shut up compiler
+}
 static void print_value(FILE *f, struct value v);
 
 /* # Evaluation */
 static struct value eval(struct vec *ast, int root, struct context ctx);
 static struct value get_var(struct context ctx, const char *key) {
-    const char *str;
     struct value *vp;
-    if (str = ctx.get(ctx.cl, key)) {
-        struct str s = str_new_empty();
-        str_append(&s, str, strlen(str));
-        return (struct value){ .type = TYPE_STRING, .string = s };
+    if (vp = (struct value *)ctx.get(ctx.cl, key)) {
+        struct value res = *vp;
+        free(vp);
+        return res;
     }
     if (hashmap_get(ctx.vars, key, (void**)&vp) == MAP_OK) {
         if (vp->type == TYPE_STRING) {
@@ -405,16 +431,16 @@ static struct value get_var(struct context ctx, const char *key) {
     return error_val;
 }
 static void set_var(struct context ctx, const char *key, struct value val) {
-    if (val.type == TYPE_STRING) {
-        if (ctx.set(ctx.cl, key, str_cstr(&val.string))) {
-            free_value(val);
+    if (val.type == TYPE_STRING || val.type == TYPE_BOOLEAN) {
+        if (ctx.set(ctx.cl, key, (void*)&val)) {
+            value_finish(val);
             return;
         }
     }
     struct value *v;
     if (hashmap_get(ctx.vars, key, (void**)&v) == MAP_OK) {
         hashmap_remove(ctx.vars, key);
-        free_value(*v);
+        value_finish(*v);
         free(v);
     }
     v = malloc_check(sizeof(struct value));
@@ -431,7 +457,7 @@ static struct value fn_let(struct vec *ast, int root, struct context ctx) {
     const char *key = str_cstr(&na->str);
     struct value vb = eval(ast, *(int*)vec_get(&np->args, 1), ctx);
     if (vb.type != TYPE_STRING && vb.type != TYPE_BOOLEAN) {
-        free_value(vb);
+        value_finish(vb);
         return error_val;
     }
     set_var(ctx, key, vb);
@@ -442,7 +468,7 @@ static struct value fn_apply(struct vec *ast, int root, struct context ctx) {
     if (np->args.len != 2) return error_val;
     struct value va = eval(ast, *(int*)vec_get(&np->args, 0), ctx);
     if (va.type != TYPE_LIST) {
-        free_value(va);
+        value_finish(va);
         return error_val;
     }
     int *ib = vec_get(&np->args, 1);
@@ -455,7 +481,7 @@ static struct value fn_apply(struct vec *ast, int root, struct context ctx) {
         r = eval(ast, *ib, ctx);
         vec_append(&res.list, &r);
     }
-    // no free_value(va) since we took all elements out of it...
+    // no value_finish(va) since we took all elements out of it...
     return res;
 }
 static struct value fn_startsw(struct vec *ast, int root, struct context ctx) {
@@ -473,8 +499,8 @@ static struct value fn_startsw(struct vec *ast, int root, struct context ctx) {
                 vb.string.v.len) == 0
         };
     }
-    free_value(va);
-    free_value(vb);
+    value_finish(va);
+    value_finish(vb);
     return res;
 }
 static struct value fn_print(struct vec *ast, int root, struct context ctx) {
@@ -487,7 +513,7 @@ static struct value fn_print(struct vec *ast, int root, struct context ctx) {
             print_value(stdout, vi);
             fprintf(stdout, "\n");
         }
-        free_value(vi);
+        value_finish(vi);
     }
     return (struct value){ .type = TYPE_VOID };
 }
@@ -526,7 +552,7 @@ static struct value eval(struct vec *ast, int root, struct context ctx) {
         res = (struct value){ .type = TYPE_VOID };
         for (int i = 0; i < np->args.len; ++i) {
             int *ni = vec_get(&np->args, i);
-            free_value(res);
+            value_finish(res);
             res = eval(ast, *ni, ctx);
         }
         return res;
@@ -552,7 +578,7 @@ static struct value eval(struct vec *ast, int root, struct context ctx) {
         } else {
             res = error_val;
         }
-        free_value(v);
+        value_finish(v);
         return res;
     }
     case OP_AND:
@@ -572,7 +598,7 @@ static struct value eval(struct vec *ast, int root, struct context ctx) {
         } else {
             res = error_val;
         }
-        free_value(v);
+        value_finish(v);
         return res;
     }
     case OP_EQ:
@@ -600,7 +626,7 @@ static struct value eval(struct vec *ast, int root, struct context ctx) {
                     if (vp->type == TYPE_STRING) {
                         if (strcmp(str_cstr(&va.string),
                                 str_cstr(&vp->string)) == 0) {
-                            free_value(res);
+                            value_finish(res);
                             res = (struct value){ .type = TYPE_BOOLEAN,
                                 .boolean = true };
                             break;
@@ -611,8 +637,8 @@ static struct value eval(struct vec *ast, int root, struct context ctx) {
                 res = error_val;
             }
         }
-        free_value(va);
-        free_value(vb);
+        value_finish(va);
+        value_finish(vb);
         return res;
     }
     }
@@ -739,6 +765,12 @@ uexpr uexpr_parse(FILE *f) {
     impl->root = root;
     return impl;
 }
+static int iter_free_ctx_vars(void *_cl, void *data) {
+    struct value *vp = data;
+    value_finish(*vp);
+    free(vp);
+    return MAP_OK;
+}
 bool uexpr_eval(uexpr e, void *cl, uexpr_get get, uexpr_set set) {
     struct context ctx = {
         .vars = hashmap_new(),
@@ -749,7 +781,9 @@ bool uexpr_eval(uexpr e, void *cl, uexpr_get get, uexpr_set set) {
     uexpr_impl *impl = e;
     struct value val = eval(&impl->ast, impl->root, ctx);
     bool res = val.type == TYPE_BOOLEAN && val.boolean;
-    free_value(val);
+    value_finish(val);
+    hashmap_iterate(ctx.vars, &iter_free_ctx_vars, NULL);
+    hashmap_free(ctx.vars);
     return res;
 }
 void uexpr_print(uexpr e, FILE *f) {
@@ -762,4 +796,48 @@ void uexpr_destroy(uexpr e) {
         ast_node_finish((ast_node*)vec_get(&impl->ast, i));
     }
     vec_free(&impl->ast);
+    free(impl);
+}
+
+const char * uexpr_get_string(uexpr_val val) {
+    struct value *vp = val;
+    if (vp->type == TYPE_STRING) return str_cstr(&vp->string);
+    else return NULL;
+}
+bool uexpr_get_boolean(uexpr_val val, bool *b) {
+    struct value *vp = val;
+    if (vp->type == TYPE_BOOLEAN) {
+        *b = vp->boolean;
+        return true;
+    }
+    return false;
+}
+uexpr_val uexpr_create_string(const char *s) {
+    struct value *vp = malloc_check(sizeof(struct value));
+    vp->type = TYPE_STRING;
+    vp->string = str_new_empty();
+    str_append(&vp->string, s, strlen(s));
+    return (void*)vp;
+}
+uexpr_val uexpr_create_boolean(bool b) {
+    struct value *vp = malloc_check(sizeof(struct value));
+    vp->type = TYPE_BOOLEAN;
+    vp->boolean = b;
+    return (void*)vp;
+}
+uexpr_val uexpr_create_list_string(char **s, int n) {
+    struct value *vp = malloc_check(sizeof(struct value));
+    vp->type = TYPE_LIST;
+    vp->list = vec_new_empty(sizeof(struct value));
+    for (int i = 0; i < n; ++i) {
+        struct value vi = { .type = TYPE_STRING, .string = str_new_empty() };
+        str_append(&vi.string, s[i], strlen(s[i]));
+        vec_append(&vp->list, &vi);
+    }
+    return (void*)vp;
+}
+void uexpr_val_destroy(uexpr_val val) {
+    struct value *vp = val;
+    value_finish(*vp);
+    free(vp);
 }

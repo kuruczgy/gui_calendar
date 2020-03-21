@@ -3,11 +3,11 @@
 
 #include "uexpr.h"
 
-static const char * test_get(void *cl, const char *key) {
-    if (strcmp(key, "test") == 0) return "hello world";
+static uexpr_val test_get(void *cl, const char *key) {
+    if (strcmp(key, "test") == 0) return uexpr_create_string("hello world");
     return NULL;
 }
-static bool test_set(void *cl, const char *key, const char *val) {
+static bool test_set(void *cl, const char *key, uexpr_val val) {
     return false;
 }
 int main() {

@@ -22,7 +22,8 @@ struct active_event {
     struct ts_ran time;
     struct event *ev;
     struct event_tag tag;
-    bool fade;
+    int cal_index;
+    bool fade, hide;
 };
 
 struct todo_tag {
@@ -70,6 +71,7 @@ struct state {
     int mode_select_len;
 
     uexpr expr;
+    uexpr builtin_expr;
 
     bool show_private_events;
 

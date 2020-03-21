@@ -177,6 +177,7 @@ struct create_active_events_cl {
     int max;
     struct ts_ran ran;
     struct calendar *cal;
+    int cal_index;
 };
 static int create_active_events(void *_cl, void *data) {
     struct create_active_events_cl *cl = _cl;
@@ -189,8 +190,12 @@ static int create_active_events(void *_cl, void *data) {
             .time = (struct ts_ran){ (ts)start, (ts)end },
             .ev = ev,
             .tag = (struct event_tag){ .cal = cl->cal },
-            .fade = false
+            .cal_index = cl->cal_index,
+            .fade = false,
+            .hide = false
         };
+        if (state.builtin_expr)
+            cal_uexpr_for_active_event(state.builtin_expr, &aev);
         if (state.expr) {
             if (!cal_uexpr_for_active_event(state.expr, &aev)) {
                 // uexpr returned false. we ignore it for now
@@ -234,6 +239,7 @@ static void iter_all_cals(int (*cb)(void*, void*), void* cl) {
 }
 
 static struct ts_ran * schedule_active_todos() {
+    struct stopwatch sw = sw_start();
     /* count all events */
     struct ts_ran ran = { -1, -1 };
     struct hashmap_counter_cl ccl = { 0, &events_in_range_cnt, &ran };
@@ -249,7 +255,7 @@ static struct ts_ran * schedule_active_todos() {
     free(E);
 
     /* debug */
-    char buf1[32], buf2[32];
+    /* char buf1[32], buf2[32];
     fprintf(stderr, "> todo schedule\n");
     for (int i = 0; i < state.active_todo_n; ++i) {
         struct todo *td = state.active_todos[i];
@@ -259,8 +265,9 @@ static struct ts_ran * schedule_active_todos() {
             simple_date_from_ts(G[i].to, state.zone->impl));
         fprintf(stderr, "- todo[%d] %s - %s\tsum: `%s`\n",
             i, buf1, buf2, td->summary);
-    }
+    }*/
 
+    sw_end_print(sw, "schedule_active_todos");
     return G;
 }
 
@@ -297,6 +304,7 @@ static void update_views() {
     state.active_event_n = 0;
 
     /* create active_event structs */
+    struct stopwatch sw = sw_start();
     struct create_active_events_cl crcl = {
         .max = ccl.cnt,
         .ran = ran
@@ -304,10 +312,12 @@ static void update_views() {
     for (int i = 0; i < state.n_cal; ++i) {
         if (state.cal_info[i].visible) {
             crcl.cal = &state.cal[i];
+            crcl.cal_index = i;
             hashmap_iterate(state.cal[i].event_sets,
                 &create_active_events, &crcl);
         }
     }
+    sw_end_print(sw, "create active_event structs");
 
     /* populate tviews from the active_events list */
     for (int i = 0; i < state.active_event_n; ++i) {
@@ -342,6 +352,7 @@ static void update_views() {
     tview_update_layout(&state.tview);
     tview_update_layout(&state.top_tview);
 
+    return;
     /* debug info */
     struct tview *tv = &state.tview;
     char buf1[32], buf2[32];
@@ -471,6 +482,7 @@ static void update_active_todos() {
 }
 
 static void update_active_objects() {
+    struct stopwatch sw = sw_start();
     /* clear any modes that depend on current event structures */
     if (state.keystate == KEYSTATE_SELECT) state.keystate = KEYSTATE_BASE;
 
@@ -478,6 +490,7 @@ static void update_active_objects() {
 
     /* this depends on update_active_todos */
     update_views();
+    sw_end_print(sw, "update_active_objects");
 }
 
 static void reload_calendars() {
@@ -696,6 +709,7 @@ static char * get_event_recur_set_color(void * p) {
 }
 
 int application_main(struct application_options opts, struct backend *backend) {
+    struct stopwatch sw = sw_start();
     state = (struct state){
         .n_cal = 0,
         .window_width = -1,
@@ -714,6 +728,15 @@ int application_main(struct application_options opts, struct backend *backend) {
         .expr = NULL,
         .sp_expr = false
     };
+
+    const char *builtin_expr = "{"
+        "($st % [ tentative, cancelled ]) & let($fade, a=a);"
+        "let($hide, ($clas = private) & ~$show_priv)"
+        "}";
+    FILE *f = fmemopen((void*)builtin_expr, strlen(builtin_expr), "r");
+    state.builtin_expr = uexpr_parse(f);
+    asrt(state.builtin_expr, "builtin_expr parsing failed");
+    fclose(f);
 
     // TODO: state.view_days = opts.view_days;
 
@@ -789,6 +812,7 @@ int application_main(struct application_options opts, struct backend *backend) {
     state.tr = text_renderer_new("Monospace 8");
 
     state.dirty = true;
+    sw_end_print(sw, "initialization");
     backend->vptr->run(backend);
 
     for (int i = 0; i < state.n_cal; i++) {
@@ -796,6 +820,9 @@ int application_main(struct application_options opts, struct backend *backend) {
     }
     free_timezone(state.zone);
     text_renderer_free(state.tr);
+
+    if (state.builtin_expr) uexpr_destroy(state.builtin_expr);
+    if (state.expr) uexpr_destroy(state.expr);
 
     backend->vptr->destroy(backend);
     return 0;
