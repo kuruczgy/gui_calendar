@@ -517,6 +517,7 @@ static void adjust_base(int n) {
 
 static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
     int n;
+    bool shift = mods & 1;
     char sym = key_get_sym(key);
     switch (state.keystate) {
     case KEYSTATE_SELECT:
@@ -589,6 +590,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
         case '\0':
             if ((n = key_num(key)) >= 0) { /* numeric key */
                 --n; /* key 1->0 .. key 9->8 */
+                if (shift) n += 9;
                 if (n < state.n_cal) {
                     state.cal_info[n].visible = ! state.cal_info[n].visible;
                     update_active_objects();
