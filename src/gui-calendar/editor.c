@@ -323,58 +323,59 @@ static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
     }
 }
 
+static void comp_assign_text(icalcomponent *c, enum icalproperty_kind kind,
+        const char *src, bool rem) {
+    icalproperty *p =
+        icalcomponent_get_first_property(c, kind);
+    if (src) {
+        icalvalue *val = icalvalue_new_text(src);
+        if (!p) {
+            p = icalproperty_new(kind);
+            icalproperty_set_value(p, val);
+            icalcomponent_add_property(c, p);
+        } else {
+            icalproperty_set_value(p, val);
+        }
+    } else if (rem) {
+        icalcomponent_remove_properties(c, kind);
+    }
+}
+static void comp_assign_datetime(icalcomponent *c, enum icalproperty_kind kind,
+        struct date src, bool rem) {
+    icalproperty *p =
+        icalcomponent_get_first_property(c, kind);
+    if (src.timestamp != -1) {
+        icalvalue *val =
+            icalvalue_new_datetime(icaltime_from_timet_with_zone(src.timestamp,
+                        0, icaltimezone_get_utc_timezone()));
+        if (!p) {
+            p = icalproperty_new(kind);
+            icalproperty_set_value(p, val);
+            icalcomponent_add_property(c, p);
+        } else {
+            icalproperty_set_value(p, val);
+        }
+    } else if (rem) {
+        icalcomponent_remove_properties(c, kind);
+    }
+}
 
 static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
     if (es->type == COMP_TYPE_EVENT) {
         // DEP: struct event
-        if (es->ev.summary) {
-            icalcomponent_set_summary(c, es->ev.summary);
-        }
-        if (es->rem_ev.summary) {
-            asrt(false, "don't remove summary property!");
-            icalcomponent_remove_properties(c, ICAL_SUMMARY_PROPERTY);
-        }
 
-        if (es->ev.start.timestamp != -1) {
-            icalcomponent_set_dtstart(c,
-                    icaltime_from_timet_with_zone(es->ev.start.timestamp, 0,
-                        icaltimezone_get_utc_timezone()));
-        }
-        if (es->rem_ev.start.timestamp != -1) {
-            asrt(false, "don't remove start property!");
-            icalcomponent_remove_properties(c, ICAL_DTSTART_PROPERTY);
-        }
-
-        if (es->ev.end.timestamp != -1) {
-            icalcomponent_set_dtend(c,
-                    icaltime_from_timet_with_zone(es->ev.end.timestamp, 0,
-                        icaltimezone_get_utc_timezone()));
-        }
-        if (es->rem_ev.end.timestamp != -1) {
-            asrt(false, "don't remove end property!");
-            icalcomponent_remove_properties(c, ICAL_DTEND_PROPERTY);
-        }
-
-        if (es->ev.color_str) {
-            icalcomponent_set_color(c, es->ev.color_str);
-        }
-        if (es->rem_ev.color_str) {
-            icalcomponent_remove_properties(c, ICAL_COLOR_PROPERTY);
-        }
-
-        if (es->ev.location) {
-            icalcomponent_set_location(c, es->ev.location);
-        }
-        if (es->rem_ev.location) {
-            icalcomponent_remove_properties(c, ICAL_LOCATION_PROPERTY);
-        }
-
-        if (es->ev.desc) {
-            icalcomponent_set_description(c, es->ev.desc);
-        }
-        if (es->rem_ev.desc) {
-            icalcomponent_remove_properties(c, ICAL_DESCRIPTION_PROPERTY);
-        }
+        comp_assign_text(c, ICAL_SUMMARY_PROPERTY,
+                es->ev.summary, es->rem_ev.summary);
+        comp_assign_datetime(c, ICAL_DTSTART_PROPERTY,
+                es->ev.start, false);
+        comp_assign_datetime(c, ICAL_DTEND_PROPERTY,
+                es->ev.end, false);
+        comp_assign_text(c, ICAL_COLOR_PROPERTY,
+                es->ev.color_str, es->rem_ev.color_str);
+        comp_assign_text(c, ICAL_LOCATION_PROPERTY,
+                es->ev.location, es->rem_ev.location);
+        comp_assign_text(c, ICAL_DESCRIPTION_PROPERTY,
+                es->ev.desc, es->rem_ev.desc);
 
         if (es->ev.status != ICAL_STATUS_NONE) {
             icalcomponent_set_status(c, es->ev.status);
@@ -392,38 +393,14 @@ static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
     } else if (es->type == COMP_TYPE_TODO) {
         // DEP: struct todo
 
-        if (es->td.summary) {
-            icalcomponent_set_summary(c, es->td.summary);
-        }
-        if (es->rem_td.summary) {
-            asrt(false, "don't remove summary property!");
-            icalcomponent_remove_properties(c, ICAL_SUMMARY_PROPERTY);
-        }
-
-        if (es->td.desc) {
-            icalcomponent_set_description(c, es->td.desc);
-        }
-        if (es->rem_td.desc) {
-            icalcomponent_remove_properties(c, ICAL_DESCRIPTION_PROPERTY);
-        }
-
-        if (es->td.start.timestamp != -1) {
-            icalcomponent_set_dtstart(c,
-                    icaltime_from_timet_with_zone(es->td.start.timestamp, 0,
-                        icaltimezone_get_utc_timezone()));
-        }
-        if (es->rem_td.start.timestamp != -1) {
-            icalcomponent_remove_properties(c, ICAL_DTSTART_PROPERTY);
-        }
-
-        if (es->td.due.timestamp != -1) {
-            icalcomponent_set_due(c,
-                    icaltime_from_timet_with_zone(es->td.due.timestamp, 0,
-                        icaltimezone_get_utc_timezone()));
-        }
-        if (es->rem_td.due.timestamp != -1) {
-            icalcomponent_remove_properties(c, ICAL_DUE_PROPERTY);
-        }
+        comp_assign_text(c, ICAL_SUMMARY_PROPERTY,
+                es->td.summary, es->rem_td.summary);
+        comp_assign_text(c, ICAL_DESCRIPTION_PROPERTY,
+                es->td.desc, es->rem_td.desc);
+        comp_assign_datetime(c, ICAL_DTSTART_PROPERTY,
+                es->td.start, es->rem_td.start.timestamp != -1);
+        comp_assign_datetime(c, ICAL_DUE_PROPERTY,
+                es->td.due, es->rem_td.due.timestamp != -1);
 
         if (es->td.status != ICAL_STATUS_NONE) {
             icalcomponent_set_status(c, es->td.status);
