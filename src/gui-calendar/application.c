@@ -192,15 +192,24 @@ static int create_active_events(void *_cl, void *data) {
             .tag = (struct event_tag){ .cal = cl->cal },
             .cal_index = cl->cal_index,
             .fade = false,
-            .hide = false
+            .hide = false,
+            .vis = true
         };
-        if (state.builtin_expr)
-            cal_uexpr_for_active_event(state.builtin_expr, &aev);
-        if (state.expr) {
-            if (!cal_uexpr_for_active_event(state.expr, &aev)) {
-                // uexpr returned false. we ignore it for now
-            }
+        if (state.builtin_expr) {
+            uexpr_fn fn = uexpr_ctx_get_fn(state.builtin_expr_ctx, "filter_0");
+            uexpr_eval_fn(state.builtin_expr_ctx, &aev, fn);
         }
+        if (state.current_fn && state.config_expr) {
+            uexpr_fn fn = uexpr_ctx_get_fn(state.config_ctx, state.current_fn);
+            uexpr_eval_fn(state.config_ctx, &aev, fn);
+        }
+        if (state.expr) {
+            uexpr_ctx ctx = uexpr_ctx_create(state.expr, &uexpr_cal_get,
+                    &uexpr_cal_set);
+            uexpr_eval(ctx, &aev);
+            uexpr_ctx_destroy(ctx);
+        }
+        if (!aev.vis) continue;
         if (ts_ran_overlap(cl->ran, (struct ts_ran){ (ts)start, (ts)end })) {
             asrt(state.active_event_n < cl->max, "too many active_events");
             state.active_events[state.active_event_n++] = aev;
@@ -597,6 +606,17 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                     state.dirty = true;
                 }
             }
+            if ((n = key_fn(key)) > 0) {
+                --n;
+                char **k = state.config_fns;
+                for (int i = 0; i < n; ++i) {
+                    if (*k) ++k;
+                    else break;
+                }
+                state.current_fn = *k;
+                update_active_objects();
+                state.dirty = true;
+            }
             break;
         default:
             asrt(key_is_sym(key), "bad key symbol");
@@ -712,6 +732,7 @@ static char * get_event_recur_set_color(void * p) {
 
 int application_main(struct application_options opts, struct backend *backend) {
     struct stopwatch sw = sw_start();
+    char* dummy = NULL;
     state = (struct state){
         .n_cal = 0,
         .window_width = -1,
@@ -728,17 +749,44 @@ int application_main(struct application_options opts, struct backend *backend) {
         .tview_n = 7,
         .tview_type = TVIEW_DAYS,
         .expr = NULL,
-        .sp_expr = false
+        .sp_expr = false,
+        .current_fn = NULL,
+        .config_fns = &dummy
     };
 
+    /* load all uexpr stuff */
     const char *builtin_expr = "{"
-        "($st % [ tentative, cancelled ]) & let($fade, a=a);"
-        "let($hide, ($clas = private) & ~$show_priv)"
+        "def(filter_0, {"
+            "($st % [ tentative, cancelled ]) & let($fade, a=a);"
+            "let($hide, ($clas = private) & ~$show_priv)"
+        "})"
         "}";
     FILE *f = fmemopen((void*)builtin_expr, strlen(builtin_expr), "r");
     state.builtin_expr = uexpr_parse(f);
-    asrt(state.builtin_expr, "builtin_expr parsing failed");
     fclose(f);
+    asrt(state.builtin_expr, "builtin_expr parsing failed");
+    state.builtin_expr_ctx = uexpr_ctx_create(state.builtin_expr,
+            &uexpr_cal_get, &uexpr_cal_set);
+    uexpr_eval(state.builtin_expr_ctx, NULL);
+
+    if (opts.config_file) {
+        f = fopen(opts.config_file, "r");
+        state.config_expr = uexpr_parse(f);
+        fclose(f);
+        if (state.config_expr) {
+            state.config_ctx = uexpr_ctx_create(state.config_expr,
+                    &uexpr_cal_get, &uexpr_cal_set);
+            uexpr_eval(state.config_ctx, NULL);
+            state.config_fns = uexpr_get_all_fns(state.config_ctx);
+            char **k = state.config_fns;
+            while (*k) {
+                fprintf(stderr, "fn: %s\n", *k);
+                k++;
+            }
+        } else {
+            fprintf(stderr, "WARNING: could not parse config script!\n");
+        }
+    }
 
     // TODO: state.view_days = opts.view_days;
 
@@ -823,6 +871,7 @@ int application_main(struct application_options opts, struct backend *backend) {
     free_timezone(state.zone);
     text_renderer_free(state.tr);
 
+    if (state.builtin_expr_ctx) uexpr_ctx_destroy(state.builtin_expr_ctx);
     if (state.builtin_expr) uexpr_destroy(state.builtin_expr);
     if (state.expr) uexpr_destroy(state.expr);
 

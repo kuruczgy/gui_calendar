@@ -8,7 +8,8 @@
 #include "uexpr.h"
 #include "application.h"
 
-static uexpr_val get(void *cl, const char *key) {
+uexpr_val uexpr_cal_get(void *cl, const char *key) {
+    if (!cl) return NULL;
     static char buf[128];
     struct active_event *aev = cl;
     if (strcmp(key, "sum") == 0)
@@ -23,6 +24,9 @@ static uexpr_val get(void *cl, const char *key) {
         return uexpr_create_string(cal_status_str(aev->ev->status));
     if (strcmp(key, "clas") == 0)
         return uexpr_create_string(cal_class_str(aev->ev->clas));
+    if (strcmp(key, "cats") == 0) {
+        return uexpr_create_list_string(aev->ev->cats.list, aev->ev->cats.n);
+    }
 
     if (strcmp(key, "cal") == 0) {
         snprintf(buf, sizeof(buf), "%d", aev->cal_index + 1);
@@ -49,15 +53,13 @@ static uexpr_val get(void *cl, const char *key) {
 
     return NULL;
 }
-static bool set(void *cl, const char *key, uexpr_val val) {
+bool uexpr_cal_set(void *cl, const char *key, uexpr_val val) {
+    if (!cl) return false;
     struct active_event *aev = cl;
     bool b;
     if (strcmp(key, "fade") == 0 && uexpr_get_boolean(val, &b)) aev->fade = b;
     if (strcmp(key, "hide") == 0 && uexpr_get_boolean(val, &b)) aev->hide = b;
+    if (strcmp(key, "vis") == 0 && uexpr_get_boolean(val, &b)) aev->vis = b;
     else return false;
     return true;
-}
-
-bool cal_uexpr_for_active_event(uexpr e, struct active_event *aev) {
-    return uexpr_eval(e, aev, &get, &set);
 }

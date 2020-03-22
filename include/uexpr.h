@@ -6,6 +6,8 @@
 
 typedef void *uexpr;
 typedef void *uexpr_val;
+typedef void *uexpr_fn;
+typedef void *uexpr_ctx;
 
 /* ownership IS transfered */
 typedef uexpr_val (*uexpr_get)(void *cl, const char *key);
@@ -14,9 +16,15 @@ typedef uexpr_val (*uexpr_get)(void *cl, const char *key);
 typedef bool(*uexpr_set)(void *cl, const char *key, uexpr_val val);
 
 uexpr uexpr_parse(FILE *f);
-bool uexpr_eval(uexpr e, void *cl, uexpr_get get, uexpr_set set);
 void uexpr_print(uexpr e, FILE *f);
 void uexpr_destroy(uexpr e);
+
+uexpr_ctx uexpr_ctx_create(uexpr e, uexpr_get get, uexpr_set set);
+void uexpr_ctx_destroy(uexpr_ctx ctx);
+uexpr_fn uexpr_ctx_get_fn(uexpr_ctx ctx, const char *name);
+char ** uexpr_get_all_fns(uexpr_ctx ctx);
+bool uexpr_eval(uexpr_ctx ctx, void *cl);
+bool uexpr_eval_fn(uexpr_ctx ctx, void *cl, uexpr_fn fn);
 
 const char * uexpr_get_string(uexpr_val val);
 bool uexpr_get_boolean(uexpr_val val, bool *b);

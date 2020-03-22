@@ -70,6 +70,11 @@ int key_num(uint32_t code) {
     return code - KEY_1 + 1;
 }
 
+int key_fn(uint32_t code) {
+    if (code < KEY_F1 || code > KEY_F10) return -1;
+    return code - KEY_F1 + 1;
+}
+
 static int num_k_perm(int n, int k) {
     int res = 1;
     for (int i = n; i > n-k; --i) res *= i;

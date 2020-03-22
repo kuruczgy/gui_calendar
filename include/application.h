@@ -23,7 +23,7 @@ struct active_event {
     struct event *ev;
     struct event_tag tag;
     int cal_index;
-    bool fade, hide;
+    bool fade, hide, vis;
 };
 
 struct todo_tag {
@@ -72,6 +72,12 @@ struct state {
 
     uexpr expr;
     uexpr builtin_expr;
+    uexpr_ctx builtin_expr_ctx;
+
+    uexpr config_expr;
+    uexpr_ctx config_ctx;
+    char **config_fns;
+    const char *current_fn;
 
     bool show_private_events;
 
@@ -97,6 +103,7 @@ struct application_options {
     int view_days;
     char *editor;
     char *terminal;
+    char *config_file;
     int argc;
     char **argv;
 };
@@ -104,7 +111,11 @@ struct application_options {
 extern struct state state;
 
 void update_actual_fit();
-bool cal_uexpr_for_active_event(uexpr e, struct active_event *aev);
+
+/* cl is expected to be a struct active_event * */
+uexpr_val uexpr_cal_get(void *cl, const char *key);
+bool uexpr_cal_set(void *cl, const char *key, uexpr_val val);
+
 int application_main(struct application_options opts, struct backend *backend);
 
 #endif

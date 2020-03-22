@@ -161,4 +161,3 @@ const char * most_frequent(map_t source, char *(*cb)(void*)) {
     }
     return cl.key[maxi];
 }
-

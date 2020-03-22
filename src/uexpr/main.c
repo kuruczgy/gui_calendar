@@ -10,8 +10,13 @@ static uexpr_val test_get(void *cl, const char *key) {
 static bool test_set(void *cl, const char *key, uexpr_val val) {
     return false;
 }
-int main() {
+int main(int argc, char **argv) {
     uexpr e = uexpr_parse(stdin);
-    if (uexpr_eval(e, NULL, &test_get, &test_set)) return 0;
-    else return 1;
+    uexpr_ctx ctx = uexpr_ctx_create(e, &test_get, &test_set);
+    bool res = uexpr_eval(ctx, NULL);
+    if (argc > 1) {
+        uexpr_fn fn = uexpr_ctx_get_fn(ctx, argv[1]);
+        res = uexpr_eval_fn(ctx, NULL, fn);
+    }
+    return res ? 0 : 1;
 }

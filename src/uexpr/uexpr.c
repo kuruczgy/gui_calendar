@@ -61,12 +61,6 @@ Has the only value Void.
   set to that of the evaluated second operand. Only strings and booleans can be
   stored.
 
-## Function "if", 2 or 3 arguments.
-- The first arguments type must me boolean. It its evaluated value is True, the
-  second argument will be evaluated, and returned. Otherwise, the third argument
-  is evaluated, and its value returned. If there is no second argument, Void
-  will be returned.
-
 ## Function "apply", 2 arguments.
 - The first argument is a list. Evaluates the second expression for each
   element (with setting the variable $i to the current element), and returns the
@@ -79,6 +73,10 @@ Has the only value Void.
 ## Function "startsw", 2 arguments.
 - Tests whether the first argument starts with the second. (Both must be type
   string.)
+
+## Function "def", 2 arguments.
+- Defines a new function. (First argument is the string name, second is the
+  expression body.)
 */
 
 #include <stdlib.h>
@@ -359,11 +357,19 @@ struct value {
     };
 };
 static const struct value error_val = { .type = TYPE_ERROR };
+static const struct value void_val = { .type = TYPE_VOID };
+struct uexpr_impl {
+    struct vec ast;
+    int root;
+};
 struct context {
     map_t vars;
+    map_t defs_map;
+    struct vec defs_list;
     void *cl;
     uexpr_get get;
     uexpr_set set;
+    struct uexpr_impl *uexpr;
 };
 static void value_finish(struct value v) {
     switch (v.type) {
@@ -410,15 +416,15 @@ static struct value value_copy(struct value v) {
 static void print_value(FILE *f, struct value v);
 
 /* # Evaluation */
-static struct value eval(struct vec *ast, int root, struct context ctx);
-static struct value get_var(struct context ctx, const char *key) {
+static struct value eval(struct vec *ast, int root, struct context *ctx);
+static struct value get_var(struct context *ctx, const char *key) {
     struct value *vp;
-    if (vp = (struct value *)ctx.get(ctx.cl, key)) {
+    if (vp = (struct value *)ctx->get(ctx->cl, key)) {
         struct value res = *vp;
         free(vp);
         return res;
     }
-    if (hashmap_get(ctx.vars, key, (void**)&vp) == MAP_OK) {
+    if (hashmap_get(ctx->vars, key, (void**)&vp) == MAP_OK) {
         if (vp->type == TYPE_STRING) {
             return (struct value){
                 .type = TYPE_STRING,
@@ -430,26 +436,26 @@ static struct value get_var(struct context ctx, const char *key) {
     }
     return error_val;
 }
-static void set_var(struct context ctx, const char *key, struct value val) {
+static void set_var(struct context *ctx, const char *key, struct value val) {
     if (val.type == TYPE_STRING || val.type == TYPE_BOOLEAN) {
-        if (ctx.set(ctx.cl, key, (void*)&val)) {
+        if (ctx->set(ctx->cl, key, (void*)&val)) {
             value_finish(val);
             return;
         }
     }
     struct value *v;
-    if (hashmap_get(ctx.vars, key, (void**)&v) == MAP_OK) {
-        hashmap_remove(ctx.vars, key);
+    if (hashmap_get(ctx->vars, key, (void**)&v) == MAP_OK) {
+        hashmap_remove(ctx->vars, key);
         value_finish(*v);
         free(v);
     }
     v = malloc_check(sizeof(struct value));
     *v = val;
-    hashmap_put(ctx.vars, (char*)key, v); // TODO: const cast
+    hashmap_put(ctx->vars, (char*)key, v); // TODO: const cast
 }
 
 /* ## Builtin functions */
-static struct value fn_let(struct vec *ast, int root, struct context ctx) {
+static struct value fn_let(struct vec *ast, int root, struct context *ctx) {
     ast_node *np = vec_get(ast, root);
     if (np->args.len != 2) return error_val;
     ast_node *na = vec_get(ast, *(int*)vec_get(&np->args, 0));
@@ -461,9 +467,9 @@ static struct value fn_let(struct vec *ast, int root, struct context ctx) {
         return error_val;
     }
     set_var(ctx, key, vb);
-    return (struct value){ .type = TYPE_VOID };
+    return void_val;
 }
-static struct value fn_apply(struct vec *ast, int root, struct context ctx) {
+static struct value fn_apply(struct vec *ast, int root, struct context *ctx) {
     ast_node *np = vec_get(ast, root);
     if (np->args.len != 2) return error_val;
     struct value va = eval(ast, *(int*)vec_get(&np->args, 0), ctx);
@@ -484,7 +490,7 @@ static struct value fn_apply(struct vec *ast, int root, struct context ctx) {
     // no value_finish(va) since we took all elements out of it...
     return res;
 }
-static struct value fn_startsw(struct vec *ast, int root, struct context ctx) {
+static struct value fn_startsw(struct vec *ast, int root, struct context *ctx) {
     ast_node *np = vec_get(ast, root);
     if (np->args.len != 2) return error_val;
     struct value va = eval(ast, *(int*)vec_get(&np->args, 0), ctx);
@@ -503,7 +509,7 @@ static struct value fn_startsw(struct vec *ast, int root, struct context ctx) {
     value_finish(vb);
     return res;
 }
-static struct value fn_print(struct vec *ast, int root, struct context ctx) {
+static struct value fn_print(struct vec *ast, int root, struct context *ctx) {
     ast_node *np = vec_get(ast, root);
     for (int i = 0; i < np->args.len; ++i) {
         struct value vi = eval(ast, *(int*)vec_get(&np->args, i), ctx);
@@ -515,11 +521,22 @@ static struct value fn_print(struct vec *ast, int root, struct context ctx) {
         }
         value_finish(vi);
     }
-    return (struct value){ .type = TYPE_VOID };
+    return void_val;
+}
+static struct value fn_def(struct vec *ast, int root, struct context *ctx) {
+    ast_node *np = vec_get(ast, root);
+    if (np->args.len != 2) return error_val;
+    ast_node *na = vec_get(ast, *(int*)vec_get(&np->args, 0));
+    if (na->op != OP_LIT) return error_val;
+    const char *name = str_cstr(&na->str);
+    int *i = vec_get(&np->args, 1);
+    hashmap_put(ctx->defs_map, (char*)name, (void*)i); // TODO: const cast
+    vec_append(&ctx->defs_list, &name);
+    return void_val;
 }
 struct fn {
     const char *name;
-    struct value (*f)(struct vec *ast, int root, struct context ctx);
+    struct value (*f)(struct vec *ast, int root, struct context *ctx);
 };
 static struct fn fns[] = {
     { "let", &fn_let },
@@ -527,11 +544,12 @@ static struct fn fns[] = {
     { "apply", &fn_apply },
     { "print", &fn_print },
     { "startsw", &fn_startsw },
+    { "def", &fn_def },
     { NULL, NULL }
 };
 
 /* ## Evaluation logic */
-static struct value eval(struct vec *ast, int root, struct context ctx) {
+static struct value eval(struct vec *ast, int root, struct context *ctx) {
     struct value res, *vp;
     ast_node *np = vec_get(ast, root);
     switch (np->op) {
@@ -549,7 +567,7 @@ static struct value eval(struct vec *ast, int root, struct context ctx) {
         }
         return res;
     case OP_BLOCK:
-        res = (struct value){ .type = TYPE_VOID };
+        res = void_val;
         for (int i = 0; i < np->args.len; ++i) {
             int *ni = vec_get(&np->args, i);
             value_finish(res);
@@ -749,10 +767,6 @@ static void print_value(FILE *f, struct value v) {
 }
 
 /* # Public interface */
-typedef struct {
-    struct vec ast;
-    int root;
-} uexpr_impl;
 uexpr uexpr_parse(FILE *f) {
     struct parser_state ps = new_parser(f);
     int root = term(&ps);
@@ -760,7 +774,7 @@ uexpr uexpr_parse(FILE *f) {
         // TODO: free ast
         return NULL;
     }
-    uexpr_impl *impl = malloc_check(sizeof(uexpr_impl));
+    struct uexpr_impl *impl = malloc_check(sizeof(struct uexpr_impl));
     impl->ast = ps.ast;
     impl->root = root;
     return impl;
@@ -771,27 +785,62 @@ static int iter_free_ctx_vars(void *_cl, void *data) {
     free(vp);
     return MAP_OK;
 }
-bool uexpr_eval(uexpr e, void *cl, uexpr_get get, uexpr_set set) {
-    struct context ctx = {
+
+uexpr_ctx uexpr_ctx_create(uexpr e, uexpr_get get, uexpr_set set) {
+    struct context *ctx = malloc_check(sizeof(struct context));
+    *ctx = (struct context){
         .vars = hashmap_new(),
-        .cl = cl,
+        .defs_map = hashmap_new(),
+        .defs_list = vec_new_empty(sizeof(char*)),
         .get = get,
-        .set = set
+        .set = set,
+        .uexpr = (struct uexpr_impl*)e
     };
-    uexpr_impl *impl = e;
-    struct value val = eval(&impl->ast, impl->root, ctx);
-    bool res = val.type == TYPE_BOOLEAN && val.boolean;
-    value_finish(val);
-    hashmap_iterate(ctx.vars, &iter_free_ctx_vars, NULL);
-    hashmap_free(ctx.vars);
+    return (void*)ctx;
+}
+void uexpr_ctx_destroy(uexpr_ctx _ctx) {
+    struct context *ctx = _ctx;
+    hashmap_iterate(ctx->vars, &iter_free_ctx_vars, NULL);
+    hashmap_free(ctx->vars);
+    hashmap_free(ctx->defs_map);
+    vec_free(&ctx->defs_list);
+}
+uexpr_fn uexpr_ctx_get_fn(uexpr_ctx _ctx, const char *name) {
+    struct context *ctx = _ctx;
+    int *i;
+    if (hashmap_get(ctx->defs_map, name, (void**)&i) != MAP_OK) return NULL;
+    return i;
+}
+char ** uexpr_get_all_fns(uexpr_ctx _ctx) {
+    struct context *ctx = _ctx;
+    char ** res = malloc_check(sizeof(char*) * (ctx->defs_list.len + 1));
+    for (int i = 0; i < ctx->defs_list.len; ++i) {
+        res[i] = *(char**)vec_get(&ctx->defs_list, i);
+    }
+    res[ctx->defs_list.len] = NULL;
     return res;
 }
+bool uexpr_eval_fn(uexpr_ctx _ctx, void *cl, uexpr_fn fn) {
+    asrt(fn, "bad fn");
+    struct context *ctx = _ctx;
+    ctx->cl = cl;
+    int i = *(int*)fn;
+    struct value val = eval(&ctx->uexpr->ast, i, ctx);
+    bool res = val.type == TYPE_BOOLEAN && val.boolean;
+    value_finish(val);
+    return res;
+}
+bool uexpr_eval(uexpr_ctx _ctx, void *cl) {
+    struct context *ctx = _ctx;
+    return uexpr_eval_fn(_ctx, cl, &ctx->uexpr->root);
+}
+
 void uexpr_print(uexpr e, FILE *f) {
-    uexpr_impl *impl = e;
+    struct uexpr_impl *impl = e;
     dump_ast(f, impl->ast, impl->root);
 }
 void uexpr_destroy(uexpr e) {
-    uexpr_impl *impl = e;
+    struct uexpr_impl *impl = e;
     for (int i = 0; i < impl->ast.len; ++i) {
         ast_node_finish((ast_node*)vec_get(&impl->ast, i));
     }

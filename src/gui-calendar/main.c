@@ -17,7 +17,8 @@ int main(int argc, char **argv) {
         .default_vis = 0,
         .view_days = 7,
         .editor = NULL,
-        .terminal = NULL
+        .terminal = NULL,
+        .config_file = NULL
     };
     enum backend_type bt = BACKEND_NONE;
     int width = 100, height = 100;
@@ -35,9 +36,10 @@ int main(int argc, char **argv) {
         "-t T: set terminal command to T\n"
         "-b B: set backend to B; values: svg, image, dummy, fbdev, wayland\n"
         "-s WxH: set output size width to W, and height to H\n"
-        "-o F: set output filename to F\n";
+        "-o F: set output filename to F\n"
+        "-c C: provide the path to the config script\n";
     int opt, d;
-    while ((opt = getopt(argc, argv, "hpd:v:e:t:b:s:o:")) != -1) {
+    while ((opt = getopt(argc, argv, "hpd:v:e:t:b:s:o:c:")) != -1) {
         switch (opt) {
         case 'h':
             fprintf(stdout, help);
@@ -74,6 +76,9 @@ int main(int argc, char **argv) {
             break;
         case 'o':
             output = str_dup(optarg);
+            break;
+        case 'c':
+            opts.config_file = str_dup(optarg);
             break;
         }
     }

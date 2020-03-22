@@ -434,6 +434,30 @@ static void render_sidebar(cairo_t *cr, box b) {
         cairo_stroke(cr);
     }
 
+    char **k = state.config_fns;
+    while (*k) {
+        state.tr->p.width = b.w; state.tr->p.height = -1;
+        text_get_size(cr, state.tr, *k);
+        int height = state.tr->p.height;
+
+        if (state.current_fn == *k) {
+            cairo_set_source_argb(cr, 0xFF00FF00);
+            cairo_rectangle(cr, 0, h, b.w, height + pad);
+            cairo_fill(cr);
+        }
+
+        cairo_set_source_argb(cr, 0xFF000000);
+        cairo_move_to(cr, 0, h + pad / 2);
+        state.tr->p.width = b.w; state.tr->p.height = height;
+        text_print_own(cr, state.tr, *k);
+
+        h += height + pad;
+        cairo_move_to(cr, 0, h);
+        cairo_line_to(cr, b.w, h);
+        cairo_stroke(cr);
+        k++;
+    }
+
     if (state.interactive) {
         cairo_set_source_argb(cr, 0xFF000000);
         cairo_move_to(cr, 0, h += 5);
