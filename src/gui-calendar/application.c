@@ -15,6 +15,42 @@
 
 struct state state = { 0 };
 
+/* provides a partial ordering over todos */
+static int todo_priority_cmp(
+        const struct todo *a,
+        const struct todo *b,
+        bool consider_started
+    ) {
+    /* -1: a first, 1: b first, 0: equal */
+    bool a_started = a->start.timestamp == -1
+        || a->start.timestamp <= state.now;
+    bool b_started = b->start.timestamp == -1
+        || b->start.timestamp <= state.now;
+
+    bool a_inprocess = a->status == ICAL_STATUS_INPROCESS;
+    bool b_inprocess = b->status == ICAL_STATUS_INPROCESS;
+
+    const int sh = 60 * 10; // 10m
+    bool a_short = a->estimated_duration != -1 && a->estimated_duration <= sh;
+    bool b_short = b->estimated_duration != -1 && b->estimated_duration <= sh;
+
+    if (a_inprocess != b_inprocess) {
+        if (a_inprocess) return -1;
+        else return 1;
+    } else if (consider_started && a_started != b_started) {
+        if (a_started) return -1;
+        else return 1;
+    } else if (a_short != b_short) {
+        if (a_short) return -1;
+        else return 1;
+    } else if (a->due.timestamp > 0 || b->due.timestamp > 0) {
+        if (a->due.timestamp < 0) return 1;
+        else if (b->due.timestamp < 0) return -1;
+        return a->due.timestamp - b->due.timestamp;
+    }
+    return 0;
+}
+
 static void switch_mode_select() {
     struct key_gen g;
 
@@ -197,16 +233,21 @@ static int create_active_events(void *_cl, void *data) {
         };
         if (state.builtin_expr) {
             uexpr_fn fn = uexpr_ctx_get_fn(state.builtin_expr_ctx, "filter_0");
-            uexpr_eval_fn(state.builtin_expr_ctx, &aev, fn);
+            uexpr_ctx_set_handlers(state.builtin_expr_ctx, &uexpr_cal_aev_get,
+                    &uexpr_cal_aev_set, &aev);
+            uexpr_eval_fn(state.builtin_expr_ctx, fn);
         }
         if (state.current_fn && state.config_expr) {
             uexpr_fn fn = uexpr_ctx_get_fn(state.config_ctx, state.current_fn);
-            uexpr_eval_fn(state.config_ctx, &aev, fn);
+            uexpr_ctx_set_handlers(state.config_ctx, &uexpr_cal_aev_get,
+                    &uexpr_cal_aev_set, &aev);
+            uexpr_eval_fn(state.config_ctx, fn);
         }
         if (state.expr) {
-            uexpr_ctx ctx = uexpr_ctx_create(state.expr, &uexpr_cal_get,
-                    &uexpr_cal_set);
-            uexpr_eval(ctx, &aev);
+            uexpr_ctx ctx = uexpr_ctx_create(state.expr);
+            uexpr_ctx_set_handlers(ctx, &uexpr_cal_aev_get,
+                    &uexpr_cal_aev_set, &aev);
+            uexpr_eval(ctx);
             uexpr_ctx_destroy(ctx);
         }
         if (!aev.vis) continue;
@@ -397,42 +438,19 @@ static void update_views() {
     }
 }
 
-/* provides a partial ordering over todos */
-static int todo_priority_cmp(const struct todo *a, const struct todo *b) {
-    /* -1: a first, 1: b first, 0: equal */
-    // bool a_started = a->start.timestamp == -1
-    //     || a->start.timestamp <= state.now;
-    // bool b_started = b->start.timestamp == -1
-    //     || b->start.timestamp <= state.now;
-
-    bool a_inprocess = a->status == ICAL_STATUS_INPROCESS;
-    bool b_inprocess = b->status == ICAL_STATUS_INPROCESS;
-
-    const int sh = 60 * 10; // 10m
-    bool a_short = a->estimated_duration != -1 && a->estimated_duration <= sh;
-    bool b_short = b->estimated_duration != -1 && b->estimated_duration <= sh;
-
-    if (a_inprocess != b_inprocess) {
-        if (a_inprocess) return -1;
-        else return 1;
-    } else if (a_short != b_short) {
-        if (a_short) return -1;
-        else return 1;
-    } else if (a->due.timestamp > 0 || b->due.timestamp > 0) {
-        if (a->due.timestamp < 0) return 1;
-        else if (b->due.timestamp < 0) return -1;
-        return a->due.timestamp - b->due.timestamp;
-    }
-    return 0;
+static int todo_tag_cmp_hack(const void *pa, const void *pb) {
+    const struct todo_tag *a = pa, *b = pb;
+    return todo_priority_cmp(a->td, b->td, false);
 }
 static int todo_tag_cmp(const void *pa, const void *pb) {
     const struct todo_tag *a = pa, *b = pb;
-    return todo_priority_cmp(a->td, b->td);
+    return todo_priority_cmp(a->td, b->td, true);
 }
 
 struct todo_filterer {
     int n;
     struct calendar *cal;
+    int cal_index;
 };
 static int count_active_todos(void *f_p, void *t_p) {
     struct todo *td = t_p;
@@ -444,7 +462,9 @@ static int count_active_todos(void *f_p, void *t_p) {
             state.active_todos[f->n] = td;
             state.active_todos_tag[f->n] = (struct todo_tag) {
                 .td = td,
-                .cal = f->cal
+                .cal = f->cal,
+                .cal_index = f->cal_index,
+                .fade = false, .vis = true
             };
         }
         f->n++;
@@ -480,14 +500,25 @@ static void update_active_todos() {
     for (int i = 0; i < state.n_cal; ++i) {
         if (state.cal_info[i].visible) {
             f.cal = &state.cal[i];
+            f.cal_index = i;
             hashmap_iterate(state.cal[i].todos, count_active_todos, &f);
         }
     }
     asrt(n == f.n, "todo count mismatch");
     qsort(state.active_todos_tag, state.active_todo_n,
-            sizeof(struct todo_tag), &todo_tag_cmp);
+            sizeof(struct todo_tag), &todo_tag_cmp_hack);
     for (int i = 0; i < state.active_todo_n; ++i)
         state.active_todos[i] = state.active_todos_tag[i].td;
+
+    /* run config expr */
+    for (int i = 0; i < state.active_todo_n; ++i) {
+        if (state.current_fn && state.config_expr) {
+            uexpr_fn fn = uexpr_ctx_get_fn(state.config_ctx, state.current_fn);
+            uexpr_ctx_set_handlers(state.config_ctx, &uexpr_cal_todo_get,
+                    &uexpr_cal_todo_set, &state.active_todos_tag[i]);
+            uexpr_eval_fn(state.config_ctx, fn);
+        }
+    }
 }
 
 static void update_active_objects() {
@@ -499,6 +530,13 @@ static void update_active_objects() {
 
     /* this depends on update_active_todos */
     update_views();
+
+    /* hack */
+    qsort(state.active_todos_tag, state.active_todo_n,
+            sizeof(struct todo_tag), &todo_tag_cmp);
+    for (int i = 0; i < state.active_todo_n; ++i)
+        state.active_todos[i] = state.active_todos_tag[i].td;
+
     sw_end_print(sw, "update_active_objects");
 }
 
@@ -765,18 +803,16 @@ int application_main(struct application_options opts, struct backend *backend) {
     state.builtin_expr = uexpr_parse(f);
     fclose(f);
     asrt(state.builtin_expr, "builtin_expr parsing failed");
-    state.builtin_expr_ctx = uexpr_ctx_create(state.builtin_expr,
-            &uexpr_cal_get, &uexpr_cal_set);
-    uexpr_eval(state.builtin_expr_ctx, NULL);
+    state.builtin_expr_ctx = uexpr_ctx_create(state.builtin_expr);
+    uexpr_eval(state.builtin_expr_ctx);
 
     if (opts.config_file) {
         f = fopen(opts.config_file, "r");
         state.config_expr = uexpr_parse(f);
         fclose(f);
         if (state.config_expr) {
-            state.config_ctx = uexpr_ctx_create(state.config_expr,
-                    &uexpr_cal_get, &uexpr_cal_set);
-            uexpr_eval(state.config_ctx, NULL);
+            state.config_ctx = uexpr_ctx_create(state.config_expr);
+            uexpr_eval(state.config_ctx);
             state.config_fns = uexpr_get_all_fns(state.config_ctx);
             char **k = state.config_fns;
             while (*k) {

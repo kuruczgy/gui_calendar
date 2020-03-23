@@ -19,12 +19,14 @@ uexpr uexpr_parse(FILE *f);
 void uexpr_print(uexpr e, FILE *f);
 void uexpr_destroy(uexpr e);
 
-uexpr_ctx uexpr_ctx_create(uexpr e, uexpr_get get, uexpr_set set);
+uexpr_ctx uexpr_ctx_create(uexpr e);
+void uexpr_ctx_set_handlers(uexpr_ctx ctx, uexpr_get get, uexpr_set set,
+        void *cl);
 void uexpr_ctx_destroy(uexpr_ctx ctx);
 uexpr_fn uexpr_ctx_get_fn(uexpr_ctx ctx, const char *name);
 char ** uexpr_get_all_fns(uexpr_ctx ctx);
-bool uexpr_eval(uexpr_ctx ctx, void *cl);
-bool uexpr_eval_fn(uexpr_ctx ctx, void *cl, uexpr_fn fn);
+bool uexpr_eval(uexpr_ctx ctx);
+bool uexpr_eval_fn(uexpr_ctx ctx, uexpr_fn fn);
 
 const char * uexpr_get_string(uexpr_val val);
 bool uexpr_get_boolean(uexpr_val val, bool *b);

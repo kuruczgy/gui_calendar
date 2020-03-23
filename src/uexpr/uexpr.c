@@ -419,7 +419,7 @@ static void print_value(FILE *f, struct value v);
 static struct value eval(struct vec *ast, int root, struct context *ctx);
 static struct value get_var(struct context *ctx, const char *key) {
     struct value *vp;
-    if (vp = (struct value *)ctx->get(ctx->cl, key)) {
+    if (ctx->get && (vp = (struct value *)ctx->get(ctx->cl, key))) {
         struct value res = *vp;
         free(vp);
         return res;
@@ -438,7 +438,7 @@ static struct value get_var(struct context *ctx, const char *key) {
 }
 static void set_var(struct context *ctx, const char *key, struct value val) {
     if (val.type == TYPE_STRING || val.type == TYPE_BOOLEAN) {
-        if (ctx->set(ctx->cl, key, (void*)&val)) {
+        if (ctx->set && ctx->set(ctx->cl, key, (void*)&val)) {
             value_finish(val);
             return;
         }
@@ -786,17 +786,24 @@ static int iter_free_ctx_vars(void *_cl, void *data) {
     return MAP_OK;
 }
 
-uexpr_ctx uexpr_ctx_create(uexpr e, uexpr_get get, uexpr_set set) {
+uexpr_ctx uexpr_ctx_create(uexpr e) {
     struct context *ctx = malloc_check(sizeof(struct context));
     *ctx = (struct context){
         .vars = hashmap_new(),
         .defs_map = hashmap_new(),
         .defs_list = vec_new_empty(sizeof(char*)),
-        .get = get,
-        .set = set,
+        .get = NULL,
+        .set = NULL,
         .uexpr = (struct uexpr_impl*)e
     };
     return (void*)ctx;
+}
+void uexpr_ctx_set_handlers(uexpr_ctx _ctx, uexpr_get get, uexpr_set set,
+        void *cl) {
+    struct context *ctx = _ctx;
+    ctx->get = get;
+    ctx->set = set;
+    ctx->cl = cl;
 }
 void uexpr_ctx_destroy(uexpr_ctx _ctx) {
     struct context *ctx = _ctx;
@@ -820,19 +827,18 @@ char ** uexpr_get_all_fns(uexpr_ctx _ctx) {
     res[ctx->defs_list.len] = NULL;
     return res;
 }
-bool uexpr_eval_fn(uexpr_ctx _ctx, void *cl, uexpr_fn fn) {
+bool uexpr_eval_fn(uexpr_ctx _ctx, uexpr_fn fn) {
     asrt(fn, "bad fn");
     struct context *ctx = _ctx;
-    ctx->cl = cl;
     int i = *(int*)fn;
     struct value val = eval(&ctx->uexpr->ast, i, ctx);
     bool res = val.type == TYPE_BOOLEAN && val.boolean;
     value_finish(val);
     return res;
 }
-bool uexpr_eval(uexpr_ctx _ctx, void *cl) {
+bool uexpr_eval(uexpr_ctx _ctx) {
     struct context *ctx = _ctx;
-    return uexpr_eval_fn(_ctx, cl, &ctx->uexpr->root);
+    return uexpr_eval_fn(_ctx, &ctx->uexpr->root);
 }
 
 void uexpr_print(uexpr e, FILE *f) {

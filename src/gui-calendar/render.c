@@ -496,6 +496,12 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
     double perc = td->percent_complete / 100.0;
     int hpad = 5;
 
+    /* skip invisible (TODO: this should not be here...) */
+    if (!tag->vis) {
+        cairo_translate(cr, -b.x, -b.y);
+        return 0;
+    }
+
     int w = b.w - 80;
     int n = 1;
     if (td->desc) n += 1;

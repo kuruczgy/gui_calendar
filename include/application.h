@@ -30,6 +30,8 @@ struct todo_tag {
     struct todo *td;
     struct calendar *cal;
     char code[33];
+    int cal_index;
+    bool fade, vis;
 };
 
 typedef struct {
@@ -112,9 +114,12 @@ extern struct state state;
 
 void update_actual_fit();
 
-/* cl is expected to be a struct active_event * */
-uexpr_val uexpr_cal_get(void *cl, const char *key);
-bool uexpr_cal_set(void *cl, const char *key, uexpr_val val);
+uexpr_val uexpr_cal_aev_get(void *cl, const char *key);
+bool uexpr_cal_aev_set(void *cl, const char *key, uexpr_val val);
+
+/* expects struct todo_tag * */
+uexpr_val uexpr_cal_todo_get(void *cl, const char *key);
+bool uexpr_cal_todo_set(void *cl, const char *key, uexpr_val val);
 
 int application_main(struct application_options opts, struct backend *backend);
 
