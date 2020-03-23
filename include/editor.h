@@ -66,4 +66,7 @@ int parse_edit_template(FILE *f, struct edit_spec *es, icaltimezone *zone);
 
 int apply_edit_spec_to_calendar(struct edit_spec *es, struct calendar *cal);
 
+/* other utils */
+struct simple_date parse_date(const char *str);
+
 #endif

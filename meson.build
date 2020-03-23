@@ -137,6 +137,14 @@ executable(
   ]
 )
 
+executable(
+  'gen',
+  'src/utils/gen.c',
+  include_directories: incdir,
+  dependencies: dep_gui_calendar,
+  link_with: lib_gui_calendar
+)
+
 test_main = executable(
   'test-editor',
   'src/tests/test_main.c',

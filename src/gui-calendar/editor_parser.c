@@ -421,6 +421,15 @@ int parse_edit_template(FILE *f, struct edit_spec *es, icaltimezone *zone) {
     return 0;
 }
 
+struct simple_date parse_date(const char *str) {
+    FILE *f = fmemopen((void*)str, strlen(str), "r");
+    struct parser_state s = { f };
+    struct simple_date res = make_simple_date(-1, -1, -1, -1, -1, -1);
+    dt(&s, &res);
+    fclose(f);
+    return res;
+}
+
 /* tests */
 
 static void test_dt(char *in, int out[5]) {
