@@ -351,7 +351,7 @@ enum type {
 struct value {
     enum type type;
     union {
-        struct str string;
+        const char *string_ref;
         bool boolean;
         struct vec list;
     };
@@ -374,7 +374,6 @@ struct context {
 static void value_finish(struct value v) {
     switch (v.type) {
     case TYPE_STRING:
-        str_free(&v.string);
         break;
     case TYPE_LIST:
         for (int i = 0; i < v.list.len; ++i) {
@@ -389,29 +388,29 @@ static void value_finish(struct value v) {
         break;
     }
 }
-static struct value value_copy(struct value v) {
+static struct value value_copy(struct value *v) {
     struct value res;
-    switch (v.type) {
+    switch (v->type) {
     case TYPE_STRING:
         res.type = TYPE_STRING;
-        res.string = str_copy(&v.string);
+        res.string_ref = v->string_ref;
         return res;
     case TYPE_LIST:
         res.type = TYPE_LIST;
         res.list = vec_new_empty(sizeof(struct value));
-        for (int i = 0; i < v.list.len; ++i) {
-            struct value *vp = vec_get(&v.list, i);
-            struct value resi = value_copy(*vp);
+        for (int i = 0; i < v->list.len; ++i) {
+            struct value *vp = vec_get(&v->list, i);
+            struct value resi = value_copy(vp);
             vec_append(&res.list, &resi);
         }
         return res;
     case TYPE_BOOLEAN:
     case TYPE_VOID:
     case TYPE_ERROR:
-        return v;
+        return *v;
     }
     asrt(false, "");
-    return v; // shut up compiler
+    return *v; // shut up compiler
 }
 static void print_value(FILE *f, struct value v);
 
@@ -426,12 +425,9 @@ static struct value get_var(struct context *ctx, const char *key) {
     }
     if (hashmap_get(ctx->vars, key, (void**)&vp) == MAP_OK) {
         if (vp->type == TYPE_STRING) {
-            return (struct value){
-                .type = TYPE_STRING,
-                .string = str_copy(&vp->string)
-            };
+            return value_copy(vp);
         } else if (vp->type == TYPE_BOOLEAN) {
-            return *vp; // copy is no-op
+            return value_copy(vp);
         }
     }
     return error_val;
@@ -499,10 +495,8 @@ static struct value fn_startsw(struct vec *ast, int root, struct context *ctx) {
     if (va.type == TYPE_STRING && vb.type == TYPE_STRING) {
         res = (struct value){
             .type = TYPE_BOOLEAN,
-            .boolean = strncmp(
-                str_cstr(&va.string),
-                str_cstr(&vb.string),
-                vb.string.v.len) == 0
+            .boolean = strncmp(va.string_ref, vb.string_ref,
+                    strlen(vb.string_ref)) == 0
         };
     }
     value_finish(va);
@@ -514,7 +508,7 @@ static struct value fn_print(struct vec *ast, int root, struct context *ctx) {
     for (int i = 0; i < np->args.len; ++i) {
         struct value vi = eval(ast, *(int*)vec_get(&np->args, i), ctx);
         if (vi.type == TYPE_STRING) {
-            fprintf(stdout, "%s\n", str_cstr(&vi.string));
+            fprintf(stdout, "%s\n", vi.string_ref);
         } else {
             print_value(stdout, vi);
             fprintf(stdout, "\n");
@@ -554,7 +548,7 @@ static struct value eval(struct vec *ast, int root, struct context *ctx) {
     ast_node *np = vec_get(ast, root);
     switch (np->op) {
     case OP_LIT: return (struct value){
-        .type = TYPE_STRING, .string = str_copy(&np->str)
+        .type = TYPE_STRING, .string_ref = str_cstr(&np->str)
     };
     case OP_LIST:
         res = (struct value){
@@ -629,9 +623,7 @@ static struct value eval(struct vec *ast, int root, struct context *ctx) {
             if (va.type == TYPE_STRING && vb.type == TYPE_STRING) {
                 res = (struct value){
                     .type = TYPE_BOOLEAN,
-                    .boolean = strcmp(
-                        str_cstr(&va.string),
-                        str_cstr(&vb.string)) == 0
+                    .boolean = strcmp(va.string_ref, vb.string_ref) == 0
                 };
             } else {
                 res = error_val;
@@ -642,8 +634,7 @@ static struct value eval(struct vec *ast, int root, struct context *ctx) {
                 for (int i = 0; i < vb.list.len; ++i) {
                     vp = vec_get(&vb.list, i);
                     if (vp->type == TYPE_STRING) {
-                        if (strcmp(str_cstr(&va.string),
-                                str_cstr(&vp->string)) == 0) {
+                        if (strcmp(va.string_ref, vp->string_ref) == 0) {
                             value_finish(res);
                             res = (struct value){ .type = TYPE_BOOLEAN,
                                 .boolean = true };
@@ -743,7 +734,7 @@ static void dump_ast(FILE *f, struct vec ast, int root) {
 static void print_value(FILE *f, struct value v) {
     switch (v.type) {
     case TYPE_STRING:
-        fprintf(f, "\"%s\"", str_cstr(&v.string));
+        fprintf(f, "\"%s\"", v.string_ref);
         break;
     case TYPE_LIST:
         fprintf(f, "[");
@@ -856,7 +847,7 @@ void uexpr_destroy(uexpr e) {
 
 const char * uexpr_get_string(uexpr_val val) {
     struct value *vp = val;
-    if (vp->type == TYPE_STRING) return str_cstr(&vp->string);
+    if (vp->type == TYPE_STRING) return vp->string_ref;
     else return NULL;
 }
 bool uexpr_get_boolean(uexpr_val val, bool *b) {
@@ -870,8 +861,7 @@ bool uexpr_get_boolean(uexpr_val val, bool *b) {
 uexpr_val uexpr_create_string(const char *s) {
     struct value *vp = malloc_check(sizeof(struct value));
     vp->type = TYPE_STRING;
-    vp->string = str_new_empty();
-    str_append(&vp->string, s, strlen(s));
+    vp->string_ref = s;
     return (void*)vp;
 }
 uexpr_val uexpr_create_boolean(bool b) {
@@ -885,8 +875,7 @@ uexpr_val uexpr_create_list_string(char **s, int n) {
     vp->type = TYPE_LIST;
     vp->list = vec_new_empty(sizeof(struct value));
     for (int i = 0; i < n; ++i) {
-        struct value vi = { .type = TYPE_STRING, .string = str_new_empty() };
-        str_append(&vi.string, s[i], strlen(s[i]));
+        struct value vi = { .type = TYPE_STRING, .string_ref = s[i] };
         vec_append(&vp->list, &vi);
     }
     return (void*)vp;

@@ -317,7 +317,7 @@ static struct ts_ran * schedule_active_todos() {
             i, buf1, buf2, td->summary);
     }*/
 
-    sw_end_print(sw, "schedule_active_todos");
+    // sw_end_print(sw, "schedule_active_todos");
     return G;
 }
 
@@ -367,7 +367,7 @@ static void update_views() {
                 &create_active_events, &crcl);
         }
     }
-    sw_end_print(sw, "create active_event structs");
+    // sw_end_print(sw, "create active_event structs");
 
     /* populate tviews from the active_events list */
     for (int i = 0; i < state.active_event_n; ++i) {
@@ -635,7 +635,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             state.keystate = KEYSTATE_VIEW_SWITCH;
             break;
         case '\0':
-            if ((n = key_num(key)) >= 0) { /* numeric key */
+            if ((n = key_fn(key)) > 0) { /* numeric key */
                 --n; /* key 1->0 .. key 9->8 */
                 if (shift) n += 9;
                 if (n < state.n_cal) {
@@ -644,7 +644,7 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
                     state.dirty = true;
                 }
             }
-            if ((n = key_fn(key)) > 0) {
+            if ((n = key_num(key)) > 0) {
                 --n;
                 char **k = state.config_fns;
                 for (int i = 0; i < n; ++i) {

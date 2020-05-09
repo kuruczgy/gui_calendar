@@ -8,25 +8,24 @@
 #include "uexpr.h"
 #include "application.h"
 
-static char buf[128];
+static char *nums[] = { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+    "11", "12", "13", "14", "15", "16" };
 
 static uexpr_val get_cats(struct cats *cats) {
     return uexpr_create_list_string(cats->list, cats->n);
 }
 static uexpr_val get_cal(int cal_index) {
-    snprintf(buf, sizeof(buf), "%d", cal_index + 1);
-    return uexpr_create_string(buf);
+    asrt(cal_index < 16, "cal_index too big");
+    return uexpr_create_string(nums[cal_index + 1]);
 }
 static uexpr_val get_vis_cals() {
-    int n = 0, l = 0;
+    int n = 0;
     char *list[32];
     for (int i = 0; i < state.n_cal; ++i) {
         if (state.cal_info[i].visible) {
             asrt(n < 32, "");
-            list[n++] = buf + l;
-            int n = snprintf(buf + l, sizeof(buf) - l, "%d", i + 1);
-            asrt(n < sizeof(buf) - l, "");
-            l += n + 1;
+            asrt(i < 16, "cal_index too big");
+            list[n++] = nums[i + 1];
         }
     }
     return uexpr_create_list_string(list, n);
@@ -65,10 +64,14 @@ bool uexpr_cal_aev_set(void *cl, const char *key, uexpr_val val) {
     if (!cl) return false;
     struct active_event *aev = cl;
     bool b;
-    if (strcmp(key, "fade") == 0 && uexpr_get_boolean(val, &b)) aev->fade = b;
-    if (strcmp(key, "hide") == 0 && uexpr_get_boolean(val, &b)) aev->hide = b;
-    if (strcmp(key, "vis") == 0 && uexpr_get_boolean(val, &b)) aev->vis = b;
-    else return false;
+    if (strcmp(key, "fade") == 0 && uexpr_get_boolean(val, &b))
+        aev->fade = b;
+    else if (strcmp(key, "hide") == 0 && uexpr_get_boolean(val, &b))
+        aev->hide = b;
+    else if (strcmp(key, "vis") == 0 && uexpr_get_boolean(val, &b))
+        aev->vis = b;
+    else
+        return false;
     return true;
 }
 
@@ -103,8 +106,11 @@ bool uexpr_cal_todo_set(void *cl, const char *key, uexpr_val val) {
     if (!cl) return false;
     struct todo_tag *tag = cl;
     bool b;
-    if (strcmp(key, "fade") == 0 && uexpr_get_boolean(val, &b)) tag->fade = b;
-    if (strcmp(key, "vis") == 0 && uexpr_get_boolean(val, &b)) tag->vis = b;
-    else return false;
+    if (strcmp(key, "fade") == 0 && uexpr_get_boolean(val, &b))
+        tag->fade = b;
+    else if (strcmp(key, "vis") == 0 && uexpr_get_boolean(val, &b))
+        tag->vis = b;
+    else
+        return false;
     return true;
 }
