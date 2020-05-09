@@ -613,9 +613,9 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
             switch_mode_select();
             state.dirty = true;
             break;
-        case 'f':
-            launch_expr_editor();
-            break;
+        // case 'f':
+        //     launch_expr_editor();
+        //     break;
         case 'c':
             for (int i = 0; i < state.n_cal; ++i) {
                 state.cal_info[i].visible = state.cal_default_visible[i];

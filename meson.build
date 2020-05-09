@@ -185,3 +185,18 @@ executable(
   link_with: lib_gui_calendar,
   c_args : '-DCONFIG_BACKEND_DUMMY'
 )
+
+prog_markdown = find_program('md2html')
+if prog_markdown.found()
+  foreach md : [ 'Documentation/interface.md', 'Documentation/bugs.md' ]
+    basename = md.split('.')[-2].split('/')[-1]
+    output = basename + '.html'
+    message('making target:', output)
+    custom_target(output,
+      input : md,
+      output : output,
+      command : [ prog_markdown, '-f', '-o', '@OUTPUT@', '@INPUT@' ],
+      build_by_default: true
+    )
+  endforeach
+endif

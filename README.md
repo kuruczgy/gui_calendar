@@ -14,12 +14,12 @@ foreseeable future.
   events.
 
 ### Supported iCalendar features
-- SUMMARY, DESCRIPTION, LOCATION, DTSTART, DTEND, DUE
+- SUMMARY, DESCRIPTION, LOCATION, DTSTART, DTEND, DUE, CATEGORIES
 - CLASS, STATUS
 - [COLOR](https://tools.ietf.org/html/rfc7986#section-5.9)
 - PERCENT-COMPLETE
 - [ESTIMATED-DURATION](https://tools.ietf.org/html/draft-apthorp-ical-tasks-01#section-6.1)
-- partial support for viewing recurrint events (RRULE, but no RDATE or EXDATE)
+- partial support for viewing recurring events (RRULE, but no RDATE or EXDATE)
 
 
 ## Compilation
