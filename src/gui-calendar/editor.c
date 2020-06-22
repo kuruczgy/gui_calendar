@@ -3,7 +3,6 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <stdlib.h>
 
 #include "calendar.h"
@@ -11,124 +10,134 @@
 #include "core.h"
 #include "util.h"
 
-const char * cal_status_str(enum icalproperty_status v) {
+const char * cal_status_str(enum prop_status v) {
     switch (v) {
-    case ICAL_STATUS_TENTATIVE: return "tentative";
-    case ICAL_STATUS_CONFIRMED: return "confirmed";
-    case ICAL_STATUS_CANCELLED: return "cancelled";
-    case ICAL_STATUS_COMPLETED: return "completed";
-    case ICAL_STATUS_NEEDSACTION: return "needs-action";
-    case ICAL_STATUS_INPROCESS: return "in-process";
+    case PROP_STATUS_TENTATIVE: return "tentative";
+    case PROP_STATUS_CONFIRMED: return "confirmed";
+    case PROP_STATUS_CANCELLED: return "cancelled";
+    case PROP_STATUS_COMPLETED: return "completed";
+    case PROP_STATUS_NEEDSACTION: return "needsaction";
+    case PROP_STATUS_INPROCESS: return "inprocess";
     default: return "";
     }
 }
-const char * cal_class_str(enum icalproperty_class v) {
+const char * cal_class_str(enum prop_class v) {
     switch (v) {
-    case ICAL_CLASS_PRIVATE: return "private";
-    case ICAL_CLASS_PUBLIC: return "public";
+    case PROP_CLASS_PRIVATE: return "private";
+    case PROP_CLASS_PUBLIC: return "public";
     default: return "";
     }
 }
-static void print_literal(FILE *f, const char *key, char *val) {
+static void print_literal(FILE *f, const char *key, const char *val) {
     if (val) {
         fprintf(f, "%s `%s`\n", key, val);
     } else {
-        fprintf(f, "#%s\n", key);
-    }
-}
-static void print_cats(FILE *f, struct cats *cs) {
-    if (cs->n > 0) {
-        char *str = cats_to_str(cs);
-        fprintf(f, "cats `%s`\n", str);
-        free(str);
-    } else {
-        fprintf(f, "#cats\n");
+        // fprintf(f, "#%s\n", key);
     }
 }
 
-// DEP: struct event
+static void print_vec_str(FILE *f, const struct vec *cats) {
+    for (int i = 0; i < cats->len; ++i) {
+        const struct str *s = vec_get((struct vec*)cats, i); // const cast
+        fprintf(f, "%s", str_cstr(s));
+        if (i < cats->len - 1) fprintf(f, ",");
+    }
+}
+
 static const char *event_usage =
     "# USAGE:\n"
     "# status tentative/confirmed/cancelled\n"
     "# class public/private\n"
     "# summary/location/desc/color/cats `...`\n";
-// DEP: struct todo
 static const char *todo_usage =
     "# USAGE:\n"
-    "# status completed/needs-action/in-process\n"
+    "# status completed/needsaction/inprocess\n"
     "# class public/private\n"
     "# summary/location/desc/color/cats `...`\n"
     "# est 1d2h3m4s\n"
     "# perc 39\n";
 
 
-void print_event_template(FILE *f, struct event *ev, const char *uid,
-    // DEP: struct event
-        time_t recurrence_id, icaltimezone *zone) {
-    struct simple_date
-        start_sd = simple_date_from_timet(ev->start.timestamp, zone),
-        end_sd = simple_date_from_timet(ev->end.timestamp, zone);
-    char start[32], end[32];
-    format_simple_date(start, 32, start_sd);
-    format_simple_date(end, 32, end_sd);
+void print_template(FILE *f, struct comp_inst *ci,
+        struct cal_timezone *zone, int cal) {
+    bool is_event = ci->c->type == COMP_TYPE_EVENT;
+    bool is_todo = ci->c->type == COMP_TYPE_TODO;
+    struct props *p = &ci->c->p;
 
-    fprintf(f, "update event\n");
-    print_literal(f, "summary", ev->summary);
-    fprintf(f, "start %s\n", start);
-    fprintf(f, "end %s\n", end);
-    print_literal(f, "location", ev->location);
-    print_literal(f, "desc", ev->desc);
-    print_cats(f, &ev->cats);
-    print_literal(f, "color", ev->color_str);
-    fprintf(f, "#class %s\n", cal_class_str(ev->clas));
-    fprintf(f, "#status %s\n", cal_status_str(ev->status));
-    if (recurrence_id != -1) {
-        fprintf(f, "#instance: `%ld`\n", recurrence_id);
+    ts start, end, due;
+    bool has_start = props_get_start(p, &start);
+    bool has_end = props_get_end(p, &end);
+    bool has_due = props_get_due(p, &due);
+
+    enum prop_class class;
+    bool has_class = props_get_class(p, &class);
+
+    enum prop_status status;
+    bool has_status = props_get_status(p, &status);
+
+    int est, perc;
+    bool has_est = props_get_estimated_duration(p, &est);
+    bool has_perc = props_get_percent_complete(p, &perc);
+
+    const struct vec *cats = props_get_categories(p);
+
+    if (is_event) fprintf(f, "update event\n");
+    if (is_todo) fprintf(f, "update todo\n");
+
+    print_literal(f, "summary", props_get_summary(p));
+
+    char buf[32];
+    if (has_due) {
+        struct simple_date sd = simple_date_from_ts(due, zone);
+        format_simple_date(buf, 32, sd);
+        fprintf(f, "due %s\n", buf);
     }
-    if (uid) {
-        fprintf(f, "uid `%s`\n", uid);
+    if (has_start) {
+        struct simple_date sd = simple_date_from_ts(start, zone);
+        format_simple_date(buf, 32, sd);
+        fprintf(f, "start %s\n", buf);
     }
-    fprintf(f, "%s", event_usage);
-}
-void print_todo_template(FILE *f, struct todo *td, icaltimezone *zone) {
-    // DEP: struct todo
-    struct simple_date
-        start_sd = simple_date_from_timet(td->start.timestamp, zone),
-        due_sd = simple_date_from_timet(td->due.timestamp, zone);
-    char start[32], due[32];
-    format_simple_date(start, 32, start_sd);
-    format_simple_date(due, 32, due_sd);
+    if (has_end) {
+        struct simple_date sd = simple_date_from_ts(end, zone);
+        format_simple_date(buf, 32, sd);
+        fprintf(f, "end %s\n", buf);
+    }
 
-    fprintf(f, "update todo\n");
-    print_literal(f, "summary", td->summary);
-    fprintf(f, "#status %s\n", cal_status_str(td->status));
-    fprintf(f, "#due %s\n", due);
-    fprintf(f, "#start %s\n", start);
-
-    if (td->estimated_duration != -1) {
+    if (has_est) {
         fprintf(f, "est ");
-        print_simple_dur(f, simple_dur_from_int(td->estimated_duration));
+        print_simple_dur(f, simple_dur_from_int(est));
         fprintf(f, "\n");
-    } else {
-        fprintf(f, "#est\n");
+    }
+    if (has_perc) {
+        fprintf(f, "perc %d\n", perc);
     }
 
-    if (td->percent_complete != -1) {
-        fprintf(f, "perc %d\n", td->percent_complete);
-    } else {
-        fprintf(f, "#perc\n");
+    print_literal(f, "location", props_get_location(p));
+    print_literal(f, "desc", props_get_desc(p));
+    print_literal(f, "color", props_get_color(p));
+
+    if (cats->len > 0) {
+        fprintf(f, "cats `");
+        print_vec_str(f, cats);
+        fprintf(f, "`\n");
     }
 
-    print_literal(f, "desc", td->desc);
-    print_cats(f, &td->cats);
-    fprintf(f, "#class %s\n", cal_class_str(td->clas));
-    if (td->uid) {
-        fprintf(f, "uid `%s`\n", td->uid);
+    if (has_class) fprintf(f, "class %s\n", cal_class_str(class));
+    if (has_status) fprintf(f, "status %s\n", cal_status_str(status));
+
+    // TODO: recurrence id
+    // if (recurrence_id != -1) {
+    //     fprintf(f, "#instance: `%ld`\n", recurrence_id);
+    // }
+    if (str_any(&ci->c->uid)) {
+        fprintf(f, "uid `%s`\n", str_cstr(&ci->c->uid));
     }
-    fprintf(f, "%s", todo_usage);
+    fprintf(f, "calendar %d\n", cal);
+    if (is_event) fprintf(f, "%s", event_usage);
+    if (is_todo) fprintf(f, "%s", todo_usage);
 }
 
-void print_new_event_template(FILE *f, icaltimezone *zone, int cal) {
+void print_new_event_template(FILE *f, struct cal_timezone *zone, int cal) {
     // DEP: struct event
     char start[32];
     struct simple_date now = simple_date_now(zone);
@@ -152,7 +161,7 @@ void print_new_event_template(FILE *f, icaltimezone *zone, int cal) {
         event_usage
     );
 }
-void print_new_todo_template(FILE *f, icaltimezone *zone, int cal) {
+void print_new_todo_template(FILE *f, struct cal_timezone *zone, int cal) {
     // DEP: struct todo
     char start[32];
     struct simple_date now = simple_date_now(zone);
@@ -177,400 +186,95 @@ void print_new_todo_template(FILE *f, icaltimezone *zone, int cal) {
     );
 }
 
-void init_edit_spec(struct edit_spec *es) {
-    event_init(&es->ev);
-    event_init(&es->rem_ev);
+void edit_spec_init(struct edit_spec *es) {
+    es->p = props_empty;
+    es->rem = props_mask_empty;
 
-    todo_init(&es->td);
-    todo_init(&es->rem_td);
-
-    es->calendar_uid = NULL;
+    es->calendar_uid = str_empty;
     es->calendar_num = -1;
-    es->uid = NULL;
+    es->uid = str_empty;
     es->recurrence_id = -1;
 }
-
-int check_edit_spec(struct edit_spec *es) {
-    if (!es->uid) return -1;
-    if (es->type == COMP_TYPE_EVENT) {
-        if (es->ev.start.timestamp >= es->ev.end.timestamp) return -1;
-    } else if (es->type == COMP_TYPE_TODO) {
-
-    } else {
-        return -1;
-    }
-    return 0;
+void edit_spec_finish(struct edit_spec *es) {
+    props_finish(&es->p);
+    str_free(&es->uid);
+    str_free(&es->calendar_uid);
 }
 
-void assign_str(char **dst, char *src, char *rem) {
-    if (rem) {
-        free(*dst);
-        *dst = NULL;
-    } else if (src) {
-        free(*dst);
-        *dst = str_dup(src);
-    }
+static void assign_props(struct props *p, const struct props *rhs,
+        const struct props_mask *rem) {
+    props_union(p, rhs);
+    props_apply_mask(p, rem);
 }
-void assign_date(struct date *dst, struct date src, struct date rem) {
-    if (rem.timestamp != -1) {
-        dst->timestamp = -1;
-    } else if (src.timestamp != -1) {
-        dst->timestamp = src.timestamp;
+static bool can_apply_to_memory(const struct edit_spec *es,
+        struct calendar *cal) {
+    int idx;
+    struct comp *c;
+    struct props pu = props_empty;
+    bool res = true;
+    if (!str_any(&es->uid)) return false;
+    switch (es->method) {
+    case EDIT_METHOD_UPDATE:
+        idx = calendar_find_comp(cal, str_cstr(&es->uid));
+        if (idx == -1) return false;
+        c = calendar_get_comp(cal, idx);
+        asrt(c, "");
+        if (es->type != c->type) return false;
+        props_union(&pu, &c->p);
+        assign_props(&pu, &es->p, &es->rem);
+        if (!props_valid_for_type(&pu, es->type)) res = false;
+        break;
+    case EDIT_METHOD_CREATE:
+        assign_props(&pu, &es->p, &es->rem);
+        if (!props_valid_for_type(&pu, es->type)) res = false;
+        break;
+    case EDIT_METHOD_DELETE:
+        /* meh... should we check if the comp exists in the calendar? */
+        break;
+    default:
+        return false;
     }
-}
-void assign_cats(struct cats *dst, struct cats *src, struct cats *rem) {
-    if (rem->n == -1) {
-        cats_finish(dst);
-        cats_init(dst, NULL);
-    } else if (src->n > 0) {
-        cats_finish(dst);
-        *dst = *src;
-        cats_init(src, NULL);
-    }
-}
-void assign_event_props(struct event *dst, struct event *src,
-        struct event *rem) {
-    // DEP: struct event
-    assign_str(&dst->summary, src->summary, rem->summary);
-    assign_date(&dst->start, src->start, rem->start);
-    assign_date(&dst->end, src->end, rem->end);
-    assign_str(&dst->color_str, src->color_str, rem->color_str);
-    assign_str(&dst->location, src->location, rem->location);
-    assign_str(&dst->desc, src->desc, rem->desc);
-    if (rem->status != ICAL_STATUS_NONE) {
-        dst->status = ICAL_STATUS_NONE;
-    } else if (src->status != ICAL_STATUS_NONE) {
-        dst->status = src->status;
-    }
-    if (rem->clas != ICAL_CLASS_NONE) {
-        dst->clas = ICAL_CLASS_NONE;
-    } else if (src->clas != ICAL_CLASS_NONE) {
-        dst->clas = src->clas;
-    }
-    assign_cats(&dst->cats, &src->cats, &rem->cats);
-    // all_day is ignored, since it is not nullable
-}
-void assign_todo_props(struct todo *dst, struct todo *src, struct todo *rem) {
-    // DEP: struct todo
-    // don't touch uid
-    assign_str(&dst->summary, src->summary, rem->summary);
-    assign_str(&dst->desc, src->desc, rem->desc);
-    assign_date(&dst->start, src->start, rem->start);
-    assign_date(&dst->due, src->due, rem->due);
-    if (rem->status != ICAL_STATUS_NONE) {
-        dst->status = ICAL_STATUS_NONE;
-    } else if (src->status != ICAL_STATUS_NONE) {
-        dst->status = src->status;
-    }
-    if (rem->clas != ICAL_CLASS_NONE) {
-        dst->clas = ICAL_CLASS_NONE;
-    } else if (src->clas != ICAL_CLASS_NONE) {
-        dst->clas = src->clas;
-    }
-    if (rem->estimated_duration != -1) {
-        dst->estimated_duration = -1;
-    } else if (src->estimated_duration != -1) {
-        dst->estimated_duration = src->estimated_duration;
-    }
-    if (rem->percent_complete != -1) {
-        dst->percent_complete = -1;
-    } else if (src->percent_complete != -1) {
-        dst->percent_complete = src->percent_complete;
-    }
-    assign_cats(&dst->cats, &src->cats, &rem->cats);
+    props_finish(&pu);
+    return res;
 }
 
 static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
-    int res;
-    if (es->type == COMP_TYPE_EVENT) {
-        struct event_recur_set *ers;
-        asrt(es->uid, "no uid in edit_spec");
-        res = hashmap_get(cal->event_sets, es->uid, (void**)&ers);
-        switch (es->method) {
-        case EDIT_METHOD_UPDATE:
-            asrt(res == MAP_OK, "not found");
-            assign_event_props(&ers->base, &es->ev, &es->rem_ev);
-            event_update_derived(&ers->base);
-            fprintf(stderr, "[editor memory] updated event %s\n", es->uid);
-            break;
-        case EDIT_METHOD_CREATE:
-            asrt(res == MAP_MISSING, "creating, but found");
-            ers = event_recur_set_create(es->uid, 0);
-            copy_event(&ers->base, &es->ev);
-            event_update_derived(&ers->base);
-            res = hashmap_put(cal->event_sets, ers->uid, ers);
-            asrt(res == MAP_OK, "failed to put");
-            fprintf(stderr, "[editor memory] created event %s\n", es->uid);
-            break;
-        case EDIT_METHOD_DELETE:
-            asrt(res == MAP_OK, "deleting, but not found");
-            res = hashmap_remove(cal->event_sets, es->uid);
-            asrt(res == MAP_OK, "deleting error");
-            free_event_recur_set(ers);
-            fprintf(stderr, "[editor memory] deleted event %s\n", es->uid);
-            break;
-        default:
-            asrt(false, "");
-            break;
-        };
-    } else if (es->type == COMP_TYPE_TODO) {
-        struct todo *td;
-        res = hashmap_get(cal->todos, es->uid, (void**)&td);
-        switch (es->method) {
-        case EDIT_METHOD_UPDATE:
-            asrt(res == MAP_OK, "todo not found");
-            assign_todo_props(td, &es->td, &es->rem_td);
-            fprintf(stderr, "[editor memory] updated todo %s\n", es->uid);
-            break;
-        case EDIT_METHOD_CREATE:
-            asrt(res == MAP_MISSING, "todo found");
-            asrt(es->uid, "uid missing");
-            struct todo *new_td = malloc_check(sizeof(struct todo));
-            copy_todo(new_td, &es->td);
-            new_td->uid = str_dup(es->uid);
-            hashmap_put(cal->todos, new_td->uid, new_td);
-            fprintf(stderr, "[editor memory] created todo %s\n", es->uid);
-            break;
-        case EDIT_METHOD_DELETE:
-            asrt(res == MAP_OK, "todo not found");
-            res = hashmap_remove(cal->todos, es->uid);
-            asrt(res == MAP_OK, "failed to remove");
-            todo_finish(td);
-            free(td);
-            fprintf(stderr, "[editor memory] deleted todo %s\n", es->uid);
-            break;
-        default:
-            asrt(false, "");
-            break;
-        }
-    } else {
-        asrt(false, "");
-    }
-}
-
-static void comp_assign_text(icalcomponent *c, enum icalproperty_kind kind,
-        const char *src, bool rem) {
-    icalproperty *p =
-        icalcomponent_get_first_property(c, kind);
-    if (src) {
-        icalvalue *val = icalvalue_new_text(src);
-        if (!p) {
-            p = icalproperty_new(kind);
-            icalproperty_set_value(p, val);
-            icalcomponent_add_property(c, p);
-        } else {
-            icalproperty_set_value(p, val);
-        }
-    } else if (rem) {
-        icalcomponent_remove_properties(c, kind);
-    }
-}
-static void comp_assign_datetime(icalcomponent *c, enum icalproperty_kind kind,
-        struct date src, bool rem) {
-    icalproperty *p =
-        icalcomponent_get_first_property(c, kind);
-    if (src.timestamp != -1) {
-        icalvalue *val =
-            icalvalue_new_datetime(icaltime_from_timet_with_zone(src.timestamp,
-                        0, icaltimezone_get_utc_timezone()));
-        if (!p) {
-            p = icalproperty_new(kind);
-            icalproperty_set_value(p, val);
-            icalcomponent_add_property(c, p);
-        } else {
-            icalproperty_set_value(p, val);
-        }
-    } else if (rem) {
-        icalcomponent_remove_properties(c, kind);
-    }
-}
-static void comp_assign_cats(icalcomponent *c, struct cats *src, bool rem) {
-    icalcomponent_remove_properties(c, ICAL_CATEGORIES_PROPERTY);
-    if (!rem) {
-        if (src->n > 0) {
-            char *cats_str = cats_to_str(src);
-            icalproperty *p = icalproperty_new_categories(cats_str);
-            icalcomponent_add_property(c, p);
-            free(cats_str);
-        }
-    }
-}
-
-static void es_to_comp(struct edit_spec *es, icalcomponent *c) {
-    if (es->type == COMP_TYPE_EVENT) {
-        // DEP: struct event
-
-        comp_assign_text(c, ICAL_SUMMARY_PROPERTY,
-                es->ev.summary, es->rem_ev.summary);
-        comp_assign_datetime(c, ICAL_DTSTART_PROPERTY,
-                es->ev.start, false);
-        comp_assign_datetime(c, ICAL_DTEND_PROPERTY,
-                es->ev.end, false);
-        comp_assign_text(c, ICAL_COLOR_PROPERTY,
-                es->ev.color_str, es->rem_ev.color_str);
-        comp_assign_text(c, ICAL_LOCATION_PROPERTY,
-                es->ev.location, es->rem_ev.location);
-        comp_assign_text(c, ICAL_DESCRIPTION_PROPERTY,
-                es->ev.desc, es->rem_ev.desc);
-
-        if (es->ev.status != ICAL_STATUS_NONE) {
-            icalcomponent_set_status(c, es->ev.status);
-        }
-        if (es->rem_ev.status != ICAL_STATUS_NONE) {
-            icalcomponent_remove_properties(c, ICAL_STATUS_PROPERTY);
-        }
-
-        if (es->ev.clas != ICAL_CLASS_NONE) {
-            icalcomponent_set_class(c, es->ev.clas);
-        }
-        if (es->rem_ev.clas != ICAL_CLASS_NONE) {
-            icalcomponent_remove_properties(c, ICAL_CLASS_PROPERTY);
-        }
-
-        comp_assign_cats(c, &es->ev.cats, es->rem_ev.cats.n == -1);
-    } else if (es->type == COMP_TYPE_TODO) {
-        // DEP: struct todo
-
-        comp_assign_text(c, ICAL_SUMMARY_PROPERTY,
-                es->td.summary, es->rem_td.summary);
-        comp_assign_text(c, ICAL_DESCRIPTION_PROPERTY,
-                es->td.desc, es->rem_td.desc);
-        comp_assign_datetime(c, ICAL_DTSTART_PROPERTY,
-                es->td.start, es->rem_td.start.timestamp != -1);
-        comp_assign_datetime(c, ICAL_DUE_PROPERTY,
-                es->td.due, es->rem_td.due.timestamp != -1);
-
-        if (es->td.status != ICAL_STATUS_NONE) {
-            icalcomponent_set_status(c, es->td.status);
-        }
-        if (es->rem_td.status != ICAL_STATUS_NONE) {
-            icalcomponent_remove_properties(c, ICAL_STATUS_PROPERTY);
-        }
-
-        if (es->td.clas != ICAL_CLASS_NONE) {
-            icalcomponent_set_class(c, es->td.clas);
-        }
-        if (es->rem_td.clas != ICAL_CLASS_NONE) {
-            icalcomponent_remove_properties(c, ICAL_CLASS_PROPERTY);
-        }
-
-        if (es->td.estimated_duration != -1) {
-            struct icaldurationtype v =
-                icaldurationtype_from_int(es->td.estimated_duration);
-            icalcomponent_set_estimatedduration(c, v);
-        }
-        if (es->rem_td.estimated_duration != -1) {
-            icalcomponent_remove_properties(c, ICAL_ESTIMATEDDURATION_PROPERTY);
-        }
-
-        if (es->td.percent_complete != -1) {
-            icalcomponent_set_percentcomplete(c, es->td.percent_complete);
-        }
-        if (es->rem_td.percent_complete != -1) {
-            icalcomponent_remove_properties(c, ICAL_PERCENTCOMPLETE_PROPERTY);
-        }
-
-        comp_assign_cats(c, &es->td.cats, es->rem_td.cats.n == -1);
-    } else {
-        asrt(false, "");
-    }
-    icalcomponent_set_uid(c, es->uid);
-}
-
-static int apply_to_storage(struct edit_spec *es, struct calendar *cal) {
-    /* check if storage is directory */
-    struct stat sb;
-    FILE *f;
-    char *result;
-    char *path_base = cal->storage;
-    asrt(stat(path_base, &sb) == 0, "stat");
-    asrt(S_ISDIR(sb.st_mode), "saving to non-dir calendar not supported");
-
-    /* construct the path to the specific .ics file */
-    char path[1024];
-    asrt(strlen(es->uid) >= 32, "uid sanity check");
-    snprintf(path, 1024, "%s/%s.ics", path_base, es->uid);
-
-    enum icalcomponent_kind type;
-    if (es->type == COMP_TYPE_EVENT) type = ICAL_VEVENT_COMPONENT;
-    else if (es->type == COMP_TYPE_TODO) type = ICAL_VTODO_COMPONENT;
-    else asrt(false, "");
-
-    switch(es->method) {
-    case EDIT_METHOD_DELETE:
-        if (unlink(path) < 0) {
-            fprintf(stderr, "[editor storage] deletion failed\n");
-            return -1;
-        }
-        fprintf(stderr, "[editor storage] deleted %s\n", path);
-        return 0;
-        break;
+    int idx;
+    struct comp *c;
+    switch (es->method) {
     case EDIT_METHOD_UPDATE:
-        if (access(path, F_OK) != 0) {
-            fprintf(stderr, "[editor storage] can't access existing file\n");
-            return -1;
-        }
-
-        /* load and parse the file */
-        f = fopen(path, "r");
-        icalcomponent *root = libical_component_from_file(f);
-        fclose(f);
-
-        /* find the specific component we are interested in, using the uid */
-        icalcomponent *c = icalcomponent_get_first_component(root, type);
-        while (c) {
-            const char *c_uid = icalcomponent_get_uid(c);
-            if (strcmp(c_uid, es->uid) == 0) { // found it
-                /* populate component with new values */
-                es_to_comp(es, c);
-                break;
-            }
-            c = icalcomponent_get_next_component(root, type);
-        }
-
-        /* serialize and write back the component */
-        result = icalcomponent_as_ical_string(root);
-        fprintf(stderr, "[editor storage] writing existing %s\n", path);
-        f = fopen(path, "w");
-        fputs(result, f);
-        fclose(f);
-        icalcomponent_free(root);
-
-        return 0;
+        idx = calendar_find_comp(cal, str_cstr(&es->uid));
+        c = calendar_get_comp(cal, idx);
+        asrt(c, "calendar_get_comp failed");
+        assign_props(&c->p, &es->p, &es->rem);
+        fprintf(stderr, "[editor memory] updated comp %s\n",
+                str_cstr(&es->uid));
         break;
     case EDIT_METHOD_CREATE:
-        ;
-        /* create the component */
-        icalcomponent *comp = icalcomponent_new(type);
-        es_to_comp(es, comp);
-        /* create a frame, serialize, and save to file */
-        icalcomponent *calendar = icalcomponent_vanew(
-            ICAL_VCALENDAR_COMPONENT,
-            icalproperty_new_version("2.0"),
-            icalproperty_new_prodid("-//ABC Corporation//gui_calendar//EN"),
-            comp,
-            NULL
-        );
-        result = icalcomponent_as_ical_string(calendar);
-        fprintf(stderr, "[editor storage] writing new %s\n", path);
-        f = fopen(path, "w");
-        fputs(result, f);
-        fclose(f);
-        icalcomponent_free(calendar);
-
-        return 0;
+        idx = calendar_new_comp(cal, str_copy(&es->uid), es->type);
+        c = calendar_get_comp(cal, idx);
+        asrt(c, "calendar_new_comp failed");
+        assign_props(&c->p, &es->p, &es->rem);
+        fprintf(stderr, "[editor memory] created comp %s\n",
+                str_cstr(&es->uid));
+        break;
+    case EDIT_METHOD_DELETE:
+        idx = calendar_find_comp(cal, str_cstr(&es->uid));
+        calendar_delete_comp(cal, idx);
+        fprintf(stderr, "[editor memory] deleted comp %s\n",
+                str_cstr(&es->uid));
+        break;
     default:
         asrt(false, "");
         break;
-    }
-    asrt(false, "");
-    return 0;
+    };
+    cal->comps_dirty = true;
 }
 
 int apply_edit_spec_to_calendar(struct edit_spec *es, struct calendar *cal) {
-    asrt(es->uid, "uid");
-    fprintf(stderr, "[editor] saving %s\n", es->uid);
-    if (apply_to_storage(es, cal) != 0) return -1;
+    if (!can_apply_to_memory(es, cal)) return -1;
+    fprintf(stderr, "[editor] saving %s\n", str_cstr(&es->uid));
+    if (edit_spec_apply_to_storage(es, cal) != 0) return -1;
     apply_to_memory(es, cal);
     return 0;
 }

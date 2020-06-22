@@ -62,13 +62,14 @@ src_common = [
   'src/common/colors.c',
   'src/common/calendar.c',
   'src/common/datetime.c',
-  'src/common/libical_parse.c',
+  'src/common/libical_iface.c',
   'src/common/subprocess.c',
   'src/common/util.c',
   'src/common/algo/perm.c',
   'src/common/algo/calendar_layout.c',
   'src/common/algo/todo_schedule.c',
   'src/common/algo/heapsort.c',
+  'src/common/props.c',
 ]
 dep_common = [ libical ]
 lib_common = static_library(

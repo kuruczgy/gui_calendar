@@ -6,7 +6,7 @@
 
 typedef void *uexpr;
 typedef void *uexpr_val;
-typedef void *uexpr_fn;
+typedef int uexpr_fn;
 typedef void *uexpr_ctx;
 
 /* ownership IS transfered */
@@ -24,15 +24,17 @@ void uexpr_ctx_set_handlers(uexpr_ctx ctx, uexpr_get get, uexpr_set set,
         void *cl);
 void uexpr_ctx_destroy(uexpr_ctx ctx);
 uexpr_fn uexpr_ctx_get_fn(uexpr_ctx ctx, const char *name);
-char ** uexpr_get_all_fns(uexpr_ctx ctx);
+const char ** uexpr_get_all_fns(uexpr_ctx ctx);
 bool uexpr_eval(uexpr_ctx ctx);
 bool uexpr_eval_fn(uexpr_ctx ctx, uexpr_fn fn);
 
 const char * uexpr_get_string(uexpr_val val);
 bool uexpr_get_boolean(uexpr_val val, bool *b);
+
+/* creates a new string; is s is NULL, creates an empty string */
 uexpr_val uexpr_create_string(const char *s);
 uexpr_val uexpr_create_boolean(bool b);
-uexpr_val uexpr_create_list_string(char **s, int n);
+uexpr_val uexpr_create_list_string(const char **s, int n);
 void uexpr_val_destroy(uexpr_val val);
 
 #endif

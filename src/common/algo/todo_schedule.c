@@ -17,14 +17,14 @@ static int cmp_point(const void *pa, const void *pb) {
 }
 
 /* b == -1 means infinity */
-static struct todo *next_todo(int *j, int k, struct todo **T, ran *G,
-        ts a, ts b) {
+static struct schedule_todo *next_todo(int *j, int k,
+        struct schedule_todo *T, ran *G, ts a, ts b) {
     for (; *j < k; ++*j) {
         if (G[*j].fr != -1) continue; // skip if already scheduled
-        struct todo *td = T[*j];
+        struct schedule_todo *td = &T[*j];
         if (td->estimated_duration <= 0) continue; // skip if no est
         if (b == -1) return td; // we can schedule anything with infinite space
-        ts l = b - max_ts(a, (ts)td->start.timestamp);
+        ts l = b - max_ts(a, (ts)td->start);
         if (td->estimated_duration > l) continue;
         return td;
     }
@@ -32,12 +32,13 @@ static struct todo *next_todo(int *j, int k, struct todo **T, ran *G,
 }
 
 /* b == -1 means infinity */
-static void schedule_slot(ts a, ts b, int k, struct todo **T, ran *G, int *f) {
-    struct todo *td;
+static void schedule_slot(ts a, ts b, int k,
+        struct schedule_todo *T, ran *G, int *f) {
+    struct schedule_todo *td;
     int j = 0; // index of todo returned by next_todo
     while (td = next_todo(&j, k, T, G, a, b)) {
         if (!td) break;
-        a = max_ts(a, (ts)td->start.timestamp);
+        a = max_ts(a, (ts)td->start);
         G[j] = (ran){ a, a + td->estimated_duration };
         if (++*f == k) return;
         a += td->estimated_duration;
@@ -45,7 +46,7 @@ static void schedule_slot(ts a, ts b, int k, struct todo **T, ran *G, int *f) {
 }
 
 struct ts_ran * todo_schedule(ts base, int n, struct ts_ran *E,
-        int k, struct todo **T) {
+        int k, struct schedule_todo *T) {
     asrt(k >= 0, "k negative");
     if (k == 0) return NULL;
     point *p = malloc_check(sizeof(point) * 2 * n);

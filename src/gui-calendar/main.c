@@ -125,10 +125,14 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    int res = application_main(opts, &backend);
+    struct app app;
+    app_init(&app, opts, &backend);
+    app_main(&app);
+    app_finish(&app);
 
     free(opts.editor);
     free(opts.terminal);
+    free(opts.config_file);
 
-    return res;
+    return 0;
 }

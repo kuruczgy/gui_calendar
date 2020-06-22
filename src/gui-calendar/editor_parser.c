@@ -6,6 +6,7 @@
 
 #include "editor.h"
 #include "core.h"
+#include "vec.h"
 
 /*
 
@@ -36,7 +37,7 @@ dur = dur-comp, { dur-comp } ;
 
 (* function `prop` *)
 status-val = "tentative" | "confirmed" |
-    "cancelled" | "needs-action" | "completed" | "in-process" ;
+    "cancelled" | "needsaction" | "completed" | "inprocess" ;
 uprop =
     ( ( "start" | "end" | "due" ), ws, dt ) |
     ( ( "summary" | "location" | "desc" | "color" | "cats" ), ws, literal ) |
@@ -184,12 +185,12 @@ static res header(st s, enum edit_method *method, enum comp_type *type) {
     return OK;
 }
 
-static res literal(st s, char **out) {
+static res literal(st s, struct str *out) {
     static char buf[16384];
     if (fscanf(s->f, "`%16383[^`]`", buf) != 1) return ERROR;
     int len = strlen(buf);
-    *out = malloc_check(len + 1);
-    memcpy(*out, buf, len + 1);
+    str_clear(out);
+    str_append(out, buf, len);
     return OK;
 }
 
@@ -220,34 +221,34 @@ out:
     return first ? ERROR : OK;
 }
 
-static res parse_class(st s, enum icalproperty_class *clas) {
+static res parse_class(st s, enum prop_class *clas) {
     char key[16];
     fscanf(s->f, "%15s", key);
     if (strcmp(key, "private") == 0) {
-        *clas = ICAL_CLASS_PRIVATE;
+        *clas = PROP_CLASS_PRIVATE;
     } else if (strcmp(key, "public") == 0) {
-        *clas = ICAL_CLASS_PUBLIC;
+        *clas = PROP_CLASS_PUBLIC;
     } else {
         return ERROR;
     }
     return OK;
 }
 
-static res parse_status(st s, enum icalproperty_status *status) {
+static res parse_status(st s, enum prop_status *status) {
     char key[16];
     fscanf(s->f, "%15s", key);
     if (strcmp(key, "tentative") == 0) {
-        *status = ICAL_STATUS_TENTATIVE;
+        *status = PROP_STATUS_TENTATIVE;
     } else if (strcmp(key, "confirmed") == 0) {
-        *status = ICAL_STATUS_CONFIRMED;
+        *status = PROP_STATUS_CONFIRMED;
     } else if (strcmp(key, "cancelled") == 0) {
-        *status = ICAL_STATUS_CANCELLED;
-    } else if (strcmp(key, "needs-action") == 0) {
-        *status = ICAL_STATUS_NEEDSACTION ;
+        *status = PROP_STATUS_CANCELLED;
+    } else if (strcmp(key, "needsaction") == 0) {
+        *status = PROP_STATUS_NEEDSACTION;
     } else if (strcmp(key, "completed") == 0) {
-        *status = ICAL_STATUS_COMPLETED ;
-    } else if (strcmp(key, "in-process") == 0) {
-        *status = ICAL_STATUS_INPROCESS;
+        *status = PROP_STATUS_COMPLETED;
+    } else if (strcmp(key, "inprocess") == 0) {
+        *status = PROP_STATUS_INPROCESS;
     } else {
         return ERROR;
     }
@@ -256,116 +257,102 @@ static res parse_status(st s, enum icalproperty_status *status) {
 
 static res prop(st s, struct edit_spec *es) {
     struct simple_date sd;
-    char *str, *key;
+    struct str str = str_new_empty();
+    char *key;
     char buf[16];
-    bool ev = es->type == COMP_TYPE_EVENT, rem = false;
+    int d;
+    bool rem = false;
     fscanf(s->f, "%15s ", buf);
     if (buf[0] == '-') rem = true, key = buf + 1;
     else key = buf;
     if (strcmp(key, "start") == 0) {
-        if (rem) return es->rem_ev.start = (struct date){ 1 }, OK;
+        if (rem) return props_mask_add(&es->rem, PROP_START), OK;
         if (dt(s, &sd) != OK) return ERROR;
         s->start = sd;
     } else if (strcmp(key, "end") == 0) {
-        if (rem) return es->rem_ev.end = (struct date){ 1 }, OK;
+        if (rem) return props_mask_add(&es->rem, PROP_END), OK;
         if (dt(s, &sd) != OK) return ERROR;
         s->end = sd;
     } else if (strcmp(key, "due") == 0) {
-        if (ev) return ERROR;
-        if (rem) return es->rem_td.due = (struct date){ 1 }, OK;
+        if (rem) return props_mask_add(&es->rem, PROP_DUE), OK;
         if (dt(s, &sd) != OK) return ERROR;
         s->due = sd;
     } else if (strcmp(key, "summary") == 0) {
-        if (rem) {
-            if (ev) es->rem_ev.summary = "";
-            else es->rem_td.summary = "";
-            return OK;
-        }
+        if (rem) return props_mask_add(&es->rem, PROP_SUMMARY), OK;
         if (literal(s, &str) != OK) return ERROR;
-        if (ev) es->ev.summary = str; else es->td.summary = str;
+        props_set_summary(&es->p, str_cstr(&str));
     } else if (strcmp(key, "location") == 0) {
-        if (!ev) return ERROR;
-        if (rem) return es->rem_ev.location = "", OK;
+        if (rem) return props_mask_add(&es->rem, PROP_LOCATION), OK;
         if (literal(s, &str) != OK) return ERROR;
-        es->ev.location = str;
+        props_set_location(&es->p, str_cstr(&str));
     } else if (strcmp(key, "desc") == 0) {
-        if (rem) {
-            if (ev) es->rem_ev.desc = "";
-            else es->rem_td.desc = "";
-            return OK;
-        }
+        if (rem) return props_mask_add(&es->rem, PROP_DESC), OK;
         if (literal(s, &str) != OK) return ERROR;
-        if (ev) es->ev.desc = str; else es->td.desc = str;
+        props_set_desc(&es->p, str_cstr(&str));
     } else if (strcmp(key, "color") == 0) {
-        if (rem) return es->rem_ev.color_str = "", OK;
+        if (rem) return props_mask_add(&es->rem, PROP_COLOR), OK;
         if (literal(s, &str) != OK) return ERROR;
-        if (!ev) return ERROR;
-        es->ev.color_str = str;
+        props_set_color(&es->p, str_cstr(&str));
     } else if (strcmp(key, "cats") == 0) {
-        if (rem) {
-            if (ev) es->rem_ev.cats.n = -1;
-            else es->rem_td.cats.n = -1;
-            return OK;
-        }
+        if (rem) return props_mask_add(&es->rem, PROP_CATEGORIES), OK;
         if (literal(s, &str) != OK) return ERROR;
-        if (ev) {
-            cats_init(&es->ev.cats, str);
-        } else {
-            cats_init(&es->td.cats, str);
+
+        struct vec cats = vec_new_empty(sizeof(struct str));
+        const char *i = str_cstr(&str);
+        while (true) {
+            struct str cat = str_empty;
+            const char *next = strchr(i, ',');
+            if (!next) {
+                str_append(&cat, i, strlen(i));
+                vec_append(&cats, &cat);
+                break;
+            }
+            str_append(&cat, i, next - i);
+            vec_append(&cats, &cat);
+            i = next + 1;
         }
+        props_set_categories(&es->p, cats);
     } else if (strcmp(key, "uid") == 0) {
         if (rem) return ERROR;
         if (literal(s, &str) != OK) return ERROR;
-        es->uid = str;
+        es->uid = str_empty;
+        str_append(&es->uid, str_cstr(&str), str.v.len);
     } else if (strcmp(key, "instance") == 0) {
         if (rem) return ERROR;
         if (literal(s, &str) != OK) return ERROR;
-        es->recurrence_id = atol(str);
+        es->recurrence_id = atol(str_cstr(&str));
     } else if (strcmp(key, "est") == 0) {
-        if (ev) return ERROR;
-        if (rem) {
-            es->rem_td.estimated_duration = 1;
-            return OK;
-        }
-        int d;
+        if (rem) return props_mask_add(&es->rem, PROP_ESTIMATED_DURATION), OK;
         if (dur(s, &d) != OK) return ERROR;
-        es->td.estimated_duration = d;
+        props_set_estimated_duration(&es->p, d);
     } else if (strcmp(key, "perc") == 0) {
-        if (ev) return ERROR;
-        if (rem) {
-            es->rem_td.percent_complete = 1;
-            return OK;
-        }
-        if (integer(s, &es->td.percent_complete) != OK) return ERROR;
+        if (rem) return props_mask_add(&es->rem, PROP_PERCENT_COMPLETE), OK;
+        if (integer(s, &d) != OK) return ERROR;
+        props_set_percent_complete(&es->p, d);
     } else if (strcmp(key, "class") == 0) {
-        if (rem) {
-            if (ev) es->rem_ev.clas = ICAL_CLASS_PUBLIC;
-            else es->rem_td.clas = ICAL_CLASS_PUBLIC;
-            return OK;
-        }
-        enum icalproperty_class clas;
-        if (parse_class(s, &clas) != OK) return ERROR;
-        if (ev) es->ev.clas = clas; else es->td.clas = clas;
+        if (rem) return props_mask_add(&es->rem, PROP_CLASS), OK;
+        enum prop_class class;
+        if (parse_class(s, &class) != OK) return ERROR;
+        props_set_class(&es->p, class);
     } else if (strcmp(key, "status") == 0) {
-        if (rem) {
-            if (ev) es->rem_ev.status = ICAL_STATUS_CONFIRMED;
-            else es->rem_td.status = ICAL_STATUS_CONFIRMED;
-            return OK;
-        }
-        enum icalproperty_status status;
+        if (rem) return props_mask_add(&es->rem, PROP_STATUS), OK;
+        enum prop_status status;
         if (parse_status(s, &status) != OK) return ERROR;
-        if (ev) es->ev.status = status; else es->td.status = status;
+        props_set_status(&es->p, status);
     } else if (strcmp(key, "calendar") == 0) {
         if (rem) return ERROR;
         if (peek(s) != '`') {
             if (integer(s, &es->calendar_num) != OK) return ERROR;
         } else {
-            if (literal(s, &es->calendar_uid) != OK) return ERROR;
+            if (literal(s, &str) != OK) return ERROR;
+            es->calendar_uid = str_empty;
+            str_append(&es->calendar_uid, str_cstr(&str), str.v.len);
         }
     } else {
         return ERROR;
     }
 
+    str_free(&str);
     return OK;
 }
 
@@ -384,10 +371,11 @@ static res grammar(st s, struct edit_spec *es) {
     return OK;
 }
 
-int parse_edit_template(FILE *f, struct edit_spec *es, icaltimezone *zone) {
+int parse_edit_template(FILE *f, struct edit_spec *es,
+        struct cal_timezone *zone) {
     struct parser_state s = { f };
     s.start = s.end = s.due = make_simple_date(-1, -1, -1, -1, -1, -1);
-    init_edit_spec(es);
+    edit_spec_init(es);
     if (grammar(&s, es) != OK) return -1;
 
     if (s.start.second == -1) s.start.second = 0;
@@ -402,20 +390,16 @@ int parse_edit_template(FILE *f, struct edit_spec *es, icaltimezone *zone) {
         if (s.end.month == -1) s.end.month = s.start.month;
         if (s.end.day == -1) s.end.day = s.start.day;
 
-        es->ev.start = (struct date){
-            .timestamp = simple_date_to_timet(s.start, zone)
-        };
-        es->ev.end = (struct date){
-            .timestamp = simple_date_to_timet(s.end, zone)
-        };
+        ts start = simple_date_to_ts(s.start, zone);
+        ts end = simple_date_to_ts(s.end, zone);
+        if (start != -1) props_set_start(&es->p, start);
+        if (end != -1) props_set_end(&es->p, end);
     }
     if (es->type == COMP_TYPE_TODO) {
-        es->td.start = (struct date){
-            .timestamp = simple_date_to_timet(s.start, zone)
-        };
-        es->td.due = (struct date){
-            .timestamp = simple_date_to_timet(s.due, zone)
-        };
+        ts start = simple_date_to_ts(s.start, zone);
+        ts due = simple_date_to_ts(s.due, zone);
+        if (start != -1) props_set_start(&es->p, start);
+        if (due != -1) props_set_due(&es->p, due);
     }
 
     return 0;
@@ -473,11 +457,11 @@ static void test_header(char *in, enum edit_method m, enum comp_type t) {
 static void test_literal(char *in, char *out) {
     FILE *f = fmemopen(in, strlen(in), "r");
     struct parser_state s = { f };
-    char *o = NULL;
+    struct str o = str_empty;
     res r = literal(&s, &o);
     asrt(r == OK, "test_literal error");
-    asrt(strcmp(out, o) == 0, "test_literal not equal");
-    free(o);
+    asrt(strcmp(out, str_cstr(&o)) == 0, "test_literal not equal");
+    str_free(&o);
     fclose(f);
 }
 
@@ -524,43 +508,50 @@ void test_editor_parser() {
     struct parser_state s;
     es.type = COMP_TYPE_EVENT;
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     test_prop(&s, "start 05-3 12:45", &es);
     asrt(simple_date_eq(s.start, make_simple_date(-1, 5, 3, 12, 45, -1)),
         "prop start");
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     test_prop(&s, "end 4", &es);
     asrt(simple_date_eq(s.end, make_simple_date(-1, -1, 4, -1, -1, -1)),
         "prop end");
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     test_prop(&s, "location `a\n\ns\n`", &es);
-    asrt(strcmp(es.ev.location, "a\n\ns\n") == 0, "prop location");
+    asrt(strcmp(props_get_location(&es.p), "a\n\ns\n") == 0, "prop location");
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     test_prop(&s, "uid `asdfg`", &es);
-    asrt(strcmp(es.uid, "asdfg") == 0, "prop uid");
+    asrt(strcmp(str_cstr(&es.uid), "asdfg") == 0, "prop uid");
 
-    init_edit_spec(&es);
-    test_prop(&s, "instance `12345`", &es);
-    asrt(es.recurrence_id == 12345, "prop instance");
+    // TODO: recurrence id
+    // edit_spec_init(&es);
+    // test_prop(&s, "instance `12345`", &es);
+    // asrt(es.recurrence_id == 12345, "prop instance");
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     test_prop(&s, "class private", &es);
-    asrt(es.ev.clas == ICAL_CLASS_PRIVATE, "prop class");
+    enum prop_class class = (enum prop_class)123;
+    props_get_class(&es.p, &class);
+    asrt(class == PROP_CLASS_PRIVATE, "prop class");
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     es.type = COMP_TYPE_TODO;
-    test_prop(&s, "status needs-action", &es);
-    asrt(es.td.status == ICAL_STATUS_NEEDSACTION, "prop status");
+    test_prop(&s, "status needsaction", &es);
+    enum prop_status status = (enum prop_status)123;
+    props_get_status(&es.p, &status);
+    asrt(status == PROP_STATUS_NEEDSACTION, "prop status");
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     es.type = COMP_TYPE_TODO;
     test_prop(&s, "est 5s4d1h", &es);
-    asrt(es.td.estimated_duration == 5 + 4*3600*24 + 1*3600, "prop est");
+    int est = -1;
+    props_get_estimated_duration(&es.p, &est);
+    asrt(est == 5 + 4*3600*24 + 1*3600, "prop est");
 
-    init_edit_spec(&es);
+    edit_spec_init(&es);
     test_grammar(&s, &es,
         "create event\n"
         "start 2020-4-5 12:00\n"
@@ -573,15 +564,16 @@ void test_editor_parser() {
         "desc `some\nsome\ndesc`\n"
         "calendar `asdfg`\n"
     );
+
     asrt(es.type == COMP_TYPE_EVENT, "");
     asrt(simple_date_eq(s.start, make_simple_date(2020, 4, 5, 12, 0, -1)),
         "grammar prop start");
     asrt(simple_date_eq(s.end, make_simple_date(-1, -1, -1, 13, 0, -1)),
         "grammar prop end");
-    asrt(strcmp(es.ev.summary, "lol") == 0, "");
-    asrt(strcmp(es.ev.location, "somewhere") == 0, "");
-    asrt(strcmp(es.ev.desc, "some\nsome\ndesc") == 0, "");
-    asrt(es.rem_ev.status != ICAL_STATUS_NONE, "");
-    asrt(strcmp(es.calendar_uid, "asdfg") == 0, "");
+    asrt(strcmp(props_get_summary(&es.p), "lol") == 0, "");
+    asrt(strcmp(props_get_location(&es.p), "somewhere") == 0, "");
+    asrt(strcmp(props_get_desc(&es.p), "some\nsome\ndesc") == 0, "");
+    asrt(props_mask_get(&es.rem, PROP_STATUS), "");
+    asrt(strcmp(str_cstr(&es.calendar_uid), "asdfg") == 0, "");
     asrt(es.calendar_num == 12345, "");
 }

@@ -6,5 +6,5 @@
 int main() {
     struct calendar cal;
     calendar_init(&cal);
-    libical_parse_ics(stdin, &cal, NULL);
+    libical_parse_ics(stdin, &cal);
 }

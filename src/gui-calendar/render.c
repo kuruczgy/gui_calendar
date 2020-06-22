@@ -52,15 +52,12 @@ static bool same_day(struct simple_date a, struct simple_date b) {
         a.day == b.day;
 }
 
-static char* natural_date_format(const struct date *d) {
-    time_t timet_now = state.now;
-    struct simple_date now =
-        simple_date_from_timet(timet_now, state.zone->impl);
-    timet_adjust_days(&timet_now, state.zone->impl, -1);
-    struct simple_date yesterday =
-        simple_date_from_timet(timet_now, state.zone->impl);
-    struct simple_date t =
-        simple_date_from_timet(d->timestamp, state.zone->impl);
+static char* natural_date_format(struct app *app, ts d) {
+    ts ts_now = app->now;
+    struct simple_date now = simple_date_from_ts(ts_now, app->zone);
+    ts_adjust_days(&ts_now, app->zone, -1);
+    struct simple_date yesterday = simple_date_from_ts(ts_now, app->zone);
+    struct simple_date t = simple_date_from_ts(d, app->zone);
     if (same_day(t, now)) {
         return text_format("%02d:%02d", t.hour, t.minute);
     } else if (same_day(t, yesterday)) {
@@ -88,31 +85,34 @@ static char * format_dur(int v) {
     return s;
 }
 
-static void draw_text(cairo_t *cr, int x, int y, char *text) {
-    state.tr->p.width = -1; state.tr->p.height = -1;
-    text_get_size(cr, state.tr, text);
-    cairo_move_to(cr, x - state.tr->p.width / 2, y - state.tr->p.height / 2);
-    text_print_own(cr, state.tr, text);
+static void draw_text(cairo_t *cr, struct text_renderer *tr,
+        int x, int y, const char *text) {
+    tr->p.width = -1; tr->p.height = -1;
+    text_get_size(cr, tr, text);
+    cairo_move_to(cr, x - tr->p.width / 2, y - tr->p.height / 2);
+    text_print_own(cr, tr, text);
 }
 
-static void text_print_vert_center(cairo_t *cr, box b, char *text) {
-    state.tr->p.width = b.w; state.tr->p.height = b.h;
-    state.tr->p.wrap_char = false;
-    text_get_size(cr, state.tr, text);
+static void text_print_vert_center(cairo_t *cr, struct text_renderer *tr,
+        box b, const char *text) {
+    tr->p.width = b.w; tr->p.height = b.h;
+    tr->p.wrap_char = false;
+    text_get_size(cr, tr, text);
     cairo_move_to(cr, b.x,
-                      b.y + b.h / 2 - state.tr->p.height / 2);
-    text_print_own(cr, state.tr, text);
-    state.tr->p.wrap_char = true;
+                      b.y + b.h / 2 - tr->p.height / 2);
+    text_print_own(cr, tr, text);
+    tr->p.wrap_char = true;
 }
 
-static void text_print_center(cairo_t *cr, box b, char *text) {
-    state.tr->p.width = b.w; state.tr->p.height = b.h;
-    state.tr->p.wrap_char = false;
-    text_get_size(cr, state.tr, text);
-    cairo_move_to(cr, b.x + b.w / 2 - state.tr->p.width / 2,
-                      b.y + b.h / 2 - state.tr->p.height / 2);
-    text_print_own(cr, state.tr, text);
-    state.tr->p.wrap_char = true;
+static void text_print_center(cairo_t *cr, struct text_renderer *tr,
+        box b, const char *text) {
+    tr->p.width = b.w; tr->p.height = b.h;
+    tr->p.wrap_char = false;
+    text_get_size(cr, tr, text);
+    cairo_move_to(cr, b.x + b.w / 2 - tr->p.width / 2,
+                      b.y + b.h / 2 - tr->p.height / 2);
+    text_print_own(cr, tr, text);
+    tr->p.wrap_char = true;
 }
 
 static void cairo_set_source_argb(cairo_t *cr, uint32_t c){
@@ -130,38 +130,8 @@ struct tview_params {
     /* skip view_ran.fr from the start of each slice, and end at view_ran.to */
     struct ts_ran view_ran;
 };
-static void render_tobject_todo(cairo_t *cr, struct tobject *obj, fbox b,
-        struct tview_params p) {
-    double x, y, w, h;
-    if (p.dir) {
-        x = round(b.x + p.pad);
-        y = round(b.y);
-        w = round(b.w - 2 * p.pad);
-        h = round(b.h);
-    } else {
-        x = round(b.x);
-        y = round(b.y + p.pad);
-        w = round(b.w);
-        h = round(b.h - 2 * p.pad);
-    }
-
-    /* fill base rect */
-    uint32_t color = 0xAA00AA00;
-    cairo_set_source_argb(cr, color);
-    cairo_rectangle(cr, x, y, w, h);
-    cairo_fill(cr);
-
-    /* draw label */
-    cairo_set_source_argb(cr, 0xFF000000);
-    cairo_move_to(cr, x, y);
-    state.tr->p.width = w; state.tr->p.height = h;
-    char *text = text_format("TODO: %s", obj->td->summary);
-    text_print_free(cr, state.tr, text);
-}
-static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
-        struct tview_params p) {
-    asrt(obj->type == TOBJECT_EVENT, "object not event");
-    struct event *ev = obj->ev;
+static void render_tobject(cairo_t *cr, struct app *app,
+        struct tobject *obj, fbox b, struct tview_params p) {
     double x, y, w, h;
     if (p.dir) {
         x = round(b.x + p.pad);
@@ -176,14 +146,21 @@ static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
     }
 
     /* calculate color stuff */
-    uint32_t color = ev->color;
-    if (!color) color = 0xFF20D0D0;
-    if (obj->aev->fade) {
-        color = (color & 0x00FFFFFF) | 0x30000000;
-    }
+    uint32_t color;
+    if (obj->type == TOBJECT_EVENT) {
+        color = props_get_color_val(obj->ac->ci->p);
+        if (!color) color = 0xFF20D0D0;
+        if (obj->ac->fade) {
+            color = (color & 0x00FFFFFF) | 0x30000000;
+        }
+    } else if (obj->type == TOBJECT_TODO) {
+        color = 0xAA00AA00;
+    } else asrt(false, "");
     double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
         + ((color >> 16) & 0xFF);
     lightness /= 255.0;
+    bool light = lightness < 0.9 ? true : false;
+    uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
 
     /* fill base rect */
     cairo_set_source_argb(cr, color);
@@ -191,58 +168,63 @@ static void render_tobject_event(cairo_t *cr, struct tobject *obj, fbox b,
     cairo_fill(cr);
 
     /* draw various labels */
-    if (!obj->aev->hide) {
-        bool light = lightness < 0.9 ? true : false;
-        uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
+    if (obj->type == TOBJECT_EVENT && !obj->ac->hide) {
         cairo_set_source_argb(cr, fg);
 
-        if (ev->location) {
-            state.tr->p.width = w; state.tr->p.height = -1;
-            text_get_size(cr, state.tr, ev->location);
+        const char *location = props_get_location(obj->ac->ci->p);
+        if (location) {
+            app->tr->p.width = w; app->tr->p.height = -1;
+            text_get_size(cr, app->tr, location);
         }
-        int loc_h = ev->location ? mini(h / 2, state.tr->p.height) : 0;
+        int loc_h = location ? mini(h / 2, app->tr->p.height) : 0;
 
+        const char *summary = props_get_summary(obj->ac->ci->p);
         cairo_move_to(cr, x, y);
-        state.tr->p.width = w; state.tr->p.height = h - loc_h;
+        app->tr->p.width = w; app->tr->p.height = h - loc_h;
         struct simple_date local_start =
-                simple_date_from_ts(obj->aev->time.fr, state.zone->impl);
+            simple_date_from_ts(obj->ac->ci->time.fr, app->zone);
         struct simple_date local_end =
-                simple_date_from_ts(obj->aev->time.to, state.zone->impl);
+            simple_date_from_ts(obj->ac->ci->time.to, app->zone);
         char *text = text_format("%02d:%02d-%02d:%02d %s",
                 local_start.hour, local_start.minute,
                 local_end.hour, local_end.minute,
-                ev->summary);
-        text_print_free(cr, state.tr, text);
+                summary);
+        text_print_free(cr, app->tr, text);
 
-        if (ev->location) {
+        if (location) {
             cairo_set_source_argb(cr, light ? 0xFFA0A0A0 : 0xFF606060);
             cairo_move_to(cr, x, y+h-loc_h);
 
-            state.tr->p.width = w; state.tr->p.height = loc_h;
-            text_print_own(cr, state.tr, ev->location);
+            app->tr->p.width = w; app->tr->p.height = loc_h;
+            text_print_own(cr, app->tr, location);
         }
+    } else if (obj->type == TOBJECT_TODO) {
+        cairo_set_source_argb(cr, fg);
+        cairo_move_to(cr, x, y);
+        app->tr->p.width = w; app->tr->p.height = h;
+        char *text = text_format("TODO: %s", props_get_summary(obj->ac->ci->p));
+        text_print_free(cr, app->tr, text);
     }
 
     /* draw keycode tags */
-    struct active_event *aev = obj->aev;
-    if (state.keystate == KEYSTATE_SELECT) {
+    if (obj->type == TOBJECT_EVENT && app->keystate == KEYSTATE_SELECT) {
         uint32_t c = (color ^ 0x00FFFFFF) | 0xFF000000;
         cairo_set_source_argb(cr, c);
-        char *text = aev->tag.code;
-        state.tr->p.scale = 3.0;
-        state.tr->p.width = w; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, text);
-        cairo_move_to(cr, x + w/2 - state.tr->p.width/2,
-                          y + h/2 - state.tr->p.height/2);
-        text_print_own(cr, state.tr, aev->tag.code);
-        state.tr->p.scale = 1.0;
+        char *text = obj->ac->code;
+        app->tr->p.scale = 3.0;
+        app->tr->p.width = w; app->tr->p.height = -1;
+        text_get_size(cr, app->tr, text);
+        cairo_move_to(cr, x + w/2 - app->tr->p.width/2,
+                          y + h/2 - app->tr->p.height/2);
+        text_print_own(cr, app->tr, obj->ac->code);
+        app->tr->p.scale = 1.0;
     }
 }
-static void render_tslice(cairo_t *cr, struct tslice *tsl, ts len, fbox b,
-        struct tview_params p) {
+static void render_tslice(cairo_t *cr, struct app *app,
+        struct tslice *tsl, ts len, fbox b, struct tview_params p) {
     struct ts_ran ran = tsl->ran;
-    for (int i = 0; i < tsl->n; ++i) {
-        struct tobject *obj = &tsl->objs[i];
+    for (int i = 0; i < tsl->objs.len; ++i) {
+        struct tobject *obj = vec_get(&tsl->objs, i);
         struct ts_ran time = obj->time;
         time.fr = max_ts(time.fr, ran.fr);
         time.to = min_ts(time.to, ran.to);
@@ -261,13 +243,7 @@ static void render_tslice(cairo_t *cr, struct tslice *tsl, ts len, fbox b,
             nb.w = b.w * pl;
             nb.h = b.h / obj->max_n;
         }
-        if (obj->type == TOBJECT_EVENT) {
-            render_tobject_event(cr, obj, nb, p);
-        } else if (obj->type == TOBJECT_TODO) {
-            render_tobject_todo(cr, obj, nb, p);
-        } else {
-            asrt(false, "unknown tobject type");
-        }
+        render_tobject(cr, app, obj, nb, p);
     }
 
     /* draw time marker red line */
@@ -293,7 +269,7 @@ static void render_tslice(cairo_t *cr, struct tslice *tsl, ts len, fbox b,
         cairo_stroke(cr);
     }
 }
-static void render_tview(cairo_t *cr, struct tview *tv, fbox b,
+static void render_tview(cairo_t *cr, struct app *app, struct tview *tv, fbox b,
         struct tview_params p) {
     ts len = p.view_ran.to - p.view_ran.fr;
 
@@ -329,7 +305,7 @@ static void render_tview(cairo_t *cr, struct tview *tv, fbox b,
     for (int i = 0; i < tv->n; ++i) {
         struct tslice *tsl = &tv->s[i];
         fbox nb = fbox_slice(b, tv->n, i, p.dir);
-        render_tslice(cr, tsl, len, nb, p);
+        render_tslice(cr, app, tsl, len, nb, p);
 
         /* draw lines between slices */
         cairo_set_source_argb(cr, 0xFF000000);
@@ -344,8 +320,8 @@ static void render_tview(cairo_t *cr, struct tview *tv, fbox b,
         cairo_stroke(cr);
     }
 }
-static void render_tview_header(cairo_t *cr, struct tview *tv, fbox b,
-        struct tview_params p) {
+static void render_tview_header(cairo_t *cr, struct app *app,
+        struct tview *tv, fbox b, struct tview_params p) {
     cairo_set_source_argb(cr, 0xFF000000);
     cairo_set_line_width(cr, p.sep_line);
     for (int i = 0; i < tv->n; ++i) {
@@ -362,14 +338,14 @@ static void render_tview_header(cairo_t *cr, struct tview *tv, fbox b,
         cairo_line_to(cr, x2, y2);
         cairo_stroke(cr);
 
-        state.tr->p.scale = 1.5;
-        text_print_center(cr, (box){ nb.x, nb.y, nb.w, nb.h },
+        app->tr->p.scale = 1.5;
+        text_print_center(cr, app->tr, (box){ nb.x, nb.y, nb.w, nb.h },
             tv->s[i].header_label);
-        state.tr->p.scale = 1.0;
+        app->tr->p.scale = 1.0;
     }
 }
-static void render_tview_strip(cairo_t *cr, struct tview *tv, fbox b,
-        struct tview_params p) {
+static void render_tview_strip(cairo_t *cr, struct app *app,
+        struct tview *tv, fbox b, struct tview_params p) {
     cairo_set_source_argb(cr, 0xFF000000);
     ts len = p.view_ran.to - p.view_ran.fr;
     char buf[64];
@@ -392,41 +368,42 @@ static void render_tview_strip(cairo_t *cr, struct tview *tv, fbox b,
                 y = b.y + b.h / 2;
             }
             snprintf(buf, 64, "%02d", l);
-            draw_text(cr, x, y, buf);
+            draw_text(cr, app->tr, x, y, buf);
         }
         if (!any) break;
     }
 }
 
-static void render_sidebar(cairo_t *cr, box b) {
+static void render_sidebar(cairo_t *cr, struct app *app, box b) {
     cairo_translate(cr, b.x, b.y);
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
     int h = 0;
     int pad = 6;
-    for (int i = 0; i < state.n_cal; i++) {
-        bool vis = state.cal_info[i].visible;
-        uint32_t cal_color = state.cal_info[i].color;
-        const char *name = state.cal[i].name;
-        if (!state.show_private_events && state.cal[i].priv) continue;
+    for (int i = 0; i < app->cals.len; ++i) {
+        struct calendar *cal = vec_get(&app->cals, i);
+        struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
+        const char *name = str_cstr(&cal->name);
+        if (!app->show_private_events && cal->priv) continue;
 
         char *text;
-        if (state.interactive) {
+        if (app->interactive) {
             text = text_format("%i: %s", i + 1, name);
         } else {
             text = text_format("%s", name);
         }
-        state.tr->p.width = b.w; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, text);
-        int height = state.tr->p.height;
+        app->tr->p.width = b.w; app->tr->p.height = -1;
+        text_get_size(cr, app->tr, text);
+        int height = app->tr->p.height;
 
-        cairo_set_source_argb(cr, vis ? cal_color : 0xFFFFFFFF);
+        cairo_set_source_argb(cr,
+            cal_info->visible ? cal_info->color : 0xFFFFFFFF);
         cairo_rectangle(cr, 0, h, b.w, height + pad);
         cairo_fill(cr);
 
         cairo_set_source_argb(cr, 0xFF000000);
         cairo_move_to(cr, 0, h + pad / 2);
-        state.tr->p.width = b.w; state.tr->p.height = height;
-        text_print_free(cr, state.tr, text);
+        app->tr->p.width = b.w; app->tr->p.height = height;
+        text_print_free(cr, app->tr, text);
 
         h += height + pad;
         cairo_move_to(cr, 0, h);
@@ -434,13 +411,13 @@ static void render_sidebar(cairo_t *cr, box b) {
         cairo_stroke(cr);
     }
 
-    char **k = state.config_fns;
-    while (*k) {
-        state.tr->p.width = b.w; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, *k);
-        int height = state.tr->p.height;
+    const char **k = app->config_fns;
+    if (k) while (*k) {
+        app->tr->p.width = b.w; app->tr->p.height = -1;
+        text_get_size(cr, app->tr, *k);
+        int height = app->tr->p.height;
 
-        if (state.current_fn == *k) {
+        if (app->current_filter_fn == *k) {
             cairo_set_source_argb(cr, 0xFF00FF00);
             cairo_rectangle(cr, 0, h, b.w, height + pad);
             cairo_fill(cr);
@@ -448,8 +425,8 @@ static void render_sidebar(cairo_t *cr, box b) {
 
         cairo_set_source_argb(cr, 0xFF000000);
         cairo_move_to(cr, 0, h + pad / 2);
-        state.tr->p.width = b.w; state.tr->p.height = height;
-        text_print_own(cr, state.tr, *k);
+        app->tr->p.width = b.w; app->tr->p.height = height;
+        text_print_own(cr, app->tr, *k);
 
         h += height + pad;
         cairo_move_to(cr, 0, h);
@@ -458,22 +435,22 @@ static void render_sidebar(cairo_t *cr, box b) {
         k++;
     }
 
-    if (state.interactive) {
+    if (app->interactive) {
         cairo_set_source_argb(cr, 0xFF000000);
         cairo_move_to(cr, 0, h += 5);
-        state.tr->p.width = b.w; state.tr->p.height = -1;
-        const char *str = state.show_private_events ?
+        app->tr->p.width = b.w; app->tr->p.height = -1;
+        const char *str = app->show_private_events ?
             "show private" : "hide private";
-        text_get_size(cr, state.tr, str);
-        h += state.tr->p.height;
-        text_print_own(cr, state.tr, str);
+        text_get_size(cr, app->tr, str);
+        h += app->tr->p.height;
+        text_print_own(cr, app->tr, str);
 
         cairo_set_source_rgba(cr, .3, .3, .3, 1);
         cairo_move_to(cr, 0, h += 5);
-        state.tr->p.width = b.w; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, usage);
-        h += state.tr->p.height;
-        text_print_own(cr, state.tr, usage);
+        app->tr->p.width = b.w; app->tr->p.height = -1;
+        text_get_size(cr, app->tr, usage);
+        h += app->tr->p.height;
+        text_print_own(cr, app->tr, usage);
     }
 
     cairo_set_source_rgba(cr, 0, 0, 0, 255);
@@ -484,38 +461,48 @@ static void render_sidebar(cairo_t *cr, box b) {
 }
 
 /* return height */
-static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
+static int render_todo_item(cairo_t *cr, struct app *app,
+        struct active_comp *ac, box b) {
     cairo_translate(cr, b.x, b.y);
 
     /* prepare all the info we need */
-    struct todo *td = tag->td;
-    bool overdue = td->due.timestamp != -1 && td->due.timestamp < state.now,
-         inprocess = td->status == ICAL_STATUS_INPROCESS;
-    bool not_started = td->start.timestamp != -1
-        && td->start.timestamp > state.now;
-    double perc = td->percent_complete / 100.0;
+    ts due, start;
+    enum prop_status status;
+    int perc_c, est;
+    bool has_due = props_get_due(ac->ci->p, &due);
+    bool has_start = props_get_start(ac->ci->p, &start);
+    bool has_status = props_get_status(ac->ci->p, &status);
+    bool has_perc_c = props_get_percent_complete(ac->ci->p, &perc_c);
+    bool has_est = props_get_estimated_duration(ac->ci->p, &est);
+    const char *desc = props_get_desc(ac->ci->p);
+    const char *summary = props_get_summary(ac->ci->p);
+
+    bool overdue = has_due && due < app->now;
+    bool inprocess = has_status && status == PROP_STATUS_INPROCESS;
+    bool not_started = has_start && start > app->now;
+    double perc = has_perc_c ? perc_c / 100.0 : 0.0;
     int hpad = 5;
 
     /* skip invisible (TODO: this should not be here...) */
-    if (!tag->vis) {
+    if (!ac->vis) {
         cairo_translate(cr, -b.x, -b.y);
         return 0;
     }
 
     int w = b.w - 80;
     int n = 1;
-    if (td->desc) n += 1;
+    if (desc) n += 1;
 
     /* calculate height */
-    if (td->summary) {
-        state.tr->p.width = w/n - 2*hpad; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, td->summary);
-        b.h = maxi(b.h, state.tr->p.height);
+    if (summary) {
+        app->tr->p.width = w/n - 2*hpad; app->tr->p.height = -1;
+        text_get_size(cr, app->tr, summary);
+        b.h = maxi(b.h, app->tr->p.height);
     }
-    if (td->desc) {
-        state.tr->p.width = w/n - 2*hpad; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, td->desc);
-        b.h = maxi(b.h, state.tr->p.height);
+    if (desc) {
+        app->tr->p.width = w/n - 2*hpad; app->tr->p.height = -1;
+        text_get_size(cr, app->tr, desc);
+        b.h = maxi(b.h, app->tr->p.height);
     }
 
     if (overdue) {
@@ -529,7 +516,7 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
         cairo_set_source_argb(cr, 0xFF88FF88);
         cairo_rectangle(cr, 0, 0, w, b.h);
         cairo_fill(cr);
-    } else if (perc > 0) {
+    } else if (has_perc_c) {
         double w = (b.w - 80) * perc;
         cairo_set_source_argb(cr, 0xFF8888FF);
         cairo_rectangle(cr, 0, 0, w, b.h);
@@ -540,12 +527,12 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
 
     /* draw text in the slots */
     char *text = NULL;
-    if (td->due.timestamp != -1) {
+    if (has_due) {
         free(text);
-        text = natural_date_format(&td->due);
+        text = natural_date_format(app, due);
     }
-    if (td->estimated_duration != -1) {
-        char *text_dur = format_dur(td->estimated_duration);
+    if (has_est) {
+        char *text_dur = format_dur(est);
         if (text != NULL) {
             char *text_comb = text_format("%s\n~%s", text, text_dur);
             free(text);
@@ -557,16 +544,16 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
         free(text_dur);
     }
     if (text) {
-        text_print_center(cr, (box){ b.w - 80, 0, 80, b.h }, text);
+        text_print_center(cr, app->tr, (box){ b.w - 80, 0, 80, b.h }, text);
         free(text);
     }
-    if (td->summary) {
-        text_print_vert_center(cr, (box){ w*0/n + hpad, 0, w/n - 2*hpad, b.h },
-            td->summary);
+    if (summary) {
+        text_print_vert_center(cr, app->tr,
+            (box){ w*0/n + hpad, 0, w/n - 2*hpad, b.h }, summary);
     }
-    if (td->desc) {
-        text_print_vert_center(cr, (box){ w*1/n + hpad, 0, w/n - 2*hpad, b.h },
-            td->desc);
+    if (desc) {
+        text_print_vert_center(cr, app->tr,
+            (box){ w*1/n + hpad, 0, w/n - 2*hpad, b.h }, desc);
     }
 
     /* draw slot separators */
@@ -578,17 +565,17 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
     }
 
     /* draw key tag code */
-    if (state.keystate == KEYSTATE_SELECT) {
+    if (app->keystate == KEYSTATE_SELECT) {
         uint32_t c = 0xFFFF00FF;
         cairo_set_source_argb(cr, c);
-        char *text = tag->code;
-        state.tr->p.scale = 3.0;
-        state.tr->p.width = b.w; state.tr->p.height = -1;
-        text_get_size(cr, state.tr, text);
-        cairo_move_to(cr, b.w/2 - state.tr->p.width/2,
-                          b.h/2 - state.tr->p.height/2);
-        text_print_own(cr, state.tr, text);
-        state.tr->p.scale = 1.0;
+        char *text = ac->code;
+        app->tr->p.scale = 3.0;
+        app->tr->p.width = b.w; app->tr->p.height = -1;
+        text_get_size(cr, app->tr, text);
+        cairo_move_to(cr, b.w/2 - app->tr->p.width/2,
+                          b.h/2 - app->tr->p.height/2);
+        text_print_own(cr, app->tr, text);
+        app->tr->p.scale = 1.0;
     }
 
     /* draw separator on bottom side */
@@ -603,7 +590,7 @@ static int render_todo_item(cairo_t *cr, struct todo_tag *tag, box b) {
     return b.h;
 }
 
-static void render_todo_list(cairo_t *cr, box b) {
+static void render_todo_list(cairo_t *cr, struct app *app, box b) {
     cairo_translate(cr, b.x, b.y);
 
     /* draw separator on top */
@@ -614,43 +601,48 @@ static void render_todo_list(cairo_t *cr, box b) {
     cairo_stroke(cr);
 
     int y = 0;
-    for (int i = 0; i < state.active_todo_n; ++i) {
-        y += render_todo_item(cr, &state.active_todos_tag[i], (box){0,y,b.w,40});
+    for (int i = 0; i < app->active_todos.len; ++i) {
+        struct active_comp *ac = vec_get(&app->active_todos, i);
+        y += render_todo_item(cr, app, ac, (box){0,y,b.w,40});
         if (y > b.h) break;
     }
     cairo_identity_matrix(cr);
 }
 
 bool render_application(void *ud, cairo_t *cr) {
+    struct app *app = ud;
+
+    /* check whether we need to render */
     int w, h;
-    state.backend->vptr->get_window_size(state.backend, &w, &h);
-    time_t now = time(NULL);
-    if (state.now != now) {
-        state.now = now;
-        state.dirty = true;
+    app->backend->vptr->get_window_size(app->backend, &w, &h);
+    ts now = ts_now();
+    if (app->now != now) {
+        app->now = now;
+        app->dirty = true;
     }
-    if (state.window_width != w ||
-            state.window_height != h) {
-        state.window_width = w;
-        state.window_height = h;
-        state.dirty = true;
+    if (app->window_width != w ||
+            app->window_height != h) {
+        app->window_width = w;
+        app->window_height = h;
+        app->dirty = true;
     }
-    if (!state.dirty) return false;
-    struct stopwatch sw = sw_start();
+    if (!app->dirty) return false;
+
+    // struct stopwatch sw = sw_start();
     static int frame_counter = 0;
     ++frame_counter;
 
-    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+    cairo_set_source_argb(cr, 0xFFFFFFFF);
     cairo_paint(cr);
 
     int time_strip_w = 30;
     int sidebar_w = 120;
     int header_h = 60;
-    asrt(state.top_tview.n == 1, "top_tview wrong slices");
-    int top_h = 50 * state.top_tview.s[0].max_overlap;
+    asrt(app->top_tview.n == 1, "top_tview wrong slices");
+    int top_h = 50 * app->top_tview.s[0].max_overlap;
 
     const char *view_name = "";
-    switch (state.main_view) {
+    switch (app->main_view) {
     case VIEW_CALENDAR:
         ;
         fbox cal_box = { sidebar_w, 0, w - sidebar_w, h };
@@ -676,47 +668,47 @@ bool render_application(void *ud, cairo_t *cr) {
             .sep_line = 2,
         };
 
-        if (state.tview_type == TVIEW_DAYS) {
+        if (app->tview_type == TVIEW_DAYS) {
             params.view_ran = (struct ts_ran){
-                state.tview.min_content, state.tview.max_content };
+                app->tview.min_content, app->tview.max_content };
         } else {
-            params.view_ran = (struct ts_ran){ 0, state.tview.max_len };
+            params.view_ran = (struct ts_ran){ 0, app->tview.max_len };
         }
-        render_tview(cr, &state.tview, main_box, params);
-        render_tview_header(cr, &state.tview, header_box, params);
-        if (state.tview_type == TVIEW_DAYS) {
-            render_tview_strip(cr, &state.tview, time_strip_box, params);
+        render_tview(cr, app, &app->tview, main_box, params);
+        render_tview_header(cr, app, &app->tview, header_box, params);
+        if (app->tview_type == TVIEW_DAYS) {
+            render_tview_strip(cr, app, &app->tview, time_strip_box, params);
         }
 
         params.dir = false;
-        params.view_ran = (struct ts_ran){ 0, state.top_tview.max_len };
-        render_tview(cr, &state.top_tview, top_box, params);
+        params.view_ran = (struct ts_ran){ 0, app->top_tview.max_len };
+        render_tview(cr, app, &app->top_tview, top_box, params);
         view_name = "calendar";
         break;
     case VIEW_TODO:
-        render_todo_list(cr,
+        render_todo_list(cr, app,
             (box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
         view_name = "todo";
     }
-    render_sidebar(cr, (box){ 0, header_h, sidebar_w, h-header_h });
+    render_sidebar(cr, app, (box){ 0, header_h, sidebar_w, h-header_h });
 
-    if (state.n_cal > 0 && state.interactive) {
+    if (app->interactive) {
         cairo_move_to(cr, 0, 0);
 
-        struct tm t = timet_to_tm_with_zone(state.now, state.zone->impl);
+        struct simple_date sd = simple_date_from_ts(app->now, app->zone);
         char *text = text_format(
                 "%s\rframe %d\r%02d:%02d:%02d\rmode: %s",
-                get_timezone_desc(state.zone),
+                cal_timezone_get_desc(app->zone),
                 frame_counter,
-                t.tm_hour, t.tm_min, t.tm_sec,
+                sd.hour, sd.minute, sd.second,
                 view_name);
-        state.tr->p.width = -1 /* sidebar_w */; state.tr->p.height = header_h;
-        state.tr->p.scale = 0.9;
-        text_print_free(cr, state.tr, text);
-        state.tr->p.scale = 1.0;
+        app->tr->p.width = -1 /* sidebar_w */; app->tr->p.height = header_h;
+        app->tr->p.scale = 0.9;
+        text_print_free(cr, app->tr, text);
+        app->tr->p.scale = 1.0;
     }
 
-    state.dirty = false;
+    app->dirty = false;
     // sw_end_print(sw, "render_application");
     return true;
 }

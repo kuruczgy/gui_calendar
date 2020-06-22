@@ -5,129 +5,77 @@
 #include <stdbool.h>
 #include <sys/types.h>
 #include <sys/time.h>
-#include <libical/ical.h>
 
 #include "hashmap.h"
 #include "datetime.h"
+#include "vec.h"
+#include "props.h"
 
-struct cal_timezone {
-    icaltimezone *impl;
-    char *desc;
-};
-
-struct cats {
-    char *data;
-    char **list;
-    int n, l; // l: length of data - 1
-};
-
-struct event {
-    char *summary;
-    struct date start, end;
-    uint32_t color;
-    char *color_str;
-    char *location;
-    char *desc;
-    enum icalproperty_status status;
-    enum icalproperty_class clas;
-    struct cats cats;
-    bool all_day;
-    // DEP: struct event
-};
-
-struct event_recur_instance {
-    struct event_recur_instance *next;
-    struct event ev;
-    time_t recurrence_id;
-};
-
-struct event_recur_set {
-    char *uid;
-    struct event base;
-    int max, n; /* max = 0 means no recurrence */
-    struct event_recur_instance *instances;
-    time_t set[];
-};
-
-struct todo {
-    char *uid, *summary, *desc;
-    struct date start, due;
-    enum icalproperty_status status;
-    enum icalproperty_class clas;
-    int estimated_duration;
-    int percent_complete;
-    struct cats cats;
-    // DEP: struct todo
-};
-
-struct calendar {
-    map_t event_sets;
-    map_t todos;
-    char *name;
-    char *storage;
-    bool priv;
-    struct timespec loaded;
-};
+struct recurrence;
 
 enum comp_type {
     COMP_TYPE_EVENT,
     COMP_TYPE_TODO
 };
+struct comp_recur_inst {
+    ts recurrence_id;
+    struct props p;
+};
+struct comp {
+    struct str uid;
+    enum comp_type type;
+    struct props p;
+    struct vec recur_insts; /* vec<struct comp_recur_inst> */
+    struct recurrence *recur;
+    bool all_expanded;
+};
+void comp_init(struct comp *c, struct str uid, enum comp_type type);
+int comp_init_from_ics(struct comp *c, FILE *f);
+void comp_finish(struct comp *c);
+bool comp_equal(const struct comp *a, const struct comp *b);
 
-struct cal_timezone *new_timezone(const char *location);
-void free_timezone(struct cal_timezone *zone);
-const char *get_timezone_desc(struct cal_timezone *zone);
+typedef void (*comp_recur_cb)(void *cl, struct ts_ran time, struct props *p);
+struct props * comp_recur_expand(struct comp *c, ts to,
+        comp_recur_cb cb, void *cl);
+
+struct comp_inst {
+    struct comp *c;
+    int comp_idx;
+    struct props *p;
+    struct ts_ran time;
+};
+
+struct calendar {
+    struct vec comps_vec; /* vec<struct comp> */
+    struct hashmap comps_map; /* hashmap<int> */
+    struct vec comp_infos; /* vec<struct comp_info> */
+    struct vec cis; /* vec<struct comp_inst> */
+    struct str name;
+    struct str storage;
+    bool priv;
+    struct timespec loaded;
+    bool comps_dirty;
+};
+void calendar_init(struct calendar* cal);
+void calendar_finish(struct calendar *cal);
+
+/* returns -1 if uid already exists */
+int calendar_new_comp(struct calendar *cal, struct str uid,
+        enum comp_type type);
+/* returns -1 if uid already exists */
+int calendar_add_comp(struct calendar *cal, struct comp c);
+
+/* returns -1 if not found */
+int calendar_find_comp(struct calendar *cal, const char *uid);
+void calendar_delete_comp(struct calendar *cal, int idx);
+
+struct comp * calendar_get_comp(struct calendar *cal, int idx);
+
+void calendar_expand_instances_to(struct calendar *cal, ts to);
 
 void update_calendar_from_storage(struct calendar *cal,
-        icaltimezone *local_zone);
-int libical_parse_event(icalcomponent *c, struct calendar *cal,
-        icaltimezone *local_zone);
-int libical_parse_todo(icalcomponent *c, struct calendar *cal,
-        icaltimezone *local_zone);
-int libical_parse_ics(FILE *f, struct calendar *cal, icaltimezone *local_zone);
-icalcomponent* libical_component_from_file(FILE *f);
-
-/* note: you must initialize base before calling free_event_recur_set */
-struct event_recur_set * event_recur_set_create(const char *uid, int max);
-
-/* object init functions */
-void calendar_init(struct calendar* cal);
-void event_init(struct event *ev);
-void todo_init(struct todo *td);
-void cats_init(struct cats *cs, const char *text);
-
-/* object destruct functions */
-void calendar_finish(struct calendar *cal);
-void event_finish(struct event *ev);
-void todo_finish(struct todo *td);
-void cats_finish(struct cats *cs);
-
-/* object free functions: also free memory */
-void free_event_recur_set(struct event_recur_set *ers);
-
-/* object copy functions: dst must be uninitialized */
-void copy_event(struct event *ev_dest, const struct event *ev_src);
-void copy_todo(struct todo *dst, const struct todo *src);
-
-/* object methods */
-struct event * event_recur_set_get(struct event_recur_set *ers, int i,
-        time_t *start, time_t *end);
-void event_update_derived(struct event *ev);
-char * cats_to_str(struct cats *cs);
-
-/* takes ownership of event */
-int save_event(struct event ev, char **uid_ptr, struct calendar *cal, bool del,
-        time_t recurrence_id);
-int save_todo(struct todo td, struct calendar *cal, bool del);
-
-/* missing libical stuff */
-enum icalproperty_class icalcomponent_get_class(icalcomponent *c);
-void icalcomponent_set_class(icalcomponent *c, enum icalproperty_class v);
-void icalcomponent_set_color(icalcomponent *c, const char *v);
-void icalcomponent_remove_properties(icalcomponent *c, icalproperty_kind kind);
-void icalcomponent_set_estimatedduration(icalcomponent *c,
-        struct icaldurationtype v);
-void icalcomponent_set_percentcomplete(icalcomponent *c, int v);
+        struct cal_timezone *local_zone);
+int libical_parse_ics(FILE *f, struct calendar *cal);
 
 /* subprocess stuff */
 struct subprocess_handle;
@@ -136,7 +84,16 @@ struct subprocess_handle* subprocess_new_input(const char *file,
 FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
 
 /* calendar utility functions */
-const char * cal_status_str(enum icalproperty_status v);
-const char * cal_class_str(enum icalproperty_class v);
+const char * cal_status_str(enum prop_status v);
+const char * cal_class_str(enum prop_class v);
+
+/* struct recurrence */
+typedef void (*recur_cb)(void *cl, ts t);
+void recurrence_expand(struct recurrence *recur, ts to, recur_cb cb, void *cl);
+void recurrence_destroy(struct recurrence *recur);
+void recurrence_reset(struct recurrence *recur);
+
+/* struct props */
+bool props_valid_for_type(const struct props *p, enum comp_type type);
 
 #endif

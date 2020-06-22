@@ -362,10 +362,13 @@ struct uexpr_impl {
     struct vec ast;
     int root;
 };
+struct fn_def {
+    const char *name;
+    int i;
+};
 struct context {
-    map_t vars;
-    map_t defs_map;
-    struct vec defs_list;
+    struct hashmap vars; /* hashmap<struct value> */
+    struct hashmap defs_map; /* hashmap<struct fn_def> */
     void *cl;
     uexpr_get get;
     uexpr_set set;
@@ -423,7 +426,7 @@ static struct value get_var(struct context *ctx, const char *key) {
         free(vp);
         return res;
     }
-    if (hashmap_get(ctx->vars, key, (void**)&vp) == MAP_OK) {
+    if (hashmap_get(&ctx->vars, key, (void**)&vp) == MAP_OK) {
         if (vp->type == TYPE_STRING) {
             return value_copy(vp);
         } else if (vp->type == TYPE_BOOLEAN) {
@@ -439,15 +442,12 @@ static void set_var(struct context *ctx, const char *key, struct value val) {
             return;
         }
     }
-    struct value *v;
-    if (hashmap_get(ctx->vars, key, (void**)&v) == MAP_OK) {
-        hashmap_remove(ctx->vars, key);
-        value_finish(*v);
-        free(v);
+    struct value *vp;
+    if (hashmap_get(&ctx->vars, key, (void**)&vp) == MAP_OK) {
+        value_finish(*vp);
+        hashmap_remove(&ctx->vars, key);
     }
-    v = malloc_check(sizeof(struct value));
-    *v = val;
-    hashmap_put(ctx->vars, (char*)key, v); // TODO: const cast
+    hashmap_put(&ctx->vars, key, &val);
 }
 
 /* ## Builtin functions */
@@ -524,8 +524,8 @@ static struct value fn_def(struct vec *ast, int root, struct context *ctx) {
     if (na->op != OP_LIT) return error_val;
     const char *name = str_cstr(&na->str);
     int *i = vec_get(&np->args, 1);
-    hashmap_put(ctx->defs_map, (char*)name, (void*)i); // TODO: const cast
-    vec_append(&ctx->defs_list, &name);
+    struct fn_def fn_def = { .name = name, .i = *i };
+    hashmap_put(&ctx->defs_map, name, &fn_def);
     return void_val;
 }
 struct fn {
@@ -770,23 +770,21 @@ uexpr uexpr_parse(FILE *f) {
     impl->root = root;
     return impl;
 }
-static int iter_free_ctx_vars(void *_cl, void *data) {
-    struct value *vp = data;
+static int iter_finish_ctx_vars(void *_cl, void *item) {
+    struct value *vp = item;
     value_finish(*vp);
-    free(vp);
     return MAP_OK;
 }
 
 uexpr_ctx uexpr_ctx_create(uexpr e) {
     struct context *ctx = malloc_check(sizeof(struct context));
     *ctx = (struct context){
-        .vars = hashmap_new(),
-        .defs_map = hashmap_new(),
-        .defs_list = vec_new_empty(sizeof(char*)),
         .get = NULL,
         .set = NULL,
         .uexpr = (struct uexpr_impl*)e
     };
+    hashmap_init(&ctx->vars, sizeof(struct value));
+    hashmap_init(&ctx->defs_map, sizeof(struct fn_def));
     return (void*)ctx;
 }
 void uexpr_ctx_set_handlers(uexpr_ctx _ctx, uexpr_get get, uexpr_set set,
@@ -798,30 +796,46 @@ void uexpr_ctx_set_handlers(uexpr_ctx _ctx, uexpr_get get, uexpr_set set,
 }
 void uexpr_ctx_destroy(uexpr_ctx _ctx) {
     struct context *ctx = _ctx;
-    hashmap_iterate(ctx->vars, &iter_free_ctx_vars, NULL);
-    hashmap_free(ctx->vars);
-    hashmap_free(ctx->defs_map);
-    vec_free(&ctx->defs_list);
+    hashmap_iterate(&ctx->vars, &iter_finish_ctx_vars, NULL);
+    hashmap_finish(&ctx->vars);
+    hashmap_finish(&ctx->defs_map);
+    free(ctx);
 }
 uexpr_fn uexpr_ctx_get_fn(uexpr_ctx _ctx, const char *name) {
     struct context *ctx = _ctx;
-    int *i;
-    if (hashmap_get(ctx->defs_map, name, (void**)&i) != MAP_OK) return NULL;
-    return i;
+    struct fn_def *fn_def;
+    if (hashmap_get(&ctx->defs_map, name, (void**)&fn_def) != MAP_OK) return -1;
+    return fn_def->i;
 }
-char ** uexpr_get_all_fns(uexpr_ctx _ctx) {
+struct iter_get_fn_names_cl {
+    const char **res;
+    int i;
+};
+static int iter_get_fn_names(void *_cl, void *item) {
+    struct iter_get_fn_names_cl *cl = _cl;
+    struct fn_def *fn_def = item;
+    cl->res[cl->i++] = fn_def->name;
+    return MAP_OK;
+}
+static int char_ptr_cmp(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
+}
+const char ** uexpr_get_all_fns(uexpr_ctx _ctx) {
     struct context *ctx = _ctx;
-    char ** res = malloc_check(sizeof(char*) * (ctx->defs_list.len + 1));
-    for (int i = 0; i < ctx->defs_list.len; ++i) {
-        res[i] = *(char**)vec_get(&ctx->defs_list, i);
-    }
-    res[ctx->defs_list.len] = NULL;
-    return res;
+    struct iter_get_fn_names_cl cl = {
+        .res = malloc_check(
+            sizeof(const char *) * (hashmap_length(&ctx->defs_map) + 1)),
+        .i = 0
+    };
+    hashmap_iterate(&ctx->defs_map, &iter_get_fn_names, &cl);
+    qsort(cl.res, cl.i, sizeof(const char *), char_ptr_cmp);
+    cl.res[cl.i++] = NULL;
+    return cl.res;
 }
 bool uexpr_eval_fn(uexpr_ctx _ctx, uexpr_fn fn) {
     asrt(fn, "bad fn");
     struct context *ctx = _ctx;
-    int i = *(int*)fn;
+    int i = fn;
     struct value val = eval(&ctx->uexpr->ast, i, ctx);
     bool res = val.type == TYPE_BOOLEAN && val.boolean;
     value_finish(val);
@@ -829,7 +843,7 @@ bool uexpr_eval_fn(uexpr_ctx _ctx, uexpr_fn fn) {
 }
 bool uexpr_eval(uexpr_ctx _ctx) {
     struct context *ctx = _ctx;
-    return uexpr_eval_fn(_ctx, &ctx->uexpr->root);
+    return uexpr_eval_fn(_ctx, ctx->uexpr->root);
 }
 
 void uexpr_print(uexpr e, FILE *f) {
@@ -861,7 +875,7 @@ bool uexpr_get_boolean(uexpr_val val, bool *b) {
 uexpr_val uexpr_create_string(const char *s) {
     struct value *vp = malloc_check(sizeof(struct value));
     vp->type = TYPE_STRING;
-    vp->string_ref = s;
+    vp->string_ref = s ? s : ""; // this is not exactly the nicest...
     return (void*)vp;
 }
 uexpr_val uexpr_create_boolean(bool b) {
@@ -870,7 +884,7 @@ uexpr_val uexpr_create_boolean(bool b) {
     vp->boolean = b;
     return (void*)vp;
 }
-uexpr_val uexpr_create_list_string(char **s, int n) {
+uexpr_val uexpr_create_list_string(const char **s, int n) {
     struct value *vp = malloc_check(sizeof(struct value));
     vp->type = TYPE_LIST;
     vp->list = vec_new_empty(sizeof(struct value));

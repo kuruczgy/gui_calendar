@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
-#include "hashmap.h"
+
+#include "vec.h"
 
 int os_create_anonymous_file(off_t size);
 char* create_tmpfile_template();
@@ -14,6 +15,6 @@ char *str_dup(const char *s);
 void trim_end(char *s);
 void generate_uid(char buf[64]);
 bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2);
-const char * most_frequent(map_t source, char *(*cb)(void*));
+const char * most_frequent(const struct vec *source, const char *(*cb)(void*));
 
 #endif

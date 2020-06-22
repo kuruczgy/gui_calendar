@@ -5,35 +5,31 @@
 #include "algo.h"
 #include "core.h"
 
-void destruct_tslice(struct tslice *tsl) {
+static void tslice_finish(struct tslice *tsl) {
     free(tsl->lines.s);
     tsl->lines.s = NULL;
     tsl->lines.n = -1;
 
-    free(tsl->objs);
-    tsl->objs = NULL;
-    tsl->n = -1;
+    vec_free(&tsl->objs);
 
     free(tsl->header_label);
     tsl->header_label = NULL;
 }
-void destruct_tview(struct tview *tv) {
+void tview_finish(struct tview *tv) {
     for (int i = 0; i < tv->n; ++i) {
-        destruct_tslice(&tv->s[i]);
+        tslice_finish(&tv->s[i]);
     }
     free(tv->s);
     *tv = (struct tview){ .s = NULL, .n = -1 };
 }
-static void init_tslice(struct tslice *tsl) {
-    tsl->objs = NULL;
-    tsl->n = 0;
-    tsl->max = -1;
+static void tslice_init(struct tslice *tsl) {
+    tsl->objs = vec_new_empty(sizeof(struct tobject));
 }
 static void alloc_n_slices(struct tview *tv, int n) {
     tv->s = malloc_check(sizeof(struct tslice) * n);
     tv->n = n;
     for (int i = 0; i < n; ++i) {
-        init_tslice(&tv->s[i]);
+        tslice_init(&tv->s[i]);
     }
 }
 static void alloc_lines(struct tslice *tsl, int n) {
@@ -42,15 +38,8 @@ static void alloc_lines(struct tslice *tsl, int n) {
         .n = n
     };
 }
-void init_tview_slices(struct tview *tv, int max) {
-    tv->max = max;
-    for (int i = 0; i < tv->n; ++i) {
-        tv->s[i].objs = malloc_check(sizeof(struct tobject) * max);
-        tv->s[i].max = max;
-    }
-}
 
-void init_tview_range(struct tview *tv, struct tview_spec *spec) {
+void tview_init_range(struct tview *tv, struct tview_spec *spec) {
     alloc_n_slices(tv, 1);
 
     struct tslice *tsl = &tv->s[0];
@@ -62,12 +51,14 @@ void init_tview_range(struct tview *tv, struct tview_spec *spec) {
     tsl->lines.s = NULL;
 
     tv->max_len = tsl->ran.to - tsl->ran.fr;
+    tv->ran_hull = tsl->ran;
 }
 
-void init_tview(struct tview *tv, struct tview_spec *spec) {
+void tview_init(struct tview *tv, struct tview_spec *spec) {
     if (spec->type == TVIEW_RANGE) asrt(spec->n == 1, "wrong spec");
     alloc_n_slices(tv, spec->n);
     tv->max_len = -1;
+    tv->ran_hull = (struct ts_ran){ -1, -1 };
     struct simple_date base = simple_date_from_ts(spec->base, spec->zone);
     base.second = base.minute = base.hour = 0;
     for (int i = 0; i < tv->n; ++i) {
@@ -131,8 +122,12 @@ void init_tview(struct tview *tv, struct tview_spec *spec) {
             asrt(false, "wrong tview type");
             break;
         }
+
         ts len = r->to - r->fr;
         tv->max_len = max_ts(tv->max_len, len);
+
+        if (tv->ran_hull.fr == -1) tv->ran_hull = *r;
+        else tv->ran_hull = ts_ran_hull(tv->ran_hull, *r);
     }
     spec->to = tv->s[tv->n - 1].ran.to;
     tv->min_content = tv->max_len + 1; tv->max_content = -1;
@@ -142,8 +137,7 @@ bool tview_try_put(struct tview *tv, struct tobject obj) {
     for (int i = 0; i < tv->n; ++i) {
         struct tslice *tsl = &tv->s[i];
         if (ts_ran_overlap(tsl->ran, obj.time)) {
-            asrt(tsl->n < tsl->max, "tslice reached max limit");
-            tsl->objs[tsl->n++] = obj;
+            vec_append(&tsl->objs, &obj);
             struct ts_ran ran = {
                 obj.time.fr - tsl->ran.fr, obj.time.to - tsl->ran.fr };
             if (ran.fr < tv->min_content)
@@ -156,28 +150,29 @@ bool tview_try_put(struct tview *tv, struct tobject obj) {
     return inserted;
 }
 void tview_update_layout(struct tview *tv) {
-    struct layout_event *la =
-        malloc_check(sizeof(struct layout_event) * tv->max);
+    struct vec la = vec_new_empty(sizeof(struct layout_event));
     for (int i = 0; i < tv->n; ++i) {
         struct tslice *tsl = &tv->s[i];
-        asrt(tsl->n <= tv->max, "too small tview max");
-        for (int k = 0; k < tsl->n; ++k) {
-            struct tobject *obj = &tsl->objs[k];
-            la[k] = (struct layout_event){
+        for (int k = 0; k < tsl->objs.len; ++k) {
+            struct tobject *obj = vec_get(&tsl->objs, k);
+            struct layout_event l = {
                 .time = obj->time,
                 .idx = k
             };
+            vec_append(&la, &l);
         }
-        calendar_layout(la, tsl->n);
+        calendar_layout(la.d, la.len);
         tsl->max_overlap = 0;
-        for (int k = 0; k < tsl->n; ++k) {
-            struct tobject *obj = &tsl->objs[la[k].idx];
-            obj->max_n = la[k].max_n;
-            obj->col = la[k].col;
+        for (int k = 0; k < la.len; ++k) {
+            struct layout_event *l = vec_get(&la, k);
+            struct tobject *obj = vec_get(&tsl->objs, l->idx);
+            obj->max_n = l->max_n;
+            obj->col = l->col;
             if (obj->max_n > tsl->max_overlap) tsl->max_overlap = obj->max_n;
         }
+        vec_clear(&la);
     }
-    free(la);
+    vec_free(&la);
 
     /* extend to full range if there is no content */
     if (tv->min_content > tv->max_len) tv->min_content = 0;

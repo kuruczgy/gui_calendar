@@ -1,10 +1,9 @@
 #ifndef GUI_CALENDAR_VIEWS_H
 #define GUI_CALENDAR_VIEWS_H
 #include "datetime.h"
+#include "vec.h"
 
-struct event;
-struct event_recur_set;
-struct active_event;
+struct active_comp;
 struct icaltimezone;
 
 enum tobject_type {
@@ -16,16 +15,7 @@ struct tobject {
     struct ts_ran time;
     int max_n, col;
     enum tobject_type type;
-    union {
-        struct {
-            struct event_recur_set *ers;
-            struct event *ev;
-            struct active_event *aev;
-        };
-        struct {
-            struct todo *td;
-        };
-    };
+    struct active_comp *ac;
 };
 
 struct tslice_lines {
@@ -38,10 +28,12 @@ struct tslice_lines {
  * should at least partially overlap with it. */
 struct tslice {
     struct ts_ran ran;
-    struct tobject *objs;
-    int max, n;
+    struct vec objs; /* vec<struct tobject> */
     char *header_label;
     struct tslice_lines lines;
+
+    /* maximum number of concurrent objects.
+     * calculated by tview_update_layout */
     int max_overlap;
 };
 
@@ -49,7 +41,15 @@ struct tview {
     struct tslice *s;
     int n;
     int max; // largest tslice size
-    ts max_len, min_content, max_content;
+
+    /* the lenght of the longest slice */
+    ts max_len;
+
+    /* the min and max offset content is contained in any slice */
+    ts min_content, max_content;
+
+    /* hull of the ranges of all slices */
+    struct ts_ran ran_hull;
 };
 
 enum tview_type {
@@ -66,20 +66,18 @@ struct tview_spec {
     int n; // number of slices
     int h1, h2; // from/to hour
     ts to; // range to (returned by init_tview, used by init_tview_range)
-    icaltimezone *zone;
+    struct cal_timezone *zone;
 };
 
 /* sequence:
- * init_tview (or init_tview_range)
- * init_tview_slices
+ * tview_init (or tview_init_range)
  * tview_try_put for each event
  * tview_update_layout after finished adding events
- * destruct_tview at the end
+ * tview_finish at the end
  */
-void destruct_tview(struct tview *tv);
-void init_tview_range(struct tview *tv, struct tview_spec *spec);
-void init_tview(struct tview *tv, struct tview_spec *spec);
-void init_tview_slices(struct tview *tv, int max);
+void tview_finish(struct tview *tv);
+void tview_init_range(struct tview *tv, struct tview_spec *spec);
+void tview_init(struct tview *tv, struct tview_spec *spec);
 bool tview_try_put(struct tview *tv, struct tobject obj);
 void tview_update_layout(struct tview *tv);
 

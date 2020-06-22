@@ -9,6 +9,8 @@
 
 #include "core.h"
 #include "util.h"
+#include "vec.h"
+#include "hashmap.h"
 
 /* start weston section: most of this is from the weston examples */
 
@@ -123,41 +125,47 @@ bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
     return a1 < b2 && a2 > b1;
 }
 
-struct iter_cl {
-    map_t map;
-    int cnt[150];
-    const char * key[150];
-    int cnt_n;
-    char *(*cb)(void*);
-};
-static int iter(void *_cl, void *data) {
-    struct iter_cl *cl = _cl;
-    char *key = cl->cb(data);
-    int *out;
-    if (!key) return MAP_OK;
-    if (hashmap_get(cl->map, key, (void**)&out) == MAP_OK) {
-        ++(*out);
-    } else {
-        if (cl->cnt_n < 150) {
-            out = &cl->cnt[cl->cnt_n];
-            cl->key[cl->cnt_n] = key;
-            ++cl->cnt_n;
-            *out = 1;
-            hashmap_put(cl->map, key, out);
+const char * most_frequent(const struct vec *source, const char *(*cb)(void*)) {
+    struct hashmap map; /* hashmap<int*> */
+    hashmap_init(&map, sizeof(int*));
+    struct vec cnt = vec_new_empty(sizeof(int));
+    struct vec keys = vec_new_empty(sizeof(const char*));
+
+    for (int i = 0; i < source->len; ++i) {
+        const char *key = cb(vec_get((struct vec *)source, i)); /* const cast */
+        if (!key) continue;
+        int *k;
+        int **res;
+        if (hashmap_get(&map, key, (void**)&res) != MAP_OK) {
+            int zero = 0;
+            k = vec_get(&cnt, vec_append(&cnt, &zero));
+            vec_append(&keys, &key);
+            hashmap_put(&map, key, &k);
+        } else {
+            k = *res;
+        }
+        ++*k;
+    }
+
+
+    if (cnt.len == 0) return NULL;
+    int maxi = 0, val_maxi = *(int*)vec_get(&cnt, 0);
+    for (int i = 1; i < cnt.len; ++i) {
+        int val_i = *(int*)vec_get(&cnt, i);
+        if (val_maxi < val_i) {
+            maxi = i;
+            val_maxi = val_i;
         }
     }
-    return MAP_OK;
+    const char *res =  *(const char **)vec_get(&keys, maxi);
+
+    hashmap_finish(&map);
+    vec_free(&cnt);
+    vec_free(&keys);
+
+    return res;
 }
 
-const char * most_frequent(map_t source, char *(*cb)(void*)) {
-    struct iter_cl cl = { .map = hashmap_new(), .cnt_n = 0, .cb = cb };
-    hashmap_iterate(source, &iter, &cl);
-    hashmap_free(cl.map);
-
-    if (cl.cnt_n == 0) return NULL;
-    int maxi = 0;
-    for (int i = 1; i < cl.cnt_n; ++i) {
-        if (cl.cnt[maxi] < cl.cnt[i]) maxi = i;
-    }
-    return cl.key[maxi];
+void vec_sort(struct vec *v, sort_lt lt, void *cl) {
+    heapsort(v->d, v->len, v->itemsize, lt, cl);
 }

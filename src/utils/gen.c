@@ -20,18 +20,18 @@ int main(int argc, char **argv) {
     const char *summary = argv[5];
     const char *out_dir = argv[6];
 
-    struct cal_timezone *zone  = new_timezone("Europe/Budapest");
+    struct cal_timezone *zone  = cal_timezone_new("Europe/Budapest");
 
     char path[1024];
     for (int i = 0; i < n; i += incr) {
-        time_t due_base = simple_date_to_timet(due, zone->impl);
-        time_t start_base = simple_date_to_timet(start, zone->impl);
-        timet_adjust_days(&due_base, zone->impl, i);
-        timet_adjust_days(&start_base, zone->impl, i);
-        icaltimetype tdue = icaltime_from_timet_with_zone(due_base, 0,
-                icaltimezone_get_utc_timezone());
-        icaltimetype tstart = icaltime_from_timet_with_zone(start_base, 0,
-                icaltimezone_get_utc_timezone());
+        ts due_base = simple_date_to_ts(due, zone);
+        ts start_base = simple_date_to_ts(start, zone);
+        ts_adjust_days(&due_base, zone, i);
+        ts_adjust_days(&start_base, zone, i);
+        icaltimetype tdue = icaltime_from_timet_with_zone(
+            (time_t)due_base, 0, icaltimezone_get_utc_timezone());
+        icaltimetype tstart = icaltime_from_timet_with_zone(
+            (time_t)start_base, 0, icaltimezone_get_utc_timezone());
 
         char uid_buf[64];
         generate_uid(uid_buf);
