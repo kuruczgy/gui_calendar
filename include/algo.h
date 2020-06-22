@@ -1,6 +1,7 @@
 #ifndef GUI_CALENDAR_ALGO_H
 #define GUI_CALENDAR_ALGO_H
 #include <stddef.h>
+#include <stdbool.h>
 #include "datetime.h"
 #include "calendar.h"
 
@@ -29,5 +30,8 @@ struct ts_ran * todo_schedule(ts base, int n, struct ts_ran *E,
  * Returns true unless the input is the last k-permutation.
  */
 int next_k_permutation(int* elements, size_t n, size_t k);
+
+typedef bool(*sort_lt)(void *a, void *b, void *cl);
+void heapsort(void *a, int count, size_t is, sort_lt lt, void *cl);
 
 #endif

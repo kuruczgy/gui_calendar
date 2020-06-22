@@ -68,6 +68,7 @@ src_common = [
   'src/common/algo/perm.c',
   'src/common/algo/calendar_layout.c',
   'src/common/algo/todo_schedule.c',
+  'src/common/algo/heapsort.c',
 ]
 dep_common = [ libical ]
 lib_common = static_library(
