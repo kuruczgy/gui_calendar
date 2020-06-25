@@ -10,7 +10,7 @@
 int os_create_anonymous_file(off_t size);
 char* create_tmpfile_template();
 int set_cloexec_or_close(int fd);
-uint32_t lookup_color(const char *name);
+uint32_t lookup_color(const char *name, size_t len);
 char *str_dup(const char *s);
 void trim_end(char *s);
 void generate_uid(char buf[64]);

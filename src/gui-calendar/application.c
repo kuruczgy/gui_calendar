@@ -771,7 +771,7 @@ void app_init(struct app *app, struct application_options opts,
 
         /* calculate most frequent color */
         const char *fc = most_frequent(&cal.comps_vec, &get_comp_color);
-        uint32_t color = lookup_color(fc);
+        uint32_t color = fc ? lookup_color(fc, strlen(fc)) : 0;
         if (!color) color = 0xFF20D0D0;
         cal_info.color = color;
 

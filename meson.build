@@ -38,6 +38,24 @@ xdg_shell_private_target = custom_target(
   output: '@0@-client-protocol.c'.format(base_file),
 )
 
+# gperf lookup table code generation
+prog_gperf = find_program('gperf')
+gperf_tables = {}
+if prog_gperf.found()
+  foreach gp : [ 'src/common/colors.gperf']
+    basename = gp.split('.')[-2].split('/')[-1]
+    output = basename + '.c'
+    message('making target:', output)
+    target = custom_target(output,
+      input : gp,
+      output : output,
+      command : [ prog_gperf, '@INPUT@', '--output-file=@OUTPUT@' ],
+      build_by_default: true
+    )
+    gperf_tables += { output : target }
+  endforeach
+endif
+
 # Source files
 incdir = include_directories('include')
 
@@ -59,7 +77,7 @@ lib_container = static_library(
 )
 
 src_common = [
-  'src/common/colors.c',
+  gperf_tables.get('colors.c'),
   'src/common/calendar.c',
   'src/common/datetime.c',
   'src/common/libical_iface.c',

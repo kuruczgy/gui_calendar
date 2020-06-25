@@ -27,13 +27,13 @@ void test_todo_schedule() {
 }
 
 void test_lookup_color() {
-    asrt(lookup_color("cornflowerblue") == 0xFF6495ED, "");
-    asrt(lookup_color("yellowgreen") == 0xFF9ACD32, "");
-    asrt(lookup_color("aliceblue") == 0xFFF0F8FF, "");
-    asrt(lookup_color("black") == 0xFF000000, "");
-    asrt(lookup_color("aaa") == 0, "");
-    asrt(lookup_color("eee") == 0, "");
-    asrt(lookup_color("zzz") == 0, "");
+    asrt(lookup_color("cornflowerblue", 14) == 0xFF6495ED, "");
+    asrt(lookup_color("yellowgreen", 11) == 0xFF9ACD32, "");
+    asrt(lookup_color("aliceblue", 9) == 0xFFF0F8FF, "");
+    asrt(lookup_color("black", 5) == 0xFF000000, "");
+    asrt(lookup_color("aaa", 3) == 0, "");
+    asrt(lookup_color("eee", 3) == 0, "");
+    asrt(lookup_color("zzz", 3) == 0, "");
 }
 
 extern void test_editor_parser();
