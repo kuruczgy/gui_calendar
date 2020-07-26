@@ -144,6 +144,7 @@ static void render_tobject(cairo_t *cr, struct app *app,
         w = round(b.w);
         h = round(b.h - 2 * p.pad);
     }
+    bool draw_labels = w > 8 && h > 8;
 
     /* calculate color stuff */
     uint32_t color;
@@ -168,7 +169,7 @@ static void render_tobject(cairo_t *cr, struct app *app,
     cairo_fill(cr);
 
     /* draw various labels */
-    if (obj->type == TOBJECT_EVENT && !obj->ac->hide) {
+    if (draw_labels && obj->type == TOBJECT_EVENT && !obj->ac->hide) {
         cairo_set_source_argb(cr, fg);
 
         const char *location = props_get_location(obj->ac->ci->p);
@@ -198,7 +199,8 @@ static void render_tobject(cairo_t *cr, struct app *app,
             app->tr->p.width = w; app->tr->p.height = loc_h;
             text_print_own(cr, app->tr, location);
         }
-    } else if (obj->type == TOBJECT_TODO) {
+    }
+    if (draw_labels && obj->type == TOBJECT_TODO) {
         cairo_set_source_argb(cr, fg);
         cairo_move_to(cr, x, y);
         app->tr->p.width = w; app->tr->p.height = h;

@@ -206,7 +206,7 @@ executable(
   c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 
-prog_markdown = find_program('md2html')
+prog_markdown = find_program('md2html', required: false)
 if prog_markdown.found()
   foreach md : [ 'Documentation/interface.md', 'Documentation/bugs.md' ]
     basename = md.split('.')[-2].split('/')[-1]

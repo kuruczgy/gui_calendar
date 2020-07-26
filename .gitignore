@@ -1,4 +1,5 @@
 *.ics
 build/*
+debug/*
 TODO
 planning.txt
