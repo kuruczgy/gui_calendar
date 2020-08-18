@@ -18,4 +18,7 @@ void generate_uid(char buf[64]);
 const char * most_frequent(const struct vec *source, const char *(*cb)(void*));
 void vec_sort(struct vec *v, sort_lt lt, void *cl);
 
+#define container_of(ptr, type, member) \
+    (type *)((char *)(ptr) - offsetof(type, member))
+
 #endif

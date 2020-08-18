@@ -34,9 +34,11 @@ struct display {
 	struct wl_seat *wl_seat;
 	struct wl_keyboard *keyboard;
 	struct wl_pointer *pointer;
+	struct wl_touch *touch;
 	paint_cb p_cb;
 	keyboard_cb k_cb;
 	child_cb c_cb;
+	input_cb i_cb;
 	void *ud;
 
 	struct window *window;
@@ -406,6 +408,54 @@ const struct wl_pointer_listener pointer_listener = {
 	.axis = pointer_axis
 };
 
+static void wl_point(wl_fixed_t x, wl_fixed_t y, double p[static 2]) {
+	p[0] = wl_fixed_to_double(x);
+	p[1] = wl_fixed_to_double(y);
+}
+static void input_event(struct display *d, struct mgu_input_event_args ev,
+		uint32_t time) {
+	ev.time = time;
+	d->i_cb(d->ud, ev);
+}
+static void wl_touch_down(void *data, struct wl_touch *wl_touch,
+		uint32_t serial, uint32_t time,
+		struct wl_surface *surface,
+		int32_t id, wl_fixed_t x, wl_fixed_t y) {
+	struct mgu_input_event_args ev = { .t = MGU_TOUCH | MGU_DOWN };
+	wl_point(x, y, ev.touch.down_or_move.p);
+	ev.touch.id = id;
+	input_event(data, ev, time);
+}
+static void wl_touch_up(void *data, struct wl_touch *wl_touch,
+		uint32_t serial, uint32_t time, int32_t id)
+{
+	struct mgu_input_event_args ev = { .t = MGU_TOUCH | MGU_UP };
+	ev.touch.id = id;
+	input_event(data, ev, time);
+}
+static void wl_touch_motion(void *data, struct wl_touch *wl_touch,
+		uint32_t time, int32_t id, wl_fixed_t x, wl_fixed_t y) {
+	struct mgu_input_event_args ev = { .t = MGU_TOUCH | MGU_MOVE };
+	wl_point(x, y, ev.touch.down_or_move.p);
+	ev.touch.id = id;
+	input_event(data, ev, time);
+}
+static void wl_touch_frame(void *data, struct wl_touch *wl_touch) { }
+static void wl_touch_cancel(void *data, struct wl_touch *wl_touch) { }
+static void wl_touch_shape(void *data, struct wl_touch *wl_touch,
+		int32_t id, wl_fixed_t major, wl_fixed_t minor) { }
+static void wl_touch_orientation(void *data, struct wl_touch *wl_touch,
+		int32_t id, wl_fixed_t orientation) { }
+static const struct wl_touch_listener touch_listener = {
+	.down = wl_touch_down,
+	.up = wl_touch_up,
+	.motion = wl_touch_motion,
+	.frame = wl_touch_frame,
+	.cancel = wl_touch_cancel,
+	.shape = wl_touch_shape,
+	.orientation = wl_touch_orientation,
+};
+
 // wl_seat_listener
 
 static void seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
@@ -422,6 +472,10 @@ static void seat_handle_capabilities(void *data, struct wl_seat *wl_seat,
 	if (caps & WL_SEAT_CAPABILITY_POINTER) {
 		d->pointer = wl_seat_get_pointer(wl_seat);
 		wl_pointer_add_listener(d->pointer, &pointer_listener, d);
+	}
+	if (caps & WL_SEAT_CAPABILITY_TOUCH) {
+		d->touch = wl_seat_get_touch(wl_seat);
+		wl_touch_add_listener(d->touch, &touch_listener, d);
 	}
 }
 
@@ -536,11 +590,12 @@ static void get_window_size(struct backend *backend, int *width, int *height) {
 }
 
 static void set_callbacks(struct backend *backend,
-		paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb, void *ud) {
+		paint_cb p_cb, keyboard_cb k_cb, child_cb c_cb, input_cb i_cb, void *ud) {
 	struct display *display = backend->self;
 	display->k_cb = k_cb;
 	display->p_cb = p_cb;
 	display->c_cb = c_cb;
+	display->i_cb = i_cb;
 	display->ud = ud;
 }
 

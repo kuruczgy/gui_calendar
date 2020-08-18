@@ -60,38 +60,6 @@ static bool todo_priority_cmp(
 	return false;
 }
 
-static void app_switch_mode_select(struct app *app) {
-	struct key_gen g;
-
-	if (app->keystate == KEYSTATE_SELECT) return;
-	app->mode_select_code_n = 0;
-	app->keystate = KEYSTATE_SELECT;
-
-	//TODO: code duplication
-	if (app->main_view == VIEW_CALENDAR) {
-		key_gen_init(app->active_events.len, &g);
-		app->mode_select_len = g.k;
-		for (int i = 0; i < app->active_events.len; ++i) {
-			struct active_comp *ac = vec_get(&app->active_events, i);
-			const char *code = key_gen_get(&g);
-			asrt(code, "not enough codes");
-			strcpy(ac->code, code);
-		}
-	} else if (app->main_view == VIEW_TODO) {
-		struct key_gen g;
-		key_gen_init(app->active_todos.len, &g);
-		app->mode_select_len = g.k;
-		for (int i = 0; i < app->active_todos.len; ++i) {
-			struct active_comp *ac = vec_get(&app->active_todos, i);
-			const char *code = key_gen_get(&g);
-			asrt(code, "not enough codes");
-			strcpy(ac->code, code);
-		}
-	} else {
-		asrt(false, "unknown view");
-	}
-}
-
 struct print_template_cl {
 	struct app *app;
 	struct active_comp *ac;
@@ -100,23 +68,18 @@ static void print_template_callback(void *_cl, FILE *f) {
 	struct print_template_cl *cl = _cl;
 	print_template(f, cl->ac->ci, cl->app->zone, cl->ac->cal_index + 1);
 }
-static int get_first_visible_cal_index(struct app *app) {
-	for (int i = 0; i < app->cals.len; ++i) {
-		// struct calendar *cal = vec_get(&app->cals, i);
-		struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
-		if (cal_info->visible) return i;
-	}
+static int get_default_cal_index(struct app *app) {
 	asrt(app->cals.len > 0, "no calendars");
 	return 0;
 }
 static void print_new_event_template_callback(void *cl, FILE *f) {
 	struct app *app = cl;
-	int cal = get_first_visible_cal_index(app);
+	int cal = get_default_cal_index(app);
 	print_new_event_template(f, app->zone, cal + 1);
 }
 static void print_new_todo_template_callback(void *cl, FILE *f) {
 	struct app *app = cl;
-	int cal = get_first_visible_cal_index(app);
+	int cal = get_default_cal_index(app);
 	print_new_todo_template(f, app->zone, cal + 1);
 }
 static void print_str_callback(void *cl, FILE *f) {
@@ -168,20 +131,81 @@ static void app_launch_new_editor(struct app *app) {
 	}
 }
 
+struct ac_iter_assign_code_env {
+	struct app *app;
+	struct vec *acs; /* vec<struct active_comp*> */
+};
+static void ac_iter_assign_code(void *_env, struct rb_node *x) {
+	struct interval_node *nx = container_of(x, struct interval_node, node);
+	struct active_comp *ac = container_of(nx, struct active_comp, node);
+	struct ac_iter_assign_code_env *env = _env;
+
+	if (ts_ran_overlap(ac->ci->time, env->app->view)) {
+		vec_append(env->acs, &ac);
+	} else {
+		ac->code[0] = '\0';
+	}
+}
+static void app_switch_mode_select(struct app *app) {
+	if (app->keystate == KEYSTATE_SELECT) return;
+	app->mode_select_code_n = 0;
+	app->keystate = KEYSTATE_SELECT;
+
+	// TODO: code duplication
+	if (app->main_view == VIEW_CALENDAR) {
+		struct vec acs = vec_new_empty(sizeof(struct active_comp *));
+		struct ac_iter_assign_code_env env = { app, &acs };
+		rb_iter(&app->active_events, &env, ac_iter_assign_code);
+
+		struct key_gen g;
+		key_gen_init(acs.len, &g);
+		app->mode_select_len = g.k;
+
+		for (int i = 0; i < acs.len; ++i) {
+			struct active_comp **ac = vec_get(&acs, i);
+			const char *code = key_gen_get(&g);
+			asrt(code, "not enough codes");
+			strcpy((*ac)->code, code);
+		}
+	} else if (app->main_view == VIEW_TODO) {
+		struct key_gen g;
+		key_gen_init(app->active_todos.len, &g);
+		app->mode_select_len = g.k;
+		for (int i = 0; i < app->active_todos.len; ++i) {
+			struct active_comp *ac = vec_get(&app->active_todos, i);
+			const char *code = key_gen_get(&g);
+			asrt(code, "not enough codes");
+			strcpy(ac->code, code);
+		}
+	} else {
+		asrt(false, "unknown view");
+	}
+}
+struct ac_iter_find_code_env {
+	struct app *app;
+	struct active_comp *res;
+};
+static void ac_iter_find_code(void *_env, struct rb_node *x) {
+	struct interval_node *nx = container_of(x, struct interval_node, node);
+	struct active_comp *ac = container_of(nx, struct active_comp, node);
+	struct ac_iter_find_code_env *env = _env;
+
+	if (strncmp(ac->code, env->app->mode_select_code,
+			env->app->mode_select_code_n) == 0) {
+		env->res = ac;
+	}
+}
 static void app_mode_select_finish(struct app *app) {
 	//TODO: fix code duplication
 	app->keystate = KEYSTATE_BASE;
 	app->dirty = true;
 	if (app->main_view == VIEW_CALENDAR) {
-		for (int i = 0; i < app->active_events.len; ++i) {
-			struct active_comp *ac = vec_get(&app->active_events, i);
-			if (strncmp(ac->code, app->mode_select_code,
-					app->mode_select_code_n) == 0) {
-				fprintf(stderr, "selected comp: %s\n",
-					props_get_summary(ac->ci->p));
-				app_launch_editor(app, ac);
-				break;
-			}
+		struct ac_iter_find_code_env env = { app, NULL };
+		rb_iter(&app->active_events, &env, ac_iter_find_code);
+		if (env.res) {
+			fprintf(stderr, "selected comp: %s\n",
+				props_get_summary(env.res->ci->p));
+			app_launch_editor(app, env.res);
 		}
 	} else if (app->main_view == VIEW_TODO) {
 		for (int i = 0; i < app->active_todos.len; ++i) {
@@ -206,97 +230,55 @@ static void app_mode_select_append_sym(struct app *app, char sym) {
 	}
 }
 
-static void schedule_active_todos(struct app *app) {
-	struct vec E = vec_new_empty(sizeof(struct ts_ran));
-	for (int i = 0; i < app->cals.len; ++i) {
-		struct calendar *cal = vec_get(&app->cals, i);
-		for (int j = 0; j < cal->cis.len; ++j) {
-			struct comp_inst *ci = vec_get(&cal->cis, j);
-			enum prop_status status;
-			bool has_status = props_get_status(ci->p, &status);
-			if (has_status && status == PROP_STATUS_CONFIRMED) {
-				vec_append(&E, &ci->time);
-			}
-		}
-	}
-
-	struct vec T = vec_new_empty(sizeof(struct schedule_todo));
-	struct vec acs = vec_new_empty(sizeof(struct active_comp *));
-	for (int i = 0; i < app->active_todos.len; ++i) {
-		struct active_comp *ac = vec_get(&app->active_todos, i);
-
-		ts start;
-		bool has_start = props_get_start(ac->ci->p, &start);
-		int est;
-		bool has_est = props_get_estimated_duration(ac->ci->p, &est);
-		if (has_est) {
-			struct schedule_todo st = {
-				.start = has_start ? start : -1, .estimated_duration = est };
-			vec_append(&T, &st);
-			vec_append(&acs, &ac);
-		}
-	}
-
-	struct ts_ran *G = todo_schedule(app->now, E.len, E.d, T.len, T.d);
-
-	vec_free(&E);
-	vec_free(&T);
-
-	for (int i = 0; i < acs.len; ++i) {
-		struct active_comp **acp = vec_get(&acs, i);
-		struct tobject obj = (struct tobject){
-			.time = G[i],
-			.type = TOBJECT_TODO,
-			.ac = *acp
-		};
-		tview_try_put(&app->tview, obj);
-	}
-
-	vec_free(&acs);
-	free(G);
-}
-
-static void app_update_views(struct app *app) {
-	/* free existing structures */
-	tview_finish(&app->tview);
-	tview_finish(&app->top_tview);
-
-	/* construct tview time ranges */
-	struct tview_spec spec = {
-		.base = app->base,
-		.type = app->tview_type,
-		.n = app->tview_n,
-		.h1 = 0, .h2 = 24,
-		.zone = app->zone
-	};
-
-	tview_init(&app->tview, &spec);
-	tview_init_range(&app->top_tview, &spec);
-}
-
-static void app_populate_views(struct app *app) {
-	/* populate tviews from the active_events list */
-	for (int i = 0; i < app->active_events.len; ++i) {
-		struct active_comp *ac = vec_get(&app->active_events, i);
-		struct tobject obj = {
-			.time = ac->ci->time,
-			.type = TOBJECT_EVENT,
-			.ac = ac
-		};
-		if (!ac->all_day) {
-			tview_try_put(&app->tview, obj);
-		} else {
-			tview_try_put(&app->top_tview, obj);
-		}
-	}
-
-	/* populate tviews with scheduled todos */
-	schedule_active_todos(app);
-
-	/* calculate layouts */
-	tview_update_layout(&app->tview);
-	tview_update_layout(&app->top_tview);
-}
+// static void schedule_active_todos(struct app *app) {
+//	 struct vec E = vec_new_empty(sizeof(struct ts_ran));
+//	 for (int i = 0; i < app->cals.len; ++i) {
+//		 struct calendar *cal = vec_get(&app->cals, i);
+//		 for (int j = 0; j < cal->cis.len; ++j) {
+//			 struct comp_inst *ci = vec_get(&cal->cis, j);
+//			 enum prop_status status;
+//			 bool has_status = props_get_status(ci->p, &status);
+//			 if (has_status && status == PROP_STATUS_CONFIRMED) {
+//				 vec_append(&E, &ci->time);
+//			 }
+//		 }
+//	 }
+// 
+//	 struct vec T = vec_new_empty(sizeof(struct schedule_todo));
+//	 struct vec acs = vec_new_empty(sizeof(struct active_comp *));
+//	 for (int i = 0; i < app->active_todos.len; ++i) {
+//		 struct active_comp *ac = vec_get(&app->active_todos, i);
+// 
+//		 ts start;
+//		 bool has_start = props_get_start(ac->ci->p, &start);
+//		 int est;
+//		 bool has_est = props_get_estimated_duration(ac->ci->p, &est);
+//		 if (has_est) {
+//			 struct schedule_todo st = {
+//				 .start = has_start ? start : -1, .estimated_duration = est };
+//			 vec_append(&T, &st);
+//			 vec_append(&acs, &ac);
+//		 }
+//	 }
+// 
+//	 struct ts_ran *G = todo_schedule(app->now, E.len, E.d, T.len, T.d);
+// 
+//	 vec_free(&E);
+//	 vec_free(&T);
+// 
+//	 for (int i = 0; i < acs.len; ++i) {
+//		 struct active_comp **acp = vec_get(&acs, i);
+//		 struct tobject obj = (struct tobject){
+//			 .time = G[i],
+//			 .type = TOBJECT_TODO,
+//			 .ac = *acp
+//		 };
+//		 tslice_try_put(&app->slice_main, obj);
+//	 }
+// 
+//	 vec_free(&acs);
+//	 free(G);
+// }
 
 static void execute_filters(struct app *app, struct active_comp *ac) {
 	/* apply builtin filter */
@@ -329,98 +311,131 @@ static bool active_comp_todo_cmp(void *pa, void *pb, void *cl) {
 	const struct active_comp *a = pa, *b = pb;
 	return todo_priority_cmp(app, a->ci, b->ci, true);
 }
-static void update_active_comps(struct app *app) {
-	/* clear lists */
-	vec_clear(&app->active_todos);
-	vec_clear(&app->active_events);
 
-	struct ts_ran ran_hull =
-		ts_ran_hull(app->tview.ran_hull, app->top_tview.ran_hull);
-
-	/* populate the list */
+static void app_expand(struct app *app, enum comp_type type, ts expand_to) {
 	for (int i = 0; i < app->cals.len; ++i) {
 		struct calendar *cal = vec_get(&app->cals, i);
-		struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
-		if (!cal_info->visible) continue;
-
-		for (int j = 0; j < cal->cis.len; ++j) {
-			struct comp_inst *ci = vec_get(&cal->cis, j);
-
-			/* retrieve some properties */
-			enum comp_type type = ci->c->type;
-			enum prop_status status;
-			bool has_status = props_get_status(ci->p, &status);
-			enum prop_class class;
-			bool has_class = props_get_class(ci->p, &class);
-
-			if (type == COMP_TYPE_TODO
-				&& has_status
-				&& (status == PROP_STATUS_COMPLETED
-					|| status == PROP_STATUS_CANCELLED)) continue;
-
-			if (has_class && class == PROP_CLASS_PRIVATE &&
-					!app->show_private_events) continue;
-
-			if (type == COMP_TYPE_EVENT && !ts_ran_overlap(ran_hull, ci->time))
-				continue;
-
-			struct active_comp ac = {
-				.ci = ci,
-				.cal_index = i,
-				.all_day = (ci->time.to - ci->time.fr) > 60 * 60 * 24,
-				.fade = false, .hide = false, .vis = true,
-				.cal = cal
-			};
-
-			/* execute filter expressions */
-			execute_filters(app, &ac);
-			if (!ac.vis) continue;
-
-			if (type == COMP_TYPE_EVENT) {
-				vec_append(&app->active_events, &ac);
-			} else if (type == COMP_TYPE_TODO) {
-				vec_append(&app->active_todos, &ac);
-			}
-		}
+		calendar_expand_instances_to(cal, type, expand_to);
 	}
-
-	/* sort todos according to priority */
-	vec_sort(&app->active_todos, &active_comp_todo_cmp, app);
 }
 
-void app_update_active_objects(struct app *app) {
-	struct stopwatch sw = sw_start();
-	/* clear any modes that depend on current event structures */
-	if (app->keystate == KEYSTATE_SELECT) app->keystate = KEYSTATE_BASE;
+struct cis_tree_iter_env {
+	struct app *app;
+	int cal_index;
+	struct calendar *cal;
+	struct vec *acs;
+};
+static void cis_tree_iter(void *_env, struct interval_node *x) {
+	struct cis_tree_iter_env *env = _env;
+	struct app *app = env->app;
+	struct comp_inst *ci = container_of(x, struct comp_inst, node);
 
-	/* setup calendar view widgets */
-	app_update_views(app);
+	struct active_comp ac = {
+		.ci = ci,
+		.cal_index = env->cal_index,
+		.fade = false, .hide = false, .vis = true,
+		.cal = env->cal,
+		.node = ci->node /* this is just to copy the interval */
+	};
 
-	/* determine expansion upper bound */
-	ts expand_to = app->now;
-	for (int i = 0; i < app->tview.n; ++i)
-		expand_to = max_ts(expand_to, app->tview.s[i].ran.to);
-	for (int i = 0; i < app->top_tview.n; ++i)
-		expand_to = max_ts(expand_to, app->top_tview.s[i].ran.to);
+	/* execute filter expressions */
+	execute_filters(app, &ac);
+	if (!ac.vis) return;
 
-	/* expand all comps in all calendars */
-	int total_cis = 0;
+	vec_append(env->acs, &ac);
+}
+static void app_filter_active_events(struct app *app, struct ts_ran view) {
+	struct vec acs = vec_new_empty(sizeof(struct active_comp));
 	for (int i = 0; i < app->cals.len; ++i) {
 		struct calendar *cal = vec_get(&app->cals, i);
-		calendar_expand_instances_to(cal, expand_to);
-		total_cis += cal->cis.len;
+
+		struct cis_tree_iter_env env = {
+			.app = app, .cal_index = i, .cal = cal, .acs = &acs };
+		interval_query(
+			&cal->cis[COMP_TYPE_EVENT],
+			(long long int[]){ view.fr, view.to },
+			&env,
+			cis_tree_iter
+		);
+
+		for (int k = 0; k < acs.len; ++k) {
+			struct active_comp *aci = vec_get(&acs, k);
+			struct active_comp *ac = malloc_check(sizeof(struct active_comp));
+			*ac = *aci;
+			rb_delete(&cal->cis[COMP_TYPE_EVENT], &ac->ci->node.node);
+			rb_insert(&app->active_events, &ac->node.node);
+			++app->active_events_n;
+		}
+		vec_clear(&acs);
 	}
+}
+struct todo_cis_tree_iter_env {
+	struct app *app;
+	int cal_index;
+	struct calendar *cal;
+};
+static void todo_cis_tree_iter(void *_env, struct rb_node *x) {
+	struct interval_node *nx = container_of(x, struct interval_node, node);
+	struct comp_inst *ci = container_of(nx, struct comp_inst, node);
+	struct todo_cis_tree_iter_env *env = _env;
 
-	/* update active_comp's derived from the expanded comp_insts's */
-	update_active_comps(app);
+	/* retrieve some properties */
+	enum comp_type type = ci->c->type;
+	enum prop_status status;
+	bool has_status = props_get_status(ci->p, &status);
+	enum prop_class class;
+	props_get_class(ci->p, &class);
 
-	/* display the active_comp's on the widgets */
-	app_populate_views(app);
+	if (type == COMP_TYPE_TODO
+		&& has_status
+		&& (status == PROP_STATUS_COMPLETED
+			|| status == PROP_STATUS_CANCELLED)) return;
 
-	sw_end_print(sw, "app_update_active_objects");
-	fprintf(stderr,
-		"cis: %d, active_events: %d, active_todos: %d, expand_to: %lld\n",
-		total_cis, app->active_events.len, app->active_todos.len, expand_to);
+	struct active_comp ac = {
+		.ci = ci,
+		.cal_index = env->cal_index,
+		.fade = false, .hide = false, .vis = true,
+		.cal = env->cal,
+		.node = ci->node /* this is just to copy the interval */
+	};
+
+	/* execute filter expressions */
+	execute_filters(env->app, &ac);
+	if (!ac.vis) return;
+
+	vec_append(&env->app->active_todos, &ac);
+}
+static void app_update_active_todos(struct app *app) {
+	vec_clear(&app->active_todos);
+	for (int i = 0; i < app->cals.len; ++i) {
+		struct calendar *cal = vec_get(&app->cals, i);
+		struct todo_cis_tree_iter_env env = {
+			.app = app, .cal_index = i, .cal = cal };
+		rb_iter(&cal->cis[COMP_TYPE_TODO], &env, todo_cis_tree_iter);
+	}
+}
+
+void app_use_view(struct app *app, struct ts_ran view) {
+	app_filter_active_events(app, view);
+}
+
+static void ac_iter_free(void *env, struct rb_node *x) {
+	struct interval_node *nx = container_of(x, struct interval_node, node);
+	struct active_comp *ac = container_of(nx, struct active_comp, node);
+	free(ac->ci);
+	free(ac);
+}
+static void app_clear_active_events(struct app *app) {
+	struct stopwatch sw = sw_start();
+	rb_iter_post(&app->active_events, NULL, ac_iter_free);
+	rb_tree_init(&app->active_events, &interval_ops);
+	for (int i = 0; i < app->cals.len; ++i) {
+		struct calendar *cal = vec_get(&app->cals, i);
+		cal->cis_dirty[COMP_TYPE_EVENT] = true;
+	}
+	app_expand(app, COMP_TYPE_EVENT, app->expand_to);
+	app_use_view(app, app->view);
+	sw_end_print(sw, __func__);
 }
 
 static void app_reload_calendars(struct app *app) {
@@ -428,24 +443,26 @@ static void app_reload_calendars(struct app *app) {
 		struct calendar *cal = vec_get(&app->cals, i);
 		update_calendar_from_storage(cal, app->zone);
 	}
-	app_update_active_objects(app);
-	app->dirty = true;
+	app_clear_active_events(app);
+	app_update_active_todos(app);
 }
 
-static void adjust_base(struct app *app, int n) {
-	struct simple_date sd = simple_date_from_ts(app->base, app->zone);
+void app_cmd_move_view_discrete(struct app *app, int n) {
+	struct ts_ran view = app->view;
+
+	int len_days = (view.to - view.fr + 3600 * 12) / (3600 * 24);
+
+	struct simple_date sd = simple_date_from_ts(view.fr, app->zone);
 	sd.second = sd.minute = sd.hour = 0;
-	switch (app->tview_type) {
-	case TVIEW_DAYS: sd.day += app->tview.n * n; break;
-	case TVIEW_WEEKS: sd.day += 7 * 4 * n; break;
-	case TVIEW_MONTHS: sd.day = 1; sd.month = 1; sd.year += n; break;
-	case TVIEW_YEARS: sd.day = 1; sd.month = 1; sd.year += n; break;
-	default: asrt(false, "wrong tview_type");
-	}
-	simple_date_normalize(&sd);
-	app->base = simple_date_to_ts(sd, app->zone);
-}
 
+	sd.day += len_days * n;
+	simple_date_normalize(&sd);
+	app->view.fr = simple_date_to_ts(sd, app->zone);
+
+	sd.day += len_days;
+	simple_date_normalize(&sd);
+	app->view.to = simple_date_to_ts(sd, app->zone);
+}
 void app_cmd_editor(struct app *app, FILE *in) {
 	struct str in_s = str_empty;
 	char c;
@@ -489,7 +506,8 @@ void app_cmd_editor(struct app *app, FILE *in) {
 
 	/* apply edit */
 	if (apply_edit_spec_to_calendar(&es, cal) == 0) {
-		app_update_active_objects(app);
+		app_clear_active_events(app);
+		app_update_active_todos(app);
 		app->dirty = true;
 	} else {
 		fprintf(stderr, "[editor] error: could not save edit\n");
@@ -510,15 +528,37 @@ void app_cmd_activate_filter(struct app *app, int n) {
 		if (*k) ++k;
 		else break;
 	}
-	app->current_filter_fn = *k;
-	app_update_active_objects(app);
+	if (app->current_filter_fn != *k) {
+		app->current_filter_fn = *k;
+		app_clear_active_events(app);
+		app_update_active_todos(app);
+		app->dirty = true;
+	}
+}
+void app_cmd_view_today(struct app *app, int n) {
+	app->view.fr = ts_get_day_base(app->now, app->zone, true);
+	app->view.to = app->view.fr + 3600 * 24 * 7;
 	app->dirty = true;
+}
+void app_cmd_toggle_show_private(struct app *app, int n) {
+	// app->show_private_events = !app->show_private_events;
+	// app_update_active_objects(app);
+	// app->dirty = true;
+}
+void app_cmd_switch_view(struct app *app, int n) {
+	if (n == -1) {
+		app->main_view = (app->main_view + 1) % VIEW_N;
+		app->dirty = true;
+	} else if (0 <= n && n < VIEW_N) {
+		app->main_view = n;
+		app->dirty = true;
+	}
 }
 
 static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 	struct app *app = ud;
 	int n;
-	bool shift = mods & 1;
+	// bool shift = mods & 1;
 	char sym = key_get_sym(key);
 	switch (app->keystate) {
 	case KEYSTATE_SELECT:
@@ -532,27 +572,21 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 	case KEYSTATE_BASE:
 		switch (sym) {
 		case 'a':
-			app->main_view = VIEW_CALENDAR;
-			app->dirty = true;
+			app_cmd_switch_view(app, VIEW_CALENDAR);
 			break;
 		case 's':
-			app->main_view = VIEW_TODO;
-			app->dirty = true;
+			app_cmd_switch_view(app, VIEW_TODO);
 			break;
 		case 'l':
-			adjust_base(app, 1);
-			app_update_active_objects(app);
+			app_cmd_move_view_discrete(app, 1);
 			app->dirty = true;
 			break;
 		case 'h':
-			adjust_base(app, -1);
-			app_update_active_objects(app);
+			app_cmd_move_view_discrete(app, -1);
 			app->dirty = true;
 			break;
 		case 't':
-			app->base = ts_get_day_base(app->now, app->zone, true);
-			app_update_active_objects(app);
-			app->dirty = true;
+			app_cmd_view_today(app, -1);
 			break;
 		case 'n':
 			app_launch_new_editor(app);
@@ -561,36 +595,26 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 			app_switch_mode_select(app);
 			app->dirty = true;
 			break;
-		case 'c':
-			for (int i = 0; i < app->cals.len; ++i) {
-				struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
-				cal_info->visible = cal_info->default_visible;
-			}
-			app_update_active_objects(app);
-			app->dirty = true;
-			break;
 		case 'r':
 			app_cmd_reload(app);
 			break;
 		case 'p':
-			app->show_private_events = !app->show_private_events;
-			app_update_active_objects(app);
-			app->dirty = true;
+			app_cmd_toggle_show_private(app, -1);
 			break;
 		case 'i':
 			app->keystate = KEYSTATE_VIEW_SWITCH;
 			break;
 		case '\0':
-			if ((n = key_fn(key)) > 0) { /* numeric key */
-				--n; /* key 1->0 .. key 9->8 */
-				if (shift) n += 9;
-				if (n < app->cals.len) {
-					struct calendar_info *cal_info = vec_get(&app->cal_infos,n);
-					cal_info->visible = !cal_info->visible;
-					app_update_active_objects(app);
-					app->dirty = true;
-				}
-			}
+			// if ((n = key_fn(key)) > 0) { /* numeric key */
+			// 	--n; /* key 1->0 .. key 9->8 */
+			// 	if (shift) n += 9;
+			// 	if (n < app->cals.len) {
+			// 		struct calendar_info *cal_info = vec_get(&app->cal_infos,n);
+			// 		cal_info->visible = !cal_info->visible;
+			// 		app_clear_active_events(app);
+			// 		app->dirty = true;
+			// 	}
+			// }
 			if ((n = key_num(key)) > 0) {
 				app_cmd_activate_filter(app, n - 1);
 			}
@@ -604,28 +628,28 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 		bool update = false;
 		switch(sym) {
 		case 'h':
-			app->tview_n = 12;
-			app->tview_type = TVIEW_MONTHS;
+			// app->tview_n = 12;
+			// app->tview_type = TVIEW_MONTHS;
 			update = true;
 			break;
 		case 'j':
-			app->tview_n = 4;
-			app->tview_type = TVIEW_WEEKS;
+			// app->tview_n = 4;
+			// app->tview_type = TVIEW_WEEKS;
 			update = true;
 			break;
 		case 'k':
-			app->tview_n = 7;
-			app->tview_type = TVIEW_DAYS;
+			// app->tview_n = 7;
+			// app->tview_type = TVIEW_DAYS;
 			update = true;
 			break;
 		case 'l':
-			app->tview_n = 1;
-			app->tview_type = TVIEW_DAYS;
+			// app->tview_n = 1;
+			// app->tview_type = TVIEW_DAYS;
 			update = true;
 			break;
 		}
 		if (update) {
-			app_update_active_objects(app);
+			// app_update_active_objects(app);
 			app->dirty = true;
 		}
 		app->keystate = KEYSTATE_BASE;
@@ -655,10 +679,47 @@ static void application_handle_child(void *ud, pid_t pid) {
 	app_cmd_editor(app, f);
 }
 
+static void application_handle_input(void *ud, struct mgu_input_event_args ev) {
+	struct app *app = ud;
+	if (ev.t & MGU_TOUCH) {
+		const double *p = ev.touch.down_or_move.p;
+		if (ev.t & MGU_DOWN) {
+			libtouch_surface_down(app->touch_surf, ev.time, ev.touch.id,
+				(float[]){ p[0], p[1] });
+			for (int i = 0; i < app->tap_areas.len; ++i) {
+				struct tap_area *ta = vec_get(&app->tap_areas, i);
+				if (p[0] >= ta->aabb[0] && p[0] < ta->aabb[0] + ta->aabb[2]
+						&& p[1] >= ta->aabb[1] && p[1] < ta->aabb[1] + ta->aabb[3]) {
+					ta->cmd(app, ta->n);
+				}
+			}
+		} else if (ev.t & MGU_MOVE) {
+			libtouch_surface_motion(app->touch_surf, ev.time, ev.touch.id,
+				(float[]){ p[0], p[1] });
+		} else if (ev.t & MGU_UP) {
+			libtouch_surface_up(app->touch_surf, ev.time, ev.touch.id);
+		}
+		app->dirty = true;
+	}
+}
+
 static const char * get_comp_color(void *ptr) {
 	/* we only get the color from the base instance of the recur set */
 	struct comp *c = ptr;
 	return props_get_color(&c->p);
+}
+
+static void touch_end(void *env, struct libtouch_rt rt) {
+	struct app *app = env;
+
+	// TODO: code duplication
+	float g = libtouch_rt_scaling(&rt);
+	double a = app->view.fr, b = app->view.to;
+	b = a + (b - a) / g;
+	double tx = (rt.t1 / app->window_width) * (b - a);
+	a -= tx, b -= tx;
+	struct ts_ran view = { a, b };
+	app->view = view;
 }
 
 void app_init(struct app *app, struct application_options opts,
@@ -668,15 +729,11 @@ void app_init(struct app *app, struct application_options opts,
 	*app = (struct app){
 		.cals = VEC_EMPTY(sizeof(struct calendar)),
 		.cal_infos = VEC_EMPTY(sizeof(struct calendar_info)),
-		.active_events = VEC_EMPTY(sizeof(struct active_comp)),
 		.active_todos = VEC_EMPTY(sizeof(struct active_comp)),
 		.main_view = VIEW_CALENDAR,
 		.keystate = KEYSTATE_BASE,
 		.show_private_events = opts.show_private_events,
-		.tview_type = TVIEW_DAYS,
-		.tview = (struct tview){ .n = -1, .s = NULL },
-		.top_tview = (struct tview){ .n = -1, .s = NULL },
-		.tview_n = 7,
+		.tap_areas = VEC_EMPTY(sizeof(struct tap_area)),
 		.sp = NULL,
 		.sp_expr = false,
 		.window_width = -1, .window_height = -1,
@@ -690,6 +747,8 @@ void app_init(struct app *app, struct application_options opts,
 		.config_fns = NULL,
 		.current_filter_fn = NULL,
 	};
+
+	rb_tree_init(&app->active_events, &interval_ops);
 
 	/* load all uexpr stuff */
 	const char *builtin_expr = "{"
@@ -725,7 +784,7 @@ void app_init(struct app *app, struct application_options opts,
 
 	// TODO: state.view_days = opts.view_days;
 
-	const char *editor_buffer = "", *term_buffer = "st";
+	const char *editor_buffer = "vim", *term_buffer = "st";
 	const char *editor_env = getenv("EDITOR");
 	if (editor_env) editor_buffer = editor_env;
 
@@ -746,14 +805,12 @@ void app_init(struct app *app, struct application_options opts,
 
 	app->zone = cal_timezone_new("Europe/Budapest");
 	app->now = ts_now();
-	app->base = ts_get_day_base(app->now, app->zone, true);
+	app->view.fr = ts_get_day_base(app->now, app->zone, true);
+	app->view.to = app->view.fr + 3600 * 24 * 7;
 
 	for (int i = 0; i < opts.argc; i++) {
 		struct calendar cal;
 		struct calendar_info cal_info;
-
-		cal_info.visible = cal_info.default_visible =
-			opts.default_vis & (1U << i);
 
 		/* init */
 		calendar_init(&cal);
@@ -779,16 +836,33 @@ void app_init(struct app *app, struct application_options opts,
 		vec_append(&app->cal_infos, &cal_info);
 	}
 
-	app_update_active_objects(app);
+	app->expand_to = app->now + 3600 * 24 * 365;
+	app_expand(app, COMP_TYPE_EVENT, app->expand_to);
+	app_expand(app, COMP_TYPE_TODO, app->expand_to);
+
+	app_update_active_todos(app);
+
+	app->touch_surf = libtouch_surface_create();
+	memcpy(app->touch_aabb, &(float[]) { 120, 0, 5000, 5000 },
+		sizeof(float) * 4);
+	app->touch_area = libtouch_surface_add_area(
+		app->touch_surf,
+		app->touch_aabb,
+		LIBTOUCH_TSR,
+		(struct libtouch_area_ops){ .env = app, .end = touch_end }
+	);
+
+	app->tr = text_renderer_new("Monospace 8");
+
+	app->slicing = slicing_create(app->zone);
 
 	app->backend->vptr->set_callbacks(app->backend,
 		&render_application,
 		&application_handle_key,
 		&application_handle_child,
+		&application_handle_input,
 		app
 	);
-
-	app->tr = text_renderer_new("Monospace 8");
 
 	app->dirty = true;
 	sw_end_print(sw, "initialization");
@@ -812,20 +886,25 @@ void app_finish(struct app *app) {
 	}
 	vec_free(&app->editor_args);
 
-	tview_finish(&app->tview);
-	tview_finish(&app->top_tview);
+	// tslice_finish(&app->slice_main);
+	// tslice_finish(&app->slice_top);
 
-	vec_free(&app->active_events);
+	// vec_free(&app->active_events); // TODO
 	vec_free(&app->active_todos);
 
 	cal_timezone_destroy(app->zone);
 	text_renderer_free(app->tr);
+
+	libtouch_surface_destroy(app->touch_surf);
 
 	if (app->config_ctx) uexpr_ctx_destroy(app->config_ctx);
 	if (app->builtin_expr_ctx) uexpr_ctx_destroy(app->builtin_expr_ctx);
 	if (app->builtin_expr) uexpr_destroy(app->builtin_expr);
 	if (app->expr) uexpr_destroy(app->expr);
 	free(app->config_fns);
+
+	slicing_destroy(app->slicing);
+	vec_free(&app->tap_areas);
 
 	app->backend->vptr->destroy(app->backend);
 }

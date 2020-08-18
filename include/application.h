@@ -1,6 +1,7 @@
 #ifndef GUI_CALENDAR_APPLICATION_H
 #define GUI_CALENDAR_APPLICATION_H
 #include <ds/tree.h>
+#include <libtouch.h>
 #include "calendar.h"
 #include "backend.h"
 #include "pango.h"
@@ -9,7 +10,6 @@
 #include "uexpr.h"
 
 struct calendar_info {
-	bool visible, default_visible;
 	uint32_t color;
 };
 
@@ -17,10 +17,19 @@ struct calendar_info {
 struct active_comp {
 	struct comp_inst *ci;
 	int cal_index;
-	bool all_day;
 	bool fade, hide, vis;
 	struct calendar *cal;
 	char code[33];
+
+	struct interval_node node;
+};
+
+struct app;
+
+struct tap_area {
+	float aabb[4];
+	int n;
+	void(*cmd)(struct app *app, int n);
 };
 
 struct app {
@@ -29,13 +38,17 @@ struct app {
 	struct vec cal_infos; /* vec<struct calendar_info> */
 
 	/* active comps */
-	struct vec active_events; /* vec<struct active_comp> */
+	int active_events_n;
+	struct rb_tree active_events;
 	struct vec active_todos; /* vec<struct active_comp> */
 
-	/* global UI state */
+	ts expand_to;
+
+	/* global UI state, user input handling */
 	enum {
-		VIEW_CALENDAR,
-		VIEW_TODO
+		VIEW_CALENDAR = 0,
+		VIEW_TODO = 1,
+		VIEW_N
 	} main_view;
 	enum {
 		KEYSTATE_BASE,
@@ -50,11 +63,14 @@ struct app {
 
 	const char *current_filter_fn;
 
+	struct libtouch_surface *touch_surf;
+	float touch_aabb[4];
+	struct libtouch_area *touch_area;
+	struct vec tap_areas; /* ve<struct tap_area> */
+
 	/* calendar widgets and state in VIEW_CALENDAR mode */
-	enum tview_type tview_type;
-	struct tview tview, top_tview;
-	int tview_n;
-	ts base;
+	struct ts_ran view;
+	struct slicing *slicing;
 
 	/* editor subprocess info */
 	struct subprocess_handle *sp;
@@ -107,6 +123,9 @@ void app_init(struct app *app, struct application_options opts,
 void app_main(struct app *app);
 void app_finish(struct app *app);
 
+/* update app->active_events for view */
+void app_use_view(struct app *app, struct ts_ran view);
+
 void app_update_active_objects(struct app *app);
 void app_get_editor_template(struct app *app, struct comp_inst *ci, FILE *out);
 
@@ -114,5 +133,9 @@ void app_get_editor_template(struct app *app, struct comp_inst *ci, FILE *out);
 void app_cmd_editor(struct app *app, FILE *in);
 void app_cmd_reload(struct app *app);
 void app_cmd_activate_filter(struct app *app, int n);
+void app_cmd_view_today(struct app *app, int n);
+void app_cmd_toggle_show_private(struct app *app, int n);
+void app_cmd_switch_view(struct app *app, int n);
+void app_cmd_move_view_discrete(struct app *app, int n);
 
 #endif

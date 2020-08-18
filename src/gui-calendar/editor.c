@@ -268,7 +268,7 @@ static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
 		asrt(false, "");
 		break;
 	};
-	cal->comps_dirty = true;
+	cal->cis_dirty[es->type] = true;
 }
 
 int apply_edit_spec_to_calendar(struct edit_spec *es, struct calendar *cal) {

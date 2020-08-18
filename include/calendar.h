@@ -15,8 +15,9 @@
 struct recurrence;
 
 enum comp_type {
-	COMP_TYPE_EVENT,
-	COMP_TYPE_TODO
+	COMP_TYPE_EVENT = 0,
+	COMP_TYPE_TODO = 1,
+	COMP_TYPE_N
 };
 struct comp_recur_inst {
 	ts recurrence_id;
@@ -44,18 +45,23 @@ struct comp_inst {
 	int comp_idx;
 	struct props *p;
 	struct ts_ran time;
+
+	struct interval_node node;
 };
 
 struct calendar {
 	struct vec comps_vec; /* vec<struct comp> */
 	struct hashmap comps_map; /* hashmap<int> */
 	struct vec comp_infos; /* vec<struct comp_info> */
-	struct vec cis; /* vec<struct comp_inst> */
+
+	struct rb_tree *cis; /* exactly COMP_TYPE_N long */
+	int cis_n[COMP_TYPE_N];
+	bool cis_dirty[COMP_TYPE_N];
+
 	struct str name;
 	struct str storage;
 	bool priv;
 	struct timespec loaded;
-	bool comps_dirty;
 };
 void calendar_init(struct calendar* cal);
 void calendar_finish(struct calendar *cal);
@@ -72,7 +78,8 @@ void calendar_delete_comp(struct calendar *cal, int idx);
 
 struct comp * calendar_get_comp(struct calendar *cal, int idx);
 
-void calendar_expand_instances_to(struct calendar *cal, ts to);
+void calendar_expand_instances_to(struct calendar *cal, enum comp_type type,
+	ts to);
 
 void update_calendar_from_storage(struct calendar *cal,
 		struct cal_timezone *local_zone);

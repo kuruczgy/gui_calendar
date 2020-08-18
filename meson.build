@@ -19,6 +19,9 @@ ds_vec = ds_proj.get_variable('ds_vec_dep')
 ds_hashmap = ds_proj.get_variable('ds_hashmap_dep')
 ds_tree = ds_proj.get_variable('ds_tree_dep')
 
+libtouch_proj = subproject('libtouch')
+libtouch = libtouch_proj.get_variable('libtouch_dep')
+
 dep_scanner = dependency('wayland-scanner')
 prog_scanner = find_program(dep_scanner
   .get_pkgconfig_variable('wayland_scanner'))
@@ -120,7 +123,7 @@ src_gui_calendar = [
   'src/gui-calendar/views.c',
 ]
 dep_gui_calendar = [
-  wayland_client, wayland_cursor, cairo, pango, pangocairo, m, ds_tree
+  wayland_client, wayland_cursor, cairo, pango, pangocairo, m, ds_tree, libtouch
 ]
 wayland_sources = [
   'src/gui-calendar/backend/wayland.c',
@@ -181,15 +184,15 @@ executable(
   c_args : '-DCONFIG_BACKEND_DUMMY'
 )
 
-executable(
-  'fuzz-parse-ics',
-  'src/tests/fuzz_parse_ics.c',
-  'src/gui-calendar/backend/dummy.c',
-  include_directories: incdir,
-  dependencies: dep_gui_calendar,
-  link_with: lib_gui_calendar,
-  c_args : '-DCONFIG_BACKEND_DUMMY'
-)
+# executable(
+#   'fuzz-parse-ics',
+#   'src/tests/fuzz_parse_ics.c',
+#   'src/gui-calendar/backend/dummy.c',
+#   include_directories: incdir,
+#   dependencies: dep_gui_calendar,
+#   link_with: lib_gui_calendar,
+#   c_args : '-DCONFIG_BACKEND_DUMMY'
+# )
 
 executable(
   'fuzz-image',

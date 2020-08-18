@@ -5,8 +5,9 @@
 #include "core.h"
 #include "util.h"
 #include "algo.h"
+#include "views.h"
 
-void test_todo_schedule() {
+static void test_todo_schedule() {
 	// 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
 	// (    )[     [   ]   ](    )( )[    ](     )
 	int n = 3;
@@ -26,7 +27,7 @@ void test_todo_schedule() {
 	}
 }
 
-void test_lookup_color() {
+static void test_lookup_color() {
 	asrt(lookup_color("cornflowerblue", 14) == 0xFF6495ED, "");
 	asrt(lookup_color("yellowgreen", 11) == 0xFF9ACD32, "");
 	asrt(lookup_color("aliceblue", 9) == 0xFFF0F8FF, "");
@@ -78,7 +79,7 @@ static void test_editor_do(
 	asrt(comp_equal(&c_file, c_act), "comps do not match");
 	asrt(comp_equal(&c_exp, c_act), "comps do not match");
 }
-void test_editor() {
+static void test_editor() {
 	test_editor_do(
 	/* base */
 	"BEGIN:VCALENDAR\n"
@@ -170,9 +171,63 @@ void test_editor() {
 	);
 }
 
+extern int slicing_test_get_total_len(struct slicing *s);
+static void vec_ts_ran_asrt(struct vec *v, struct ts_ran *a, int n) {
+	asrt(v->len == n, "");
+	for (int i = 0; i < n; ++i) {
+		struct ts_ran *vi = vec_get(v, i);
+		struct ts_ran *ai = &a[i];
+		asrt(vi->fr == ai->fr, "");
+		asrt(vi->to == ai->to, "");
+	}
+}
+static void test_slicing_f(void *env, struct ts_ran ran) {
+	struct vec *res = env;
+	vec_append(res, &ran);
+}
+static void test_slicing() {
+	struct cal_timezone *zone = cal_timezone_new("Europe/Budapest");
+	struct slicing *s = slicing_create(zone);
+
+	struct vec res = vec_new_empty(sizeof(struct ts_ran));
+
+	slicing_iter_items(s, &res, test_slicing_f, SLICING_MONTH,
+		(struct ts_ran){ 1594846758, 1597522424 });
+	vec_ts_ran_asrt(&res, (struct ts_ran[]){
+		{ 1593554400, 1596232800 },
+		{ 1596232800, 1598911200 }
+	}, 2);
+	vec_clear(&res);
+
+	slicing_iter_items(s, &res, test_slicing_f, SLICING_HOUR,
+		(struct ts_ran){ 1577826660, 1577835180 });
+	vec_ts_ran_asrt(&res, (struct ts_ran[]){
+		{ 1577826000, 1577829600 },
+		{ 1577829600, 1577833200 },
+		{ 1577833200, 1577836800 }
+	}, 3);
+	vec_clear(&res);
+
+	slicing_iter_items(s, &res, test_slicing_f, SLICING_DAY,
+		(struct ts_ran){ 1577919599, 1609369200 });
+	asrt(res.len == 365, "");
+	vec_clear(&res);
+
+	int start_n = slicing_test_get_total_len(s);
+	for (int i = 0; i < 20; ++i) {
+		slicing_iter_items(s, &res, test_slicing_f, SLICING_DAY,
+			(struct ts_ran){ 1577919599, 1609369200 });
+		vec_clear(&res);
+	}
+	asrt(start_n == slicing_test_get_total_len(s), "");
+
+	slicing_destroy(s);
+}
+
 int main() {
 	test_todo_schedule();
 	test_lookup_color();
 	test_editor_parser();
 	test_editor();
+	test_slicing();
 }

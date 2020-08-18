@@ -4,6 +4,7 @@
 #include "pango.h"
 #include "application.h"
 #include "core.h"
+#include "util.h"
 
 static const char *usage =
 	"Usage:\r"
@@ -20,29 +21,29 @@ static const char *usage =
 	" [1-9]: toggle calendar visibility\r";
 
 typedef struct {
-	union {
-		struct { double x, y; };
-		float v[2];
-	};
-} v2;
-typedef struct {
 	double x, y, w, h;
 } fbox;
 
-static fbox fbox_slice(fbox b, int n, int i, bool dir) {
-	fbox nb;
+/* dir: false is vertical */
+static fbox fbox_slice(fbox f, bool dir,
+		struct ts_ran view, struct ts_ran ran) {
+	double len = view.to - view.fr;
+	double a = (ran.fr - view.fr) / len, b = (ran.to - view.fr) / len;
 	if (dir) {
-		nb.x = b.x + b.w / n * i;
-		nb.y = b.y;
-		nb.w = b.w / n;
-		nb.h = b.h;
+		return (fbox){
+			.x = f.x + f.w * a,
+			.y = f.y,
+			.w = (b - a) * f.w,
+			.h = f.h
+		};
 	} else {
-		nb.x = b.x;
-		nb.y = b.y + b.h / n * i;
-		nb.w = b.w;
-		nb.h = b.h / n;
+		return (fbox){
+			.x = f.x,
+			.y = f.y + f.h * a,
+			.w = f.w,
+			.h = (b - a) * f.h
+		};
 	}
-	return nb;
 }
 
 static bool same_day(struct simple_date a, struct simple_date b) {
@@ -221,157 +222,166 @@ static void render_tobject(cairo_t *cr, struct app *app,
 		app->tr->p.scale = 1.0;
 	}
 }
-static void render_tslice(cairo_t *cr, struct app *app,
-		struct tslice *tsl, ts len, fbox b, struct tview_params p) {
-	struct ts_ran ran = tsl->ran;
-	for (int i = 0; i < tsl->objs.len; ++i) {
-		struct tobject *obj = vec_get(&tsl->objs, i);
-		struct ts_ran time = obj->time;
-		time.fr = max_ts(time.fr, ran.fr);
-		time.to = min_ts(time.to, ran.to);
-		double pa = (time.fr - ran.fr - p.view_ran.fr) / (double)len;
-		double pb = (time.to - ran.fr - p.view_ran.fr) / (double)len;
-		double pl = pb - pa;
-		fbox nb;
-		if (p.dir) {
-			nb.x = b.x + b.w / obj->max_n * obj->col;
-			nb.y = b.y + b.h * pa;
-			nb.w = b.w / obj->max_n;
-			nb.h = b.h * pl;
-		} else {
-			nb.x = b.x + b.w * pa;
-			nb.y = b.y + b.h / obj->max_n * obj->col;
-			nb.w = b.w * pl;
-			nb.h = b.h / obj->max_n;
-		}
-		render_tobject(cr, app, obj, nb, p);
-	}
+struct ctx {
+	cairo_t *cr;
+	struct app *app;
+	struct slicing *s;
+	enum slicing_type st;
+	int level;
+	bool dir;
+	fbox btop, bmain, bhead;
+	struct tview_params p;
+	struct ts_ran view;
+	struct ts_ran len_clip;
+	struct vec *tobjs;
+	bool now_shading;
+};
+static void iter_ac(void *env, struct interval_node *x) {
+	struct ctx *ctx = env;
+	struct active_comp *ac = container_of(x, struct active_comp, node);
+	struct tobject obj = {
+		.time = ac->ci->time,
+		.type = TOBJECT_EVENT,
+		.ac = ac,
+	};
 
-	/* draw time marker red line */
-	ts now = ts_now();
-	if (ts_ran_in(ran, now)) {
-		double pa = (now - ran.fr - p.view_ran.fr) / (double)len;
-		fbox nb;
-		if (p.dir) {
-			nb.x = b.x;
-			nb.y = b.y + b.h * pa;
-			nb.w = b.w;
-			nb.h = 0;
-		} else {
-			nb.x = b.x + b.w * pa;
-			nb.y = b.y;
-			nb.w = 0;
-			nb.h = b.h;
-		}
-		cairo_set_line_width(cr, 2);
-		cairo_move_to(cr, nb.x, nb.y);
-		cairo_line_to(cr, nb.x + nb.w, nb.y + nb.h);
-		cairo_set_source_rgba(cr, 255, 0, 0, 255);
-		cairo_stroke(cr);
-	}
+	ts len = obj.time.to - obj.time.fr;
+	if (ctx->len_clip.fr != -1 && ctx->len_clip.fr > len) return;
+	if (ctx->len_clip.to != -1 && ctx->len_clip.to <= len) return;
+
+	vec_append(ctx->tobjs, &obj);
 }
-static void render_tview(cairo_t *cr, struct app *app, struct tview *tv, fbox b,
-		struct tview_params p) {
-	ts len = p.view_ran.to - p.view_ran.fr;
+static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
+	struct ctx *ctx = env;
+	fbox btop = ctx->btop, bmain = ctx->bmain, bhead = ctx->bhead;
+	fbox bsl = fbox_slice(bmain, ctx->dir, ctx->view, ran);
+	fbox bhsl = fbox_slice(bhead, ctx->dir, ctx->view, ran);
 
-	/* draw lines */
-	cairo_set_line_width(cr, 1);
-	for (int l = 0;; ++l) {
-		bool any = false;
-		for (int i = 0; i < tv->n; ++i) {
-			struct tslice *tsl = &tv->s[i];
-			if (tsl->lines.n <= l) continue;
-			any = true;
-			ts t = tsl->lines.s[l];
-			double pa = (t - tsl->ran.fr - p.view_ran.fr) / (double)len;
-			if (pa < 0 || pa > 1) continue;
-			fbox nb = fbox_slice(b, tv->n, i, p.dir);
-			double x1, x2, y1, y2;
-			if (p.dir) {
-				x1 = nb.x; x2 = nb.x + nb.w;
-				y1 = y2 = round(nb.y + pa * nb.h + .5) - .5;
+	if (ctx->now_shading && ts_ran_in(ran, ctx->app->now)) {
+		cairo_reset_clip(ctx->cr);
+		cairo_rectangle(ctx->cr, btop.x, btop.y, btop.w, btop.h);
+		cairo_clip(ctx->cr);
+
+		uint32_t l = (64 + ctx->level * 128) & 0xFF;
+		uint32_t bg = 0xFFFF0000 | (l << 8) | l;
+		cairo_set_source_argb(ctx->cr, bg);
+		cairo_rectangle(ctx->cr, bsl.x, bsl.y, bsl.w, bsl.h);
+		if (ctx->level == 1) cairo_rectangle(ctx->cr, bhsl.x, bhsl.y, bhsl.w, bhsl.h);
+		cairo_fill(ctx->cr);
+	}
+
+	if (ctx->level > 0) {
+		/* recurse */
+		struct ctx next_ctx = *ctx;
+		--next_ctx.level;
+		next_ctx.bmain = bsl;
+		next_ctx.view = ran;
+		next_ctx.dir = !next_ctx.dir;
+		++next_ctx.st;
+		if (next_ctx.st <= SLICING_HOUR) {
+			slicing_iter_items(ctx->s, &next_ctx, render_ran, next_ctx.st, ran);
+		}
+	}
+
+	cairo_reset_clip(ctx->cr);
+	cairo_rectangle(ctx->cr, btop.x, btop.y, btop.w, btop.h);
+	cairo_clip(ctx->cr);
+
+	if ((ctx->level == 0 && ctx->st < SLICING_HOUR) || ctx->st == SLICING_DAY) {
+		/* draw overlapping objects */
+		vec_clear(ctx->tobjs);
+		interval_query(
+			&ctx->app->active_events,
+			(long long int[]){ ran.fr, ran.to },
+			ctx,
+			iter_ac
+		);
+		tobject_layout(ctx->tobjs, NULL);
+		double len = ran.to - ran.fr;
+		for (int i = 0; i < ctx->tobjs->len; ++i) {
+			struct tobject *obj = vec_get(ctx->tobjs, i);;
+			struct ts_ran time = obj->time;
+
+			time.fr = max_ts(time.fr, ran.fr);
+			time.to = min_ts(time.to, ran.to);
+
+			double pa = (time.fr - ran.fr) / len;
+			double pb = (time.to - ran.fr) / len;
+			double pl = pb - pa;
+
+			fbox nb;
+			if (ctx->dir) {
+				nb.x = bsl.x + bsl.w / obj->max_n * obj->col;
+				nb.y = bsl.y + bsl.h * pa;
+				nb.w = bsl.w / obj->max_n;
+				nb.h = bsl.h * pl;
 			} else {
-				x1 = x2 = round(nb.x + pa * nb.w + .5) - .5;
-				y1 = nb.y; y2 = nb.y + nb.w;
+				nb.x = bsl.x + bsl.w * pa;
+				nb.y = bsl.y + bsl.h / obj->max_n * obj->col;
+				nb.w = bsl.w * pl;
+				nb.h = bsl.h / obj->max_n;
 			}
-			cairo_set_source_argb(cr, 0xFF000000);
-			cairo_move_to(cr, x1, y1);
-			cairo_line_to(cr, x2, y2);
-			cairo_stroke(cr);
+			render_tobject(ctx->cr, ctx->app, obj, nb, ctx->p);
 		}
-		if (!any) break;
-	}
 
-	/* draw slices */
-	for (int i = 0; i < tv->n; ++i) {
-		struct tslice *tsl = &tv->s[i];
-		fbox nb = fbox_slice(b, tv->n, i, p.dir);
-		render_tslice(cr, app, tsl, len, nb, p);
-
-		/* draw lines between slices */
-		cairo_set_source_argb(cr, 0xFF000000);
-		cairo_set_line_width(cr, p.sep_line);
-		if (p.dir) {
-			cairo_move_to(cr, b.x + b.w / tv->n * i, b.y);
-			cairo_line_to(cr, b.x + b.w / tv->n * i, b.y + b.h);
-		} else {
-			cairo_move_to(cr, b.x, b.y + b.h / tv->n * i);
-			cairo_line_to(cr, b.x + b.w, b.y + b.h / tv->n * i);
-		}
-		cairo_stroke(cr);
-	}
-}
-static void render_tview_header(cairo_t *cr, struct app *app,
-		struct tview *tv, fbox b, struct tview_params p) {
-	cairo_set_source_argb(cr, 0xFF000000);
-	cairo_set_line_width(cr, p.sep_line);
-	for (int i = 0; i < tv->n; ++i) {
-		fbox nb = fbox_slice(b, tv->n, i, p.dir);
-		double x1, x2, y1, y2;
-		if (p.dir) {
-			x1 = x2 = b.x + b.w / tv->n * i;
-			y1 = b.y; y2 = b.y + b.h;
-		} else {
-			x1 = b.x; x2 = b.x + b.w;
-			y1 = y2 = b.y + b.h / tv->n * i;
-		}
-		cairo_move_to(cr, x1, y1);
-		cairo_line_to(cr, x2, y2);
-		cairo_stroke(cr);
-
-		app->tr->p.scale = 1.5;
-		text_print_center(cr, app->tr, (box){ nb.x, nb.y, nb.w, nb.h },
-			tv->s[i].header_label);
-		app->tr->p.scale = 1.0;
-	}
-}
-static void render_tview_strip(cairo_t *cr, struct app *app,
-		struct tview *tv, fbox b, struct tview_params p) {
-	cairo_set_source_argb(cr, 0xFF000000);
-	ts len = p.view_ran.to - p.view_ran.fr;
-	char buf[64];
-	for (int l = 0;; ++l) {
-		bool any = false;
-		for (int i = 0; i == 0; ++i) {
-			struct tslice *tsl = &tv->s[i];
-			if (tsl->lines.n <= l) continue;
-			any = true;
-
-			double x, y;
-			ts t = tsl->lines.s[l] - tsl->ran.fr - p.view_ran.fr;
-			double pa = t / (double)len;
-			if (pa < 0 || pa > 1) continue;
-			if (p.dir) {
-				x = b.x + b.w / 2;
-				y = b.y + b.h * pa;
+		/* draw time marker red line */
+		ts now = ctx->app->now;
+		if (ts_ran_in(ran, now)) {
+			double pa = (now - ran.fr) / len;
+			fbox nb;
+			if (ctx->dir) {
+				nb.x = bsl.x;
+				nb.y = bsl.y + bsl.h * pa;
+				nb.w = bsl.w;
+				nb.h = 0;
 			} else {
-				x = b.x + b.w * pa;
-				y = b.y + b.h / 2;
+				nb.x = bsl.x + bsl.w * pa;
+				nb.y = bsl.y;
+				nb.w = 0;
+				nb.h = bsl.h;
 			}
-			snprintf(buf, 64, "%02d", l);
-			draw_text(cr, app->tr, x, y, buf);
+			cairo_set_line_width(ctx->cr, 2);
+			cairo_move_to(ctx->cr, nb.x, nb.y);
+			cairo_line_to(ctx->cr, nb.x + nb.w, nb.y + nb.h);
+			cairo_set_source_rgba(ctx->cr, 255, 0, 0, 255);
+			cairo_stroke(ctx->cr);
 		}
-		if (!any) break;
+	}
+
+	/* draw lines between slices */
+	cairo_set_source_argb(ctx->cr, 0xFF000000);
+	cairo_set_line_width(ctx->cr, ctx->p.sep_line);
+	if (ctx->dir) {
+		cairo_move_to(ctx->cr, bsl.x, bsl.y);
+		cairo_line_to(ctx->cr, bsl.x, bsl.y + bsl.h);
+	} else {
+		cairo_move_to(ctx->cr, bsl.x, bsl.y);
+		cairo_line_to(ctx->cr, bsl.x + bsl.w, bsl.y);
+	}
+	cairo_stroke(ctx->cr);
+
+	if (ctx->level == 1) {
+		cairo_reset_clip(ctx->cr);
+		cairo_rectangle(ctx->cr, bhead.x, bhead.y, bhead.w, bhead.h);
+		cairo_clip(ctx->cr);
+
+		/* draw header */
+		cairo_set_source_argb(ctx->cr, 0xFF000000);
+		cairo_set_line_width(ctx->cr, ctx->p.sep_line);
+		cairo_move_to(ctx->cr, bhsl.x, bhsl.y);
+		cairo_line_to(ctx->cr, bhsl.x, bhsl.y + bhsl.h);
+		cairo_stroke(ctx->cr);
+
+		ctx->app->tr->p.scale = 1.5;
+		char *text;
+		if (label.t[1] == 0) text = text_format("%d", label.t[0]);
+		else if (label.t[2] == 0) text = text_format("%d-%d", label.t[0], label.t[1]);
+		else text = text_format("%d-%d-%d", label.t[0], label.t[1], label.t[2]);
+		text_print_center(ctx->cr, ctx->app->tr, (box){ bhsl.x, bhsl.y, bhsl.w, bhsl.h }, text);
+		free(text);
+		ctx->app->tr->p.scale = 1.0;
+
+		cairo_reset_clip(ctx->cr);
 	}
 }
 
@@ -396,8 +406,7 @@ static void render_sidebar(cairo_t *cr, struct app *app, box b) {
 		text_get_size(cr, app->tr, text);
 		int height = app->tr->p.height;
 
-		cairo_set_source_argb(cr,
-			cal_info->visible ? cal_info->color : 0xFFFFFFFF);
+		cairo_set_source_argb(cr, cal_info->color);
 		cairo_rectangle(cr, 0, h, b.w, height + pad);
 		cairo_fill(cr);
 
@@ -412,17 +421,28 @@ static void render_sidebar(cairo_t *cr, struct app *app, box b) {
 		cairo_stroke(cr);
 	}
 
+	vec_clear(&app->tap_areas);
+	int btn_h = 90;
+
 	const char **k = app->config_fns;
+	int i = 0;
 	if (k) while (*k) {
 		app->tr->p.width = b.w; app->tr->p.height = -1;
 		text_get_size(cr, app->tr, *k);
-		int height = app->tr->p.height;
+		int height = maxi(app->tr->p.height, btn_h);
 
 		if (app->current_filter_fn == *k) {
 			cairo_set_source_argb(cr, 0xFF00FF00);
 			cairo_rectangle(cr, 0, h, b.w, height + pad);
 			cairo_fill(cr);
 		}
+
+		struct tap_area ta = {
+			.aabb = { b.x, b.y + h, b.w, height + pad },
+			.n = i++,
+			.cmd = app_cmd_activate_filter
+		};
+		vec_append(&app->tap_areas, &ta);
 
 		cairo_set_source_argb(cr, 0xFF000000);
 		cairo_move_to(cr, 0, h + pad / 2);
@@ -434,6 +454,34 @@ static void render_sidebar(cairo_t *cr, struct app *app, box b) {
 		cairo_line_to(cr, b.w, h);
 		cairo_stroke(cr);
 		k++;
+	}
+
+	struct {
+		const char *label;
+		void (*cmd)(struct app * app, int n);
+	} btns[] = {
+		{ "today", app_cmd_view_today },
+		{ "private", app_cmd_toggle_show_private },
+		{ "calendar/todo", app_cmd_switch_view },
+	};
+	for (int i = 0; i < sizeof(btns) / sizeof(btns[0]); ++i) {
+		cairo_set_source_argb(cr, 0xFF000000);
+		app->tr->p.scale = 1.5;
+		text_print_center(cr, app->tr, (box){ 0, h, b.w, btn_h },
+			btns[i].label);
+		app->tr->p.scale = 1.0;
+
+		struct tap_area ta = {
+			.aabb = { b.x, b.y + h, b.w, btn_h },
+			.n = -1,
+			.cmd = btns[i].cmd
+		};
+		vec_append(&app->tap_areas, &ta);
+
+		h += btn_h + pad / 2;
+		cairo_move_to(cr, 0, h);
+		cairo_line_to(cr, b.w, h);
+		cairo_stroke(cr);
 	}
 
 	if (app->interactive) {
@@ -639,8 +687,9 @@ bool render_application(void *ud, cairo_t *cr) {
 	int time_strip_w = 30;
 	int sidebar_w = 120;
 	int header_h = 60;
-	asrt(app->top_tview.n == 1, "top_tview wrong slices");
-	int top_h = 50 * app->top_tview.s[0].max_overlap;
+	int top_h = 50;
+
+	struct libtouch_rt rt = libtouch_area_get_transform(app->touch_area);
 
 	const char *view_name = "";
 	switch (app->main_view) {
@@ -663,27 +712,60 @@ bool render_application(void *ud, cairo_t *cr) {
 			cal_box.x + time_strip_w, cal_box.y + header_h + top_h,
 			cal_box.w - time_strip_w, cal_box.h - header_h - top_h
 		};
+
+		struct slicing *s = app->slicing;
+		float g = libtouch_rt_scaling(&rt);
+		double a = app->view.fr, b = app->view.to;
+		b = a + (b - a) / g;
+		double tx = (rt.t1 / w) * (b - a);
+		a -= tx, b -= tx;
+		struct ts_ran view = { a, b };
+		app_use_view(app, view);
+		// fprintf(stderr, "g: %f, t1: %f, view: [%lld, %lld]\n", g, rt.t1, view.fr, view.to);
+
+		enum slicing_type st = SLICING_DAY;
+		ts top_th = 3600 * 24;
+		ts len = view.to - view.fr;
+		if (len > 3600 * 24 * 365) st = SLICING_YEAR, top_th *= 365;
+		else if (len > 3600 * 24 * 31) st = SLICING_MONTH, top_th *= 31;
+
+		struct vec tobjs = vec_new_empty(sizeof(struct tobject));
 		struct tview_params params = {
-			.dir = true,
+			.dir = false,
 			.pad = 2,
 			.sep_line = 2,
 		};
+		struct ctx ctx = {
+			.cr = cr,
+			.app = app,
+			.s = s,
+			.st = st,
+			.level = 1,
+			.dir = true,
+			.btop = main_box,
+			.bmain = main_box,
+			.bhead = header_box,
+			.p = params,
+			.view = view,
+			.tobjs = &tobjs,
+			.now_shading = true
+		};
 
-		if (app->tview_type == TVIEW_DAYS) {
-			params.view_ran = (struct ts_ran){
-				app->tview.min_content, app->tview.max_content };
-		} else {
-			params.view_ran = (struct ts_ran){ 0, app->tview.max_len };
-		}
-		render_tview(cr, app, &app->tview, main_box, params);
-		render_tview_header(cr, app, &app->tview, header_box, params);
-		if (app->tview_type == TVIEW_DAYS) {
-			render_tview_strip(cr, app, &app->tview, time_strip_box, params);
-		}
+		ctx.len_clip = (struct ts_ran){ -1, top_th };
+		slicing_iter_items(s, &ctx, render_ran, st, view);
 
-		params.dir = false;
-		params.view_ran = (struct ts_ran){ 0, app->top_tview.max_len };
-		render_tview(cr, app, &app->top_tview, top_box, params);
+		ctx.len_clip = (struct ts_ran){ top_th, -1 };
+		ctx.btop = ctx.bmain = top_box;
+		ctx.dir = false;
+		ctx.level = 0;
+		ctx.st = SLICING_DAY;
+		ctx.now_shading = false;
+		render_ran(&ctx, view, (struct simple_date){ });
+
+		vec_free(&tobjs);
+
+		cairo_reset_clip(cr);
+
 		view_name = "calendar";
 		break;
 	case VIEW_TODO:

@@ -103,7 +103,7 @@ static int calendar_add_comp_unchecked(struct calendar *cal,
 	struct comp_info info = { .deleted = false };
 	vec_append(&cal->comp_infos, &info);
 
-	cal->comps_dirty = true;
+	cal->cis_dirty[c.type] = true;
 
 	return idx;
 }
@@ -111,12 +111,23 @@ void calendar_init(struct calendar *cal) {
 	cal->comps_vec = vec_new_empty(sizeof(struct comp));
 	hashmap_init(&cal->comps_map, sizeof(int));
 	cal->comp_infos = vec_new_empty(sizeof(struct comp_info));
-	cal->cis = vec_new_empty(sizeof(struct comp_inst));
+
+	cal->cis = malloc_check(sizeof(struct rb_tree) * COMP_TYPE_N);
+	for (int i = 0; i < COMP_TYPE_N; ++i) {
+		rb_tree_init(&cal->cis[i], &interval_ops);
+		cal->cis_n[i] = 0;
+		cal->cis_dirty[i] = false;
+	}
+
 	cal->name = str_empty;
 	cal->storage = str_empty;
 	cal->priv = false;
 	cal->loaded.tv_sec = 0; // should work...
-	cal->comps_dirty = false;
+}
+static void cis_tree_iter_free(void *env, struct rb_node *x) {
+	struct interval_node *nx = container_of(x, struct interval_node, node);
+	struct comp_inst *ci = container_of(nx, struct comp_inst, node);
+	free(ci);
 }
 void calendar_finish(struct calendar *cal) {
 	for (int i = 0; i < cal->comps_vec.len; ++i) {
@@ -126,7 +137,12 @@ void calendar_finish(struct calendar *cal) {
 	vec_free(&cal->comps_vec);
 	hashmap_finish(&cal->comps_map);
 	vec_free(&cal->comp_infos);
-	vec_free(&cal->cis);
+
+	for (int i = 0; i < COMP_TYPE_N; ++i) {
+		rb_iter_post(&cal->cis[i], NULL, cis_tree_iter_free);
+	}
+	free(cal->cis);
+
 	str_free(&cal->name);
 	str_free(&cal->storage);
 }
@@ -145,7 +161,6 @@ int calendar_add_comp(struct calendar *cal, struct comp c) {
 	if (idx != -1) {
 		calendar_delete_comp(cal, idx);
 	}
-	cal->comps_dirty = true;
 	return calendar_add_comp_unchecked(cal, c);
 }
 int calendar_find_comp(struct calendar *cal, const char *uid) {
@@ -154,44 +169,59 @@ int calendar_find_comp(struct calendar *cal, const char *uid) {
 	return *idx;
 }
 void calendar_delete_comp(struct calendar *cal, int idx) {
+	struct comp *c = vec_get(&cal->comps_vec, idx);
 	struct comp_info *info = vec_get(&cal->comp_infos, idx);
 	info->deleted = true;
-
-	cal->comps_dirty = true;
+	cal->cis_dirty[c->type] = true;
 }
 struct comp * calendar_get_comp(struct calendar *cal, int idx) {
 	return vec_get(&cal->comps_vec, idx);
 }
 
-struct comp_recur_cb_cl {
+struct comp_recur_cb_env {
 	struct calendar *cal;
 	struct comp *c;
 	int comp_idx;
 };
-static void comp_recur_cb_fn(void *_cl, struct ts_ran time, struct props *p) {
-	struct comp_recur_cb_cl *cl = _cl;
-	struct comp_inst ci = {
-		.c = cl->c, .comp_idx = cl->comp_idx, .p = p, .time = time };
-	vec_append(&cl->cal->cis, &ci);
+static void comp_recur_cb_fn(void *_env, struct ts_ran time, struct props *p) {
+	struct comp_recur_cb_env *env = _env;
+	struct comp_inst *ci = malloc_check(sizeof(struct comp_inst));
+	*ci = (struct comp_inst){
+		.c = env->c, .comp_idx = env->comp_idx, .p = p, .time = time
+	};
+
+	enum comp_type type = env->c->type;
+	ci->node.lo = time.fr;
+	ci->node.max_hi = ci->node.hi = time.to;
+	rb_insert(&env->cal->cis[type], &ci->node.node);
+	++env->cal->cis_n[type];
 }
-void calendar_expand_instances_to(struct calendar *cal, ts to) {
-	if (cal->comps_dirty) {
-		vec_clear(&cal->cis);
+void calendar_expand_instances_to(struct calendar *cal, enum comp_type type,
+		ts to) {
+	if (cal->cis_dirty[type]) {
+
+		/* this clears the tree */
+		rb_iter_post(&cal->cis[type], NULL, cis_tree_iter_free);
+		rb_tree_init(&cal->cis[type], &interval_ops);
+		cal->cis_n[type] = 0;
+
 		for (int i = 0; i < cal->comps_vec.len; ++i) {
 			struct comp *c = vec_get(&cal->comps_vec, i);
+			if (c->type != type) continue;
 			if (c->recur) recurrence_reset(c->recur);
 			c->all_expanded = false;
 		}
-		cal->comps_dirty = false;
+		cal->cis_dirty[type] = false;
 	}
 
 	for (int i = 0; i < cal->comps_vec.len; ++i) {
 		struct comp *c = vec_get(&cal->comps_vec, i);
+		if (c->type != type) continue;
 		struct comp_info *info = vec_get(&cal->comp_infos, i);
 		if (info->deleted) continue;
 
-		struct comp_recur_cb_cl cl = { .cal = cal, .c = c, .comp_idx = i };
-		comp_recur_expand(c, to, &comp_recur_cb_fn, &cl);
+		struct comp_recur_cb_env env = { .cal = cal, .c = c, .comp_idx = i };
+		comp_recur_expand(c, to, &comp_recur_cb_fn, &env);
 	}
 }
 

@@ -7,11 +7,7 @@
 void asrt(bool b, const char *msg) {
 	if (!b) {
 		fprintf(stderr, "assert error msg: %s\n", msg);
-#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 		abort();
-#else
-		exit(1);
-#endif
 	}
 }
 

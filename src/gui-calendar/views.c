@@ -5,176 +5,187 @@
 #include "algo.h"
 #include "core.h"
 
-static void tslice_finish(struct tslice *tsl) {
-	free(tsl->lines.s);
-	tsl->lines.s = NULL;
-	tsl->lines.n = -1;
-
-	vec_free(&tsl->objs);
-
-	free(tsl->header_label);
-	tsl->header_label = NULL;
-}
-void tview_finish(struct tview *tv) {
-	for (int i = 0; i < tv->n; ++i) {
-		tslice_finish(&tv->s[i]);
-	}
-	free(tv->s);
-	*tv = (struct tview){ .s = NULL, .n = -1 };
-}
-static void tslice_init(struct tslice *tsl) {
-	tsl->objs = vec_new_empty(sizeof(struct tobject));
-}
-static void alloc_n_slices(struct tview *tv, int n) {
-	tv->s = malloc_check(sizeof(struct tslice) * n);
-	tv->n = n;
-	for (int i = 0; i < n; ++i) {
-		tslice_init(&tv->s[i]);
-	}
-}
-static void alloc_lines(struct tslice *tsl, int n) {
-	tsl->lines = (struct tslice_lines){
-		.s = malloc_check(sizeof(ts) * n),
-		.n = n
+enum hlevel { YEAR = 0, MONTH = 1, DAY = 2, HOUR = 3, N_LEVELS };
+struct item {
+	struct ts_ran ran;
+	union {
+		struct {
+			int n;
+			int subs[31];
+		};
+		bool hour_leap;
 	};
-}
+};
+struct slicing {
+	struct cal_timezone *zone;
+	struct vec items[N_LEVELS]; /* vec<struct item> */
+};
 
-void tview_init_range(struct tview *tv, struct tview_spec *spec) {
-	alloc_n_slices(tv, 1);
-
-	struct tslice *tsl = &tv->s[0];
-	tsl->ran.fr = spec->base;
-	tsl->ran.to = spec->to;
-	tsl->header_label = NULL;
-
-	tsl->lines.n = 0;
-	tsl->lines.s = NULL;
-
-	tv->max_len = tsl->ran.to - tsl->ran.fr;
-	tv->ran_hull = tsl->ran;
-}
-
-void tview_init(struct tview *tv, struct tview_spec *spec) {
-	if (spec->type == TVIEW_RANGE) asrt(spec->n == 1, "wrong spec");
-	alloc_n_slices(tv, spec->n);
-	tv->max_len = -1;
-	tv->ran_hull = (struct ts_ran){ -1, -1 };
-	struct simple_date base = simple_date_from_ts(spec->base, spec->zone);
-	base.second = base.minute = base.hour = 0;
-	for (int i = 0; i < tv->n; ++i) {
-		struct tslice *tsl = &tv->s[i];
-		struct ts_ran *r = &tsl->ran;
-		switch (spec->type) {
-		case TVIEW_DAYS:
-			base.hour = spec->h1;
-			r->fr = simple_date_to_ts(base, spec->zone);
-			tsl->header_label = text_format("%s: %02d-%02d",
-				simple_date_day_of_week_name(base), base.month, base.day);
-			base.hour = spec->h2;
-			r->to = simple_date_to_ts(base, spec->zone);
-			alloc_lines(tsl, spec->h2 - spec->h1);
-			for (int k = 0; k < tsl->lines.n; ++k) {
-				base.hour = spec->h1 + k;
-				tsl->lines.s[k] = simple_date_to_ts(base, spec->zone);
-			}
-			base.day += 1;
-			simple_date_normalize(&base);
-			break;
-		case TVIEW_WEEKS:
-			r->fr = simple_date_to_ts(base, spec->zone);
-			tsl->header_label = text_format("%04d w%02d",
-				base.year, simple_date_week_number(base));
-			alloc_lines(tsl, 7);
-			for (int k = 0; k < tsl->lines.n; ++k) {
-				base.day++;
-				tsl->lines.s[k] = simple_date_to_ts(base, spec->zone);
-			}
-			r->to = simple_date_to_ts(base, spec->zone);
-			simple_date_normalize(&base);
-			break;
-		case TVIEW_MONTHS:
-			r->fr = simple_date_to_ts(base, spec->zone);
-			tsl->header_label = text_format("%04d-%02d", base.year, base.month);
-			alloc_lines(tsl, simple_date_days_in_month(base));
-			for (int k = 0; k < tsl->lines.n; ++k) {
-				base.day = k + 1;
-				tsl->lines.s[k] = simple_date_to_ts(base, spec->zone);
-			}
-			base.day = 1;
-			base.month += 1;
-			simple_date_normalize(&base);
-			r->to = simple_date_to_ts(base, spec->zone);
-			break;
-		case TVIEW_YEARS:
-			r->fr = simple_date_to_ts(base, spec->zone);
-			tsl->header_label = text_format("%04d", base.year);
-			alloc_lines(tsl, 12);
-			for (int k = 0; k < tsl->lines.n; ++k) {
-				base.month = k + 1;
-				tsl->lines.s[k] = simple_date_to_ts(base, spec->zone);
-			}
-			base.month = 1;
-			base.year += 1;
-			simple_date_normalize(&base);
-			r->to = simple_date_to_ts(base, spec->zone);
-			break;
-		default:
-			asrt(false, "wrong tview type");
-			break;
-		}
-
-		ts len = r->to - r->fr;
-		tv->max_len = max_ts(tv->max_len, len);
-
-		if (tv->ran_hull.fr == -1) tv->ran_hull = *r;
-		else tv->ran_hull = ts_ran_hull(tv->ran_hull, *r);
+struct slicing *slicing_create(struct cal_timezone *zone) {
+	struct slicing *s = malloc_check(sizeof(struct slicing));
+	s->zone = zone;
+	for (int i = 0; i < N_LEVELS; ++i) {
+		s->items[i] = vec_new_empty(sizeof(struct item));
 	}
-	spec->to = tv->s[tv->n - 1].ran.to;
-	tv->min_content = tv->max_len + 1; tv->max_content = -1;
+	return s;
 }
-bool tview_try_put(struct tview *tv, struct tobject obj) {
-	bool inserted = false;
-	for (int i = 0; i < tv->n; ++i) {
-		struct tslice *tsl = &tv->s[i];
-		if (ts_ran_overlap(tsl->ran, obj.time)) {
-			vec_append(&tsl->objs, &obj);
-			struct ts_ran ran = {
-				obj.time.fr - tsl->ran.fr, obj.time.to - tsl->ran.fr };
-			if (ran.fr < tv->min_content)
-				tv->min_content = max_ts(ran.fr, 0);
-			if (ran.to > tv->max_content)
-				tv->max_content = min_ts(ran.to, tsl->ran.to - tsl->ran.fr);
-			inserted = true;
+void slicing_destroy(struct slicing *s) {
+	for (int i = 0; i < N_LEVELS; ++i) {
+		vec_free(&s->items[i]);
+	}
+}
+int get_or_create(struct slicing *s, enum hlevel lev, struct ts_ran ran) {
+	struct vec *v = &s->items[lev];
+	for (int i = 0; i < v->len; ++i) {
+		struct item *item = vec_get(v, i);
+		if (item->ran.fr == ran.fr) {
+			asrt(item->ran.to == ran.to, "[slicing] ran.to does not match");
+			return i;
 		}
 	}
-	return inserted;
+	struct item item = { .ran = ran, .n = -1 };
+	return vec_append(v, &item);
 }
-void tview_update_layout(struct tview *tv) {
+struct item *get_item(struct slicing *s, enum hlevel lev, int id) {
+	return vec_get(&s->items[lev], id);
+}
+
+struct iter {
+	enum hlevel type;
+	struct ts_ran ran;
+	void *env;
+	void (*f)(void *env, struct ts_ran ran, struct simple_date label);
+	struct simple_date label;
+};
+static void iter_items(struct slicing *s, struct iter *iter,
+		enum hlevel lev, int id) {
+	asrt(lev <= iter->type, "[slicing] too deep");
+
+	struct item *item = get_item(s, lev, id);
+	if (!ts_ran_overlap(iter->ran, item->ran)) return;
+	if (lev == iter->type) {
+		iter->f(iter->env, item->ran, iter->label);
+		return;
+	}
+
+	asrt(lev < HOUR, "[slicing] too deep iter type");
+	int adj = (lev + 1 == MONTH || lev + 1 == DAY) ? 1 : 0;
+
+	if (item->n == -1) {
+		/* b: the start of this range */
+		struct simple_date b = simple_date_from_ts(item->ran.fr, s->zone);
+		switch (lev) { /* all of these FALLTHROUGH */
+		default: asrt(false, "[slicing] bad lev");
+		case YEAR: asrt(b.t[1] == 1, "[slicing] year");
+		case MONTH: asrt(b.t[2] == 1, "[slicing] month");
+		case DAY: asrt(b.t[3] == 0, "[slicing] day");
+		case HOUR: asrt(b.t[4] == 0 && b.t[5] == 0, "[slicing] hour");
+		}
+
+		if (lev == YEAR) item->n = 12;
+		else if (lev == MONTH) item->n = simple_date_days_in_month(b);
+		else if (lev == DAY) item->n = -1; /* could be a 23 or 25 hour day */
+		asrt(item->n <= 31, "");
+		for (int i = 0;; ++i) {
+			struct simple_date bi = b;
+			struct ts_ran r; /* the range of this sub */
+
+			/* calculate r.fr */
+			bi.t[lev + 1] = i + adj;
+			simple_date_normalize(&bi);
+			r.fr = simple_date_to_ts(bi, s->zone);
+
+			/* check when we would step into the next item */
+			if (bi.t[lev] != b.t[lev]) {
+				if (item->n != -1) {
+					asrt(item->n == i, "item n mismatch");
+				} else {
+					asrt(lev == DAY, "");
+					asrt(23 <= i && i <= 25, "bad day item n");
+					item->n = i;
+				}
+				break;
+			}
+
+			/* calculate r.to */
+			bi.t[lev + 1] = i + adj + 1;
+			simple_date_normalize(&bi);
+			r.to = simple_date_to_ts(bi, s->zone);
+
+			if (r.fr == r.to) {
+				/* invalid range, we got a zero length hour brought to you by
+				 * our dear friend DST */
+				asrt(lev == DAY, "");
+				++adj;
+				--i;
+				continue;
+			}
+
+			/* create sub */
+			item->subs[i] = get_or_create(s, lev + 1, r);
+
+			/* assign label & recurse */
+			iter->label.t[lev + 1] = i + adj;
+			iter_items(s, iter, lev + 1, item->subs[i]);
+		}
+	} else {
+		for (int i = 0; i < item->n; ++i) {
+			iter->label.t[lev + 1] = i + adj;
+			iter_items(s, iter, lev + 1, item->subs[i]);
+		}
+	}
+}
+void slicing_iter_items(struct slicing *s, void *env,
+		void (*f)(void *env, struct ts_ran ran, struct simple_date label),
+		enum slicing_type type, struct ts_ran ran) {
+	struct iter iter = { .env = env, .f = f, .ran = ran };
+	switch (type) {
+	case SLICING_YEAR: iter.type = YEAR; break;
+	case SLICING_MONTH: iter.type = MONTH; break;
+	case SLICING_DAY: iter.type = DAY; break;
+	case SLICING_HOUR: iter.type = HOUR; break;
+	}
+
+	struct simple_date b = { .month = 1, .day = 1 };
+	b.year = simple_date_from_ts(ran.fr, s->zone).year;
+	while (1) {
+		struct ts_ran r;
+		r.fr = simple_date_to_ts(b, s->zone);
+		if (r.fr >= ran.to) break;
+		iter.label.t[YEAR] = b.year;
+		++b.year;
+		r.to = simple_date_to_ts(b, s->zone);
+		int id = get_or_create(s, YEAR, r);
+		iter_items(s, &iter, YEAR, id);
+	}
+}
+
+int slicing_test_get_total_len(struct slicing *s) {
+	int n = 0;
+	for (int i = 0; i < N_LEVELS; ++i) n += s->items[i].len;
+	return n;
+}
+
+void tobject_layout(struct vec *tobjs, int *max_overlap) {
 	struct vec la = vec_new_empty(sizeof(struct layout_event));
-	for (int i = 0; i < tv->n; ++i) {
-		struct tslice *tsl = &tv->s[i];
-		for (int k = 0; k < tsl->objs.len; ++k) {
-			struct tobject *obj = vec_get(&tsl->objs, k);
-			struct layout_event l = {
-				.time = obj->time,
-				.idx = k
-			};
-			vec_append(&la, &l);
+	for (int k = 0; k < tobjs->len; ++k) {
+		struct tobject *obj = vec_get(tobjs, k);
+		struct layout_event l = {
+			.time = obj->time,
+			.idx = k
+		};
+		vec_append(&la, &l);
+	}
+	calendar_layout(la.d, la.len);
+	if (max_overlap) *max_overlap = 0;
+	for (int k = 0; k < la.len; ++k) {
+		struct layout_event *l = vec_get(&la, k);
+		struct tobject *obj = vec_get(tobjs, l->idx);
+		obj->max_n = l->max_n;
+		obj->col = l->col;
+		if (max_overlap) {
+			if (obj->max_n > *max_overlap) *max_overlap = obj->max_n;
 		}
-		calendar_layout(la.d, la.len);
-		tsl->max_overlap = 0;
-		for (int k = 0; k < la.len; ++k) {
-			struct layout_event *l = vec_get(&la, k);
-			struct tobject *obj = vec_get(&tsl->objs, l->idx);
-			obj->max_n = l->max_n;
-			obj->col = l->col;
-			if (obj->max_n > tsl->max_overlap) tsl->max_overlap = obj->max_n;
-		}
-		vec_clear(&la);
 	}
 	vec_free(&la);
-
-	/* extend to full range if there is no content */
-	if (tv->min_content > tv->max_len) tv->min_content = 0;
-	if (tv->max_content < 0) tv->max_content = tv->max_len;
 }
