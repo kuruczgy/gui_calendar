@@ -10,16 +10,16 @@ typedef long long int ts;
 struct ts_ran { ts fr, to; };
 
 struct simple_date {
-    union {
-        struct {
-            int year, month, day, hour, minute, second;
-        };
-        int t[6];
-    };
+	union {
+		struct {
+			int year, month, day, hour, minute, second;
+		};
+		int t[6];
+	};
 };
 
 struct simple_dur {
-    int d, h, m, s;
+	int d, h, m, s;
 };
 
 /* struct cal_timezone */

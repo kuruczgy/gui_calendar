@@ -15,20 +15,20 @@
 struct recurrence;
 
 enum comp_type {
-    COMP_TYPE_EVENT,
-    COMP_TYPE_TODO
+	COMP_TYPE_EVENT,
+	COMP_TYPE_TODO
 };
 struct comp_recur_inst {
-    ts recurrence_id;
-    struct props p;
+	ts recurrence_id;
+	struct props p;
 };
 struct comp {
-    struct str uid;
-    enum comp_type type;
-    struct props p;
-    struct vec recur_insts; /* vec<struct comp_recur_inst> */
-    struct recurrence *recur;
-    bool all_expanded;
+	struct str uid;
+	enum comp_type type;
+	struct props p;
+	struct vec recur_insts; /* vec<struct comp_recur_inst> */
+	struct recurrence *recur;
+	bool all_expanded;
 };
 void comp_init(struct comp *c, struct str uid, enum comp_type type);
 int comp_init_from_ics(struct comp *c, FILE *f);
@@ -37,32 +37,32 @@ bool comp_equal(const struct comp *a, const struct comp *b);
 
 typedef void (*comp_recur_cb)(void *cl, struct ts_ran time, struct props *p);
 struct props * comp_recur_expand(struct comp *c, ts to,
-        comp_recur_cb cb, void *cl);
+		comp_recur_cb cb, void *cl);
 
 struct comp_inst {
-    struct comp *c;
-    int comp_idx;
-    struct props *p;
-    struct ts_ran time;
+	struct comp *c;
+	int comp_idx;
+	struct props *p;
+	struct ts_ran time;
 };
 
 struct calendar {
-    struct vec comps_vec; /* vec<struct comp> */
-    struct hashmap comps_map; /* hashmap<int> */
-    struct vec comp_infos; /* vec<struct comp_info> */
-    struct vec cis; /* vec<struct comp_inst> */
-    struct str name;
-    struct str storage;
-    bool priv;
-    struct timespec loaded;
-    bool comps_dirty;
+	struct vec comps_vec; /* vec<struct comp> */
+	struct hashmap comps_map; /* hashmap<int> */
+	struct vec comp_infos; /* vec<struct comp_info> */
+	struct vec cis; /* vec<struct comp_inst> */
+	struct str name;
+	struct str storage;
+	bool priv;
+	struct timespec loaded;
+	bool comps_dirty;
 };
 void calendar_init(struct calendar* cal);
 void calendar_finish(struct calendar *cal);
 
 /* returns -1 if uid already exists */
 int calendar_new_comp(struct calendar *cal, struct str uid,
-        enum comp_type type);
+		enum comp_type type);
 /* returns -1 if uid already exists */
 int calendar_add_comp(struct calendar *cal, struct comp c);
 
@@ -75,13 +75,13 @@ struct comp * calendar_get_comp(struct calendar *cal, int idx);
 void calendar_expand_instances_to(struct calendar *cal, ts to);
 
 void update_calendar_from_storage(struct calendar *cal,
-        struct cal_timezone *local_zone);
+		struct cal_timezone *local_zone);
 int libical_parse_ics(FILE *f, struct calendar *cal);
 
 /* subprocess stuff */
 struct subprocess_handle;
 struct subprocess_handle* subprocess_new_input(const char *file,
-        const char *argv[], void (*cb)(void*, FILE*), void *ud);
+		const char *argv[], void (*cb)(void*, FILE*), void *ud);
 FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
 
 /* calendar utility functions */

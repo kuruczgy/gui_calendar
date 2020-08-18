@@ -7,16 +7,16 @@
 #include <pango/pangocairo.h>
 
 struct layout_params {
-    const char *text;
-    double scale;
-    bool hyphens;
-    bool wrap_char;
-    int width, height;
+	const char *text;
+	double scale;
+	bool hyphens;
+	bool wrap_char;
+	int width, height;
 };
 
 struct text_renderer {
-    PangoFontDescription *desc;
-    struct layout_params p;
+	PangoFontDescription *desc;
+	struct layout_params p;
 };
 
 struct text_renderer* text_renderer_new(const char *font);

@@ -5,6 +5,6 @@
 #include "editor.h"
 
 int main() {
-    struct edit_spec es;
-    parse_edit_template(stdin, &es, NULL);
+	struct edit_spec es;
+	parse_edit_template(stdin, &es, NULL);
 }

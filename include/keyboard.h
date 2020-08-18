@@ -4,9 +4,9 @@
 #include <stdbool.h>
 
 struct key_gen {
-    int N, k;
-    int A[32];
-    bool begin;
+	int N, k;
+	int A[32];
+	bool begin;
 };
 
 bool key_sym(uint32_t code, char sym);

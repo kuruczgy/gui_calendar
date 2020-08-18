@@ -5,14 +5,14 @@
 #include "datetime.h"
 
 struct layout_event {
-    struct ts_ran time;
-    int max_n;
-    int col;
-    int idx;
+	struct ts_ran time;
+	int max_n;
+	int col;
+	int idx;
 };
 struct schedule_todo {
-    ts start;
-    int estimated_duration;
+	ts start;
+	int estimated_duration;
 };
 
 void calendar_layout(struct layout_event *e, int N);
@@ -22,7 +22,7 @@ void calendar_layout(struct layout_event *e, int N);
  * arg k, T: k todos
  */
 struct ts_ran * todo_schedule(ts base, int n, struct ts_ran *E,
-        int k, struct schedule_todo *T);
+		int k, struct schedule_todo *T);
 
 /* Given an array of n elements, finds the next permutation in
  * lexicographical order with a different k-prefix; in effect, it

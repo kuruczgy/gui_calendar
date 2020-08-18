@@ -12,17 +12,17 @@ typedef void (*keyboard_cb)(void *ud, uint32_t key, uint32_t mods);
 typedef void (*child_cb)(void *ud, pid_t pid);
 
 struct backend_methods {
-    void (*destroy)(struct backend*);
-    void (*run)(struct backend*);
-    void (*get_window_size)(struct backend*, int *width, int *height);
-    void (*set_callbacks)(struct backend*,
-            paint_cb, keyboard_cb, child_cb, void*);
-    bool (*is_interactive)(struct backend*);
+	void (*destroy)(struct backend*);
+	void (*run)(struct backend*);
+	void (*get_window_size)(struct backend*, int *width, int *height);
+	void (*set_callbacks)(struct backend*,
+		paint_cb, keyboard_cb, child_cb, void*);
+	bool (*is_interactive)(struct backend*);
 };
 
 struct backend {
-    struct backend_methods *vptr;
-    void *self;
+	struct backend_methods *vptr;
+	void *self;
 };
 
 struct backend backend_init_wayland();
