@@ -6,11 +6,11 @@
 #include <fcntl.h>
 #include <sys/random.h>
 #include <stdio.h>
+#include <ds/vec.h>
+#include <ds/hashmap.h>
 
 #include "core.h"
 #include "util.h"
-#include "vec.h"
-#include "hashmap.h"
 
 /* start weston section: most of this is from the weston examples */
 
@@ -114,15 +114,6 @@ void generate_uid(char buf[64]) {
     for (int i = 0; i < 16; ++i)
         sprintf(buf + 2 * i, "%02x", (unsigned char)rnd[i]);
     buf[32] = '\0';
-}
-
-/* From the iCalendar RFC: The "DTEND" property for a "VEVENT" calendar
- * component specifies the non-inclusive end of the event.
- *
- * To reflect this, we assumes [a1, a2) and [b1, b2) intervals.
- */
-bool interval_overlap(time_t a1, time_t a2, time_t b1, time_t b2) {
-    return a1 < b2 && a2 > b1;
 }
 
 const char * most_frequent(const struct vec *source, const char *(*cb)(void*)) {

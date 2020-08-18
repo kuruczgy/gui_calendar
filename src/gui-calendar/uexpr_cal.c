@@ -2,7 +2,6 @@
 #include <string.h>
 
 #include "calendar.h"
-#include "hashmap.h"
 #include "core.h"
 #include "util.h"
 #include "uexpr.h"

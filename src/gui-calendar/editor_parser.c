@@ -6,7 +6,7 @@
 
 #include "editor.h"
 #include "core.h"
-#include "vec.h"
+#include <ds/vec.h>
 
 /*
 

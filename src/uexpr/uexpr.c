@@ -84,10 +84,10 @@ Has the only value Void.
 #include <stdbool.h>
 #include <string.h>
 #include <ctype.h>
+#include <ds/vec.h>
+#include <ds/hashmap.h>
 
-#include "vec.h"
 #include "core.h"
-#include "hashmap.h"
 #include "uexpr.h"
 
 /* # Parsing */

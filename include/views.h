@@ -1,7 +1,7 @@
 #ifndef GUI_CALENDAR_VIEWS_H
 #define GUI_CALENDAR_VIEWS_H
+#include <ds/vec.h>
 #include "datetime.h"
-#include "vec.h"
 
 struct active_comp;
 struct icaltimezone;

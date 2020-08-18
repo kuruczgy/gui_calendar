@@ -3,9 +3,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <ds/vec.h>
 
 #include "datetime.h"
-#include "vec.h"
 
 enum prop_status {
     PROP_STATUS_TENTATIVE,

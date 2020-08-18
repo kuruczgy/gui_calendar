@@ -5,10 +5,11 @@
 #include <stdbool.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <ds/vec.h>
+#include <ds/hashmap.h>
+#include <ds/tree.h>
 
-#include "hashmap.h"
 #include "datetime.h"
-#include "vec.h"
 #include "props.h"
 
 struct recurrence;

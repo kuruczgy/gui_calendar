@@ -14,6 +14,11 @@ pangocairo     = dependency('pangocairo')
 libical        = dependency('libical')
 m = cc.find_library('m', required : false)
 
+ds_proj = subproject('ds')
+ds_vec = ds_proj.get_variable('ds_vec_dep')
+ds_hashmap = ds_proj.get_variable('ds_hashmap_dep')
+ds_tree = ds_proj.get_variable('ds_tree_dep')
+
 dep_scanner = dependency('wayland-scanner')
 prog_scanner = find_program(dep_scanner
   .get_pkgconfig_variable('wayland_scanner'))
@@ -65,17 +70,6 @@ lib_core = static_library(
   include_directories: incdir
 )
 
-src_container = [
-  'src/container/hashmap.c',
-  'src/container/vec.c'
-]
-lib_container = static_library(
-  'container',
-  src_container,
-  include_directories: incdir,
-  link_with: lib_core
-)
-
 src_common = [
   gperf_tables.get('colors.c'),
   'src/common/calendar.c',
@@ -94,8 +88,8 @@ lib_common = static_library(
   'common',
   src_common,
   include_directories: incdir,
-  dependencies: dep_common,
-  link_with: [ lib_core, lib_container ]
+  dependencies: [ dep_common, ds_vec ],
+  link_with: [ lib_core ]
 )
 
 src_uexpr = [
@@ -105,7 +99,8 @@ lib_uexpr = static_library(
   'uexpr',
   src_uexpr,
   include_directories: incdir,
-  link_with: [ lib_core, lib_container ]
+  dependencies: [ ds_vec, ds_hashmap ],
+  link_with: [ lib_core ]
 )
 executable(
   'uexpr',
@@ -125,7 +120,7 @@ src_gui_calendar = [
   'src/gui-calendar/views.c',
 ]
 dep_gui_calendar = [
-  wayland_client, wayland_cursor, cairo, pango, pangocairo, m
+  wayland_client, wayland_cursor, cairo, pango, pangocairo, m, ds_tree
 ]
 wayland_sources = [
   'src/gui-calendar/backend/wayland.c',
@@ -140,8 +135,8 @@ lib_gui_calendar = static_library(
   'src/gui-calendar/backend/svg.c',
   'src/gui-calendar/backend/image.c',
   include_directories: incdir,
-  dependencies: dep_gui_calendar,
-  link_with: [ lib_core, lib_common, lib_container, lib_uexpr ]
+  dependencies: [ dep_gui_calendar, ds_vec, ds_hashmap, ds_tree ],
+  link_with: [ lib_core, lib_common, lib_uexpr ]
 )
 executable(
   'smuc',
