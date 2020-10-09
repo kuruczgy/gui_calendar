@@ -234,9 +234,7 @@ static res parse_class(st s, enum prop_class *clas) {
 	return OK;
 }
 
-static res parse_status(st s, enum prop_status *status) {
-	char key[16];
-	fscanf(s->f, "%15s", key);
+bool cal_parse_status(const char *key, enum prop_status *status) {
 	if (strcmp(key, "tentative") == 0) {
 		*status = PROP_STATUS_TENTATIVE;
 	} else if (strcmp(key, "confirmed") == 0) {
@@ -250,8 +248,14 @@ static res parse_status(st s, enum prop_status *status) {
 	} else if (strcmp(key, "inprocess") == 0) {
 		*status = PROP_STATUS_INPROCESS;
 	} else {
-		return ERROR;
+		return false;
 	}
+	return true;
+}
+static res parse_status(st s, enum prop_status *status) {
+	char key[16];
+	fscanf(s->f, "%15s", key);
+	if (!cal_parse_status(key, status)) return ERROR;
 	return OK;
 }
 

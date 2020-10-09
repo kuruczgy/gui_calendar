@@ -38,11 +38,11 @@ static char lut[KEY_CNT] = {
 	[KEY_Z] = 'z',
 };
 
-static const size_t gen_len = 8;
-static uint32_t gen[8] = {
-	KEY_A, KEY_S, KEY_D, KEY_F,
-	KEY_Q, KEY_W, KEY_E, KEY_R
+static uint32_t gen[] = {
+	KEY_A, KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K, KEY_L,
+	KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_U, KEY_I, KEY_O, KEY_P
 };
+static const size_t gen_len = sizeof(gen) / sizeof(gen[0]);
 
 bool key_sym(uint32_t code, char sym) {
 	if (code >= lut_len) return false;

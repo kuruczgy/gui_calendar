@@ -94,6 +94,7 @@ FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
 /* calendar utility functions */
 const char * cal_status_str(enum prop_status v);
 const char * cal_class_str(enum prop_class v);
+bool cal_parse_status(const char *key, enum prop_status *status);
 
 /* struct recurrence */
 typedef void (*recur_cb)(void *cl, ts t);

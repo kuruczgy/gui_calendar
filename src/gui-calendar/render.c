@@ -394,7 +394,7 @@ static void render_sidebar(cairo_t *cr, struct app *app, box b) {
 		struct calendar *cal = vec_get(&app->cals, i);
 		struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
 		const char *name = str_cstr(&cal->name);
-		if (!app->show_private_events && cal->priv) continue;
+		// if (!app->show_private_events && cal->priv) continue;
 
 		char *text;
 		if (app->interactive) {
@@ -422,59 +422,62 @@ static void render_sidebar(cairo_t *cr, struct app *app, box b) {
 	}
 
 	vec_clear(&app->tap_areas);
-	int btn_h = 90;
+	int btn_h = 20;
 
-	const char **k = app->config_fns;
-	int i = 0;
-	if (k) while (*k) {
+	for (int i = 0; i < app->filters.len; ++i) {
+		struct filter *f = vec_get(&app->filters, i);
+
 		app->tr->p.width = b.w; app->tr->p.height = -1;
-		text_get_size(cr, app->tr, *k);
+		text_get_size(cr, app->tr, str_cstr(&f->desc));
 		int height = maxi(app->tr->p.height, btn_h);
 
-		if (app->current_filter_fn == *k) {
+		if (app->current_filter == i) {
 			cairo_set_source_argb(cr, 0xFF00FF00);
 			cairo_rectangle(cr, 0, h, b.w, height + pad);
 			cairo_fill(cr);
 		}
 
-		struct tap_area ta = {
-			.aabb = { b.x, b.y + h, b.w, height + pad },
-			.n = i++,
-			.cmd = app_cmd_activate_filter
-		};
-		vec_append(&app->tap_areas, &ta);
+		// struct tap_area ta = {
+		// 	.aabb = { b.x, b.y + h, b.w, height + pad },
+		// 	.n = i,
+		// 	.cmd = app_cmd_activate_filter
+		// };
+		// vec_append(&app->tap_areas, &ta);
 
 		cairo_set_source_argb(cr, 0xFF000000);
 		cairo_move_to(cr, 0, h + pad / 2);
 		app->tr->p.width = b.w; app->tr->p.height = height;
-		text_print_own(cr, app->tr, *k);
+		text_print_own(cr, app->tr, str_cstr(&f->desc));
 
 		h += height + pad;
 		cairo_move_to(cr, 0, h);
 		cairo_line_to(cr, b.w, h);
 		cairo_stroke(cr);
-		k++;
 	}
 
-	struct {
-		const char *label;
-		void (*cmd)(struct app * app, int n);
-	} btns[] = {
-		{ "today", app_cmd_view_today },
-		{ "private", app_cmd_toggle_show_private },
-		{ "calendar/todo", app_cmd_switch_view },
-	};
-	for (int i = 0; i < sizeof(btns) / sizeof(btns[0]); ++i) {
+	for (int i = 0; i < app->actions.len; ++i) {
+		struct action *act = vec_get(&app->actions, i);
+		if (!str_any(&act->label)) continue;
+		if (act->cond.view != app->main_view) continue;
+
+		struct str s = str_new_empty();
+		str_append_char(&s, '[');
+		str_append_char(&s, act->key_sym);
+		str_append_char(&s, ']');
+		str_append_char(&s, ' ');
+		str_append(&s, str_cstr(&act->label), act->label.v.len);
+
 		cairo_set_source_argb(cr, 0xFF000000);
-		app->tr->p.scale = 1.5;
+		app->tr->p.scale = 1.2;
 		text_print_center(cr, app->tr, (box){ 0, h, b.w, btn_h },
-			btns[i].label);
+			str_cstr(&s));
 		app->tr->p.scale = 1.0;
+
+		str_free(&s);
 
 		struct tap_area ta = {
 			.aabb = { b.x, b.y + h, b.w, btn_h },
-			.n = -1,
-			.cmd = btns[i].cmd
+			.action_idx = i
 		};
 		vec_append(&app->tap_areas, &ta);
 
@@ -484,23 +487,23 @@ static void render_sidebar(cairo_t *cr, struct app *app, box b) {
 		cairo_stroke(cr);
 	}
 
-	if (app->interactive) {
-		cairo_set_source_argb(cr, 0xFF000000);
-		cairo_move_to(cr, 0, h += 5);
-		app->tr->p.width = b.w; app->tr->p.height = -1;
-		const char *str = app->show_private_events ?
-			"show private" : "hide private";
-		text_get_size(cr, app->tr, str);
-		h += app->tr->p.height;
-		text_print_own(cr, app->tr, str);
+	// if (app->interactive) {
+	// 	cairo_set_source_argb(cr, 0xFF000000);
+	// 	cairo_move_to(cr, 0, h += 5);
+	// 	app->tr->p.width = b.w; app->tr->p.height = -1;
+	// 	const char *str = app->show_private_events ?
+	// 		"show private" : "hide private";
+	// 	text_get_size(cr, app->tr, str);
+	// 	h += app->tr->p.height;
+	// 	text_print_own(cr, app->tr, str);
 
-		cairo_set_source_rgba(cr, .3, .3, .3, 1);
-		cairo_move_to(cr, 0, h += 5);
-		app->tr->p.width = b.w; app->tr->p.height = -1;
-		text_get_size(cr, app->tr, usage);
-		h += app->tr->p.height;
-		text_print_own(cr, app->tr, usage);
-	}
+	// 	cairo_set_source_rgba(cr, .3, .3, .3, 1);
+	// 	cairo_move_to(cr, 0, h += 5);
+	// 	app->tr->p.width = b.w; app->tr->p.height = -1;
+	// 	text_get_size(cr, app->tr, usage);
+	// 	h += app->tr->p.height;
+	// 	text_print_own(cr, app->tr, usage);
+	// }
 
 	cairo_set_source_rgba(cr, 0, 0, 0, 255);
 	cairo_move_to(cr, b.w, 0);
@@ -685,7 +688,7 @@ bool render_application(void *ud, cairo_t *cr) {
 	cairo_paint(cr);
 
 	int time_strip_w = 30;
-	int sidebar_w = 120;
+	int sidebar_w = 160;
 	int header_h = 60;
 	int top_h = 50;
 

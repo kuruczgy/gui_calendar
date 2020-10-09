@@ -108,6 +108,7 @@ lib_uexpr = static_library(
 executable(
   'uexpr',
   'src/uexpr/main.c',
+  dependencies : [ ds_vec ],
   include_directories: incdir,
   link_with: lib_uexpr
 )

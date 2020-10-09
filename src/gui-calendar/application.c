@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <wordexp.h>
 
 #include "application.h"
 #include "core.h"
@@ -70,6 +71,10 @@ static void print_template_callback(void *_cl, FILE *f) {
 }
 static int get_default_cal_index(struct app *app) {
 	asrt(app->cals.len > 0, "no calendars");
+	if (app->current_filter != -1) {
+		struct filter *f = vec_get(&app->filters, app->current_filter);
+		return f->def_cal;
+	}
 	return 0;
 }
 static void print_new_event_template_callback(void *cl, FILE *f) {
@@ -97,7 +102,7 @@ static const char ** new_editor_args(struct app *app) {
 	args[len - 1] = NULL;
 	return args;
 }
-static void app_launch_editor(struct app *app, struct active_comp *ac) {
+void app_cmd_launch_editor(struct app *app, struct active_comp *ac) {
 	if (!app->sp) {
 		struct print_template_cl cl = { .app = app, .ac = ac };
 		const char **args = new_editor_args(app);
@@ -116,13 +121,16 @@ static void app_launch_editor_str(struct app *app, const struct str *str) {
 		free(args);
 	}
 }
-static void app_launch_new_editor(struct app *app) {
+void app_cmd_launch_editor_new(struct app *app, enum comp_type t) {
 	void (*cb)(void*, FILE*);
-	if (app->main_view == VIEW_CALENDAR) {
+	if (t == COMP_TYPE_EVENT) {
 		cb = &print_new_event_template_callback;
-	} else {
+	} else if (t == COMP_TYPE_TODO) {
 		cb = &print_new_todo_template_callback;
+	} else {
+		return;
 	}
+
 	if (!app->sp) {
 		const char **args = new_editor_args(app);
 		struct str *s = vec_get(&app->editor_args, 0);
@@ -150,8 +158,8 @@ static void app_switch_mode_select(struct app *app) {
 	if (app->keystate == KEYSTATE_SELECT) return;
 	app->mode_select_code_n = 0;
 	app->keystate = KEYSTATE_SELECT;
+	app->mode_select_uexpr_fn = -1;
 
-	// TODO: code duplication
 	if (app->main_view == VIEW_CALENDAR) {
 		struct vec acs = vec_new_empty(sizeof(struct active_comp *));
 		struct ac_iter_assign_code_env env = { app, &acs };
@@ -179,54 +187,6 @@ static void app_switch_mode_select(struct app *app) {
 		}
 	} else {
 		asrt(false, "unknown view");
-	}
-}
-struct ac_iter_find_code_env {
-	struct app *app;
-	struct active_comp *res;
-};
-static void ac_iter_find_code(void *_env, struct rb_node *x) {
-	struct interval_node *nx = container_of(x, struct interval_node, node);
-	struct active_comp *ac = container_of(nx, struct active_comp, node);
-	struct ac_iter_find_code_env *env = _env;
-
-	if (strncmp(ac->code, env->app->mode_select_code,
-			env->app->mode_select_code_n) == 0) {
-		env->res = ac;
-	}
-}
-static void app_mode_select_finish(struct app *app) {
-	//TODO: fix code duplication
-	app->keystate = KEYSTATE_BASE;
-	app->dirty = true;
-	if (app->main_view == VIEW_CALENDAR) {
-		struct ac_iter_find_code_env env = { app, NULL };
-		rb_iter(&app->active_events, &env, ac_iter_find_code);
-		if (env.res) {
-			fprintf(stderr, "selected comp: %s\n",
-				props_get_summary(env.res->ci->p));
-			app_launch_editor(app, env.res);
-		}
-	} else if (app->main_view == VIEW_TODO) {
-		for (int i = 0; i < app->active_todos.len; ++i) {
-			struct active_comp *ac = vec_get(&app->active_todos, i);
-			if (strncmp(ac->code, app->mode_select_code,
-					app->mode_select_code_n) == 0) {
-				fprintf(stderr, "selected comp: %s\n",
-					props_get_summary(ac->ci->p));
-				app_launch_editor(app, ac);
-				break;
-			}
-		}
-	} else {
-		asrt(false, "unknown mode");
-	}
-}
-
-static void app_mode_select_append_sym(struct app *app, char sym) {
-	app->mode_select_code[app->mode_select_code_n++] = sym;
-	if (app->mode_select_code_n >= app->mode_select_len) {
-		app_mode_select_finish(app);
 	}
 }
 
@@ -281,28 +241,30 @@ static void app_mode_select_append_sym(struct app *app, char sym) {
 // }
 
 static void execute_filters(struct app *app, struct active_comp *ac) {
+	struct cal_uexpr_env env = {
+		.app = app,
+		.kind = CAL_UEXPR_FILTER,
+		.ac = ac,
+		.set_props = props_empty,
+		.set_edit = false
+	};
+	struct uexpr_ops ops = {
+		.env = &env,
+		.try_get_var = cal_uexpr_get,
+		.try_set_var = cal_uexpr_set
+	};
+
 	/* apply builtin filter */
 	if (app->builtin_expr && ac->ci->c->type == COMP_TYPE_EVENT) {
-		uexpr_fn fn = uexpr_ctx_get_fn(app->builtin_expr_ctx, "filter_0");
-		uexpr_ctx_set_handlers(app->builtin_expr_ctx, &uexpr_cal_ac_get,
-				&uexpr_cal_ac_set, ac);
-		uexpr_eval_fn(app->builtin_expr_ctx, fn);
+		uexpr_ctx_set_ops(app->builtin_ctx, ops);
+		uexpr_eval(app->builtin_ctx, app->builtin_expr->root, NULL);
 	}
 
-	/* apply current_filter_fn */
-	if (app->current_filter_fn && app->config_expr) {
-		uexpr_fn fn = uexpr_ctx_get_fn(app->config_ctx, app->current_filter_fn);
-		uexpr_ctx_set_handlers(app->config_ctx, &uexpr_cal_ac_get,
-				&uexpr_cal_ac_set, ac);
-		uexpr_eval_fn(app->config_ctx, fn);
-	}
-
-	/* apply runtime configured filter */
-	if (app->expr) {
-		uexpr_ctx ctx = uexpr_ctx_create(app->expr);
-		uexpr_ctx_set_handlers(ctx, &uexpr_cal_ac_get, &uexpr_cal_ac_set, ac);
-		uexpr_eval(ctx);
-		uexpr_ctx_destroy(ctx);
+	/* apply current filter */
+	if (app->current_filter != -1 && app->config_expr) {
+		struct filter *f = vec_get(&app->filters, app->current_filter);
+		uexpr_ctx_set_ops(app->config_ctx, ops);
+		uexpr_eval(app->config_ctx, f->uexpr_fn, NULL);
 	}
 }
 
@@ -407,12 +369,18 @@ static void todo_cis_tree_iter(void *_env, struct rb_node *x) {
 }
 static void app_update_active_todos(struct app *app) {
 	vec_clear(&app->active_todos);
+
+	app->expand_to = app->now + 3600 * 24 * 365;
+	app_expand(app, COMP_TYPE_TODO, app->expand_to);
+
 	for (int i = 0; i < app->cals.len; ++i) {
 		struct calendar *cal = vec_get(&app->cals, i);
 		struct todo_cis_tree_iter_env env = {
 			.app = app, .cal_index = i, .cal = cal };
 		rb_iter(&cal->cis[COMP_TYPE_TODO], &env, todo_cis_tree_iter);
 	}
+
+	vec_sort(&app->active_todos, &active_comp_todo_cmp, app);
 }
 
 void app_use_view(struct app *app, struct ts_ran view) {
@@ -447,6 +415,93 @@ static void app_reload_calendars(struct app *app) {
 	app_update_active_todos(app);
 }
 
+struct ac_iter_find_code_env {
+	struct app *app;
+	struct active_comp *res;
+};
+static void ac_iter_find_code(void *_env, struct rb_node *x) {
+	struct interval_node *nx = container_of(x, struct interval_node, node);
+	struct active_comp *ac = container_of(nx, struct active_comp, node);
+	struct ac_iter_find_code_env *env = _env;
+
+	if (strncmp(ac->code, env->app->mode_select_code,
+			env->app->mode_select_code_n) == 0) {
+		env->res = ac;
+	}
+}
+static void app_mode_select_finish(struct app *app) {
+	app->keystate = KEYSTATE_BASE;
+	app->dirty = true;
+	struct active_comp *ac = NULL;
+	if (app->main_view == VIEW_CALENDAR) {
+		struct ac_iter_find_code_env env = { app, NULL };
+		rb_iter(&app->active_events, &env, ac_iter_find_code);
+		if (env.res) {
+			fprintf(stderr, "selected comp: %s\n",
+				props_get_summary(env.res->ci->p));
+			ac = env.res;
+		}
+	} else if (app->main_view == VIEW_TODO) {
+		for (int i = 0; i < app->active_todos.len; ++i) {
+			struct active_comp *aci = vec_get(&app->active_todos, i);
+			if (strncmp(aci->code, app->mode_select_code,
+					app->mode_select_code_n) == 0) {
+				fprintf(stderr, "selected comp: %s\n",
+					props_get_summary(aci->ci->p));
+				ac = aci;
+				break;
+			}
+		}
+	} else {
+		asrt(false, "unknown mode");
+	}
+
+	if (app->mode_select_uexpr_fn != -1) {
+		struct cal_uexpr_env env = {
+			.app = app,
+			.kind = CAL_UEXPR_FILTER | CAL_UEXPR_ACTION,
+			.ac = ac,
+			.set_props = props_empty,
+			.set_edit = false
+		};
+		struct uexpr_ops ops = {
+			.env = &env,
+			.try_get_var = cal_uexpr_get,
+			.try_set_var = cal_uexpr_set
+		};
+		if (app->config_expr) {
+			uexpr_ctx_set_ops(app->config_ctx, ops);
+			uexpr_eval(app->config_ctx, app->mode_select_uexpr_fn, NULL);
+		}
+
+		if (env.set_edit) {
+			struct edit_spec es;
+			edit_spec_init(&es);
+			es.method = EDIT_METHOD_UPDATE;
+			es.uid = str_copy(&ac->ci->c->uid);
+			es.p = env.set_props;
+			es.type = ac->ci->c->type;
+
+
+			if (apply_edit_spec_to_calendar(&es, ac->cal) == 0) {
+				app_clear_active_events(app);
+				app_update_active_todos(app);
+				app->dirty = true;
+			} else {
+				fprintf(stderr, "[editor] error: could not save edit\n");
+			}
+
+			edit_spec_finish(&es);
+		}
+	}
+}
+static void app_mode_select_append_sym(struct app *app, char sym) {
+	app->mode_select_code[app->mode_select_code_n++] = sym;
+	if (app->mode_select_code_n >= app->mode_select_len) {
+		app_mode_select_finish(app);
+	}
+}
+
 void app_cmd_move_view_discrete(struct app *app, int n) {
 	struct ts_ran view = app->view;
 
@@ -462,6 +517,8 @@ void app_cmd_move_view_discrete(struct app *app, int n) {
 	sd.day += len_days;
 	simple_date_normalize(&sd);
 	app->view.to = simple_date_to_ts(sd, app->zone);
+
+	app->dirty = true;
 }
 void app_cmd_editor(struct app *app, FILE *in) {
 	struct str in_s = str_empty;
@@ -523,13 +580,12 @@ void app_cmd_reload(struct app *app) {
 	app_reload_calendars(app);
 }
 void app_cmd_activate_filter(struct app *app, int n) {
-	const char **k = app->config_fns;
-	for (int i = 0; i < n; ++i) {
-		if (*k) ++k;
-		else break;
-	}
-	if (app->current_filter_fn != *k) {
-		app->current_filter_fn = *k;
+	if (app->current_filter != n) {
+		if (n < 0 || n >= app->filters.len) {
+			app->current_filter = -1;
+		} else {
+			app->current_filter = n;
+		}
 		app_clear_active_events(app);
 		app_update_active_todos(app);
 		app->dirty = true;
@@ -554,6 +610,28 @@ void app_cmd_switch_view(struct app *app, int n) {
 		app->dirty = true;
 	}
 }
+void app_cmd_select_comp_uexpr(struct app *app, int uexpr_fn) {
+	app_switch_mode_select(app);
+	app->mode_select_uexpr_fn = uexpr_fn;
+	app->dirty = true;
+}
+
+static void run_action(struct app *app, struct action *act) {
+	struct cal_uexpr_env env = {
+		.app = app,
+		.kind = CAL_UEXPR_ACTION,
+	};
+	struct uexpr_ops ops = {
+		.env = &env,
+		.try_get_var = cal_uexpr_get,
+		.try_set_var = cal_uexpr_set
+	};
+
+	if (app->config_expr) {
+		uexpr_ctx_set_ops(app->config_ctx, ops);
+		uexpr_eval(app->config_ctx, act->uexpr_fn, NULL);
+	}
+}
 
 static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 	struct app *app = ud;
@@ -570,51 +648,21 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 		}
 		break;
 	case KEYSTATE_BASE:
+		for (int i = 0; i < app->actions.len; ++i) {
+			struct action *act = vec_get(&app->actions, i);
+			if (sym == act->key_sym) {
+				if (act->cond.view == app->main_view) {
+					run_action(app, act);
+					return;
+				}
+			}
+		}
+
 		switch (sym) {
-		case 'a':
-			app_cmd_switch_view(app, VIEW_CALENDAR);
-			break;
-		case 's':
-			app_cmd_switch_view(app, VIEW_TODO);
-			break;
-		case 'l':
-			app_cmd_move_view_discrete(app, 1);
-			app->dirty = true;
-			break;
-		case 'h':
-			app_cmd_move_view_discrete(app, -1);
-			app->dirty = true;
-			break;
-		case 't':
-			app_cmd_view_today(app, -1);
-			break;
-		case 'n':
-			app_launch_new_editor(app);
-			break;
-		case 'e':
-			app_switch_mode_select(app);
-			app->dirty = true;
-			break;
 		case 'r':
 			app_cmd_reload(app);
 			break;
-		case 'p':
-			app_cmd_toggle_show_private(app, -1);
-			break;
-		case 'i':
-			app->keystate = KEYSTATE_VIEW_SWITCH;
-			break;
 		case '\0':
-			// if ((n = key_fn(key)) > 0) { /* numeric key */
-			// 	--n; /* key 1->0 .. key 9->8 */
-			// 	if (shift) n += 9;
-			// 	if (n < app->cals.len) {
-			// 		struct calendar_info *cal_info = vec_get(&app->cal_infos,n);
-			// 		cal_info->visible = !cal_info->visible;
-			// 		app_clear_active_events(app);
-			// 		app->dirty = true;
-			// 	}
-			// }
 			if ((n = key_num(key)) > 0) {
 				app_cmd_activate_filter(app, n - 1);
 			}
@@ -664,17 +712,8 @@ static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
 static void application_handle_child(void *ud, pid_t pid) {
 	struct app *app = ud;
 
-	bool sp_expr = app->sp_expr; app->sp_expr = false;
-
 	FILE *f = subprocess_get_result(&app->sp, pid);
 	if (!f) return;
-
-	if (sp_expr) {
-		// editing expr
-		if (app->expr) uexpr_destroy(app->expr);
-		app->expr = uexpr_parse(f);
-		return;
-	}
 
 	app_cmd_editor(app, f);
 }
@@ -690,7 +729,8 @@ static void application_handle_input(void *ud, struct mgu_input_event_args ev) {
 				struct tap_area *ta = vec_get(&app->tap_areas, i);
 				if (p[0] >= ta->aabb[0] && p[0] < ta->aabb[0] + ta->aabb[2]
 						&& p[1] >= ta->aabb[1] && p[1] < ta->aabb[1] + ta->aabb[3]) {
-					ta->cmd(app, ta->n);
+					struct action *act = vec_get(&app->actions, ta->action_idx);
+					run_action(app, act);
 				}
 			}
 		} else if (ev.t & MGU_MOVE) {
@@ -734,49 +774,47 @@ void app_init(struct app *app, struct application_options opts,
 		.keystate = KEYSTATE_BASE,
 		.show_private_events = opts.show_private_events,
 		.tap_areas = VEC_EMPTY(sizeof(struct tap_area)),
-		.sp = NULL,
-		.sp_expr = false,
 		.window_width = -1, .window_height = -1,
 		.backend = backend,
 		.interactive = backend->vptr->is_interactive(backend),
 		.editor_args = VEC_EMPTY(sizeof(struct str)),
-		.expr = NULL,
-		.builtin_expr = NULL,
-		.config_expr = NULL,
-		.config_ctx = NULL,
-		.config_fns = NULL,
-		.current_filter_fn = NULL,
+		.filters = VEC_EMPTY(sizeof(struct filter)),
+		.current_filter = 0,
+		.actions = VEC_EMPTY(sizeof(struct action)),
 	};
 
 	rb_tree_init(&app->active_events, &interval_ops);
 
 	/* load all uexpr stuff */
 	const char *builtin_expr = "{"
-		"def(filter_0, {"
 			"($st % [ tentative, cancelled ]) & let($fade, a=a);"
 			"let($hide, ($clas = private) & ~$show_priv)"
-		"})"
 		"}";
 	FILE *f = fmemopen((void*)builtin_expr, strlen(builtin_expr), "r");
 	app->builtin_expr = uexpr_parse(f);
 	fclose(f);
 	asrt(app->builtin_expr, "builtin_expr parsing failed");
-	app->builtin_expr_ctx = uexpr_ctx_create(app->builtin_expr);
-	uexpr_eval(app->builtin_expr_ctx);
+	app->builtin_ctx = uexpr_ctx_create(app->builtin_expr);
+	uexpr_eval(app->builtin_ctx, app->builtin_expr->root, NULL);
 
 	if (opts.config_file) {
 		f = fopen(opts.config_file, "r");
 		app->config_expr = uexpr_parse(f);
 		fclose(f);
 		if (app->config_expr) {
+			struct cal_uexpr_env env = {
+				.app = app,
+				.kind = CAL_UEXPR_CONFIG,
+			};
+			struct uexpr_ops ops = {
+				.env = &env,
+				.try_get_var = cal_uexpr_get,
+				.try_set_var = cal_uexpr_set
+			};
+
 			app->config_ctx = uexpr_ctx_create(app->config_expr);
-			uexpr_eval(app->config_ctx);
-			app->config_fns = uexpr_get_all_fns(app->config_ctx);
-			const char **k = app->config_fns;
-			while (*k) {
-				fprintf(stderr, "fn: %s\n", *k);
-				k++;
-			}
+			uexpr_ctx_set_ops(app->config_ctx, ops);
+			uexpr_eval(app->config_ctx, app->config_expr->root, NULL);
 		} else {
 			fprintf(stderr, "WARNING: could not parse config script!\n");
 		}
@@ -807,34 +845,6 @@ void app_init(struct app *app, struct application_options opts,
 	app->now = ts_now();
 	app->view.fr = ts_get_day_base(app->now, app->zone, true);
 	app->view.to = app->view.fr + 3600 * 24 * 7;
-
-	for (int i = 0; i < opts.argc; i++) {
-		struct calendar cal;
-		struct calendar_info cal_info;
-
-		/* init */
-		calendar_init(&cal);
-
-		/* read */
-		cal.storage = str_empty;
-		str_append(&cal.storage, opts.argv[i], strlen(opts.argv[i]));
-		fprintf(stderr, "loading %s\n", str_cstr(&cal.storage));
-		update_calendar_from_storage(&cal, app->zone);
-
-		/* set metadata */
-		// TODO: set calendar name from storage name
-		// if (!cal->name) cal->name = str_dup(cal->storage);
-		// trim_end(cal->name);
-
-		/* calculate most frequent color */
-		const char *fc = most_frequent(&cal.comps_vec, &get_comp_color);
-		uint32_t color = fc ? lookup_color(fc, strlen(fc)) : 0;
-		if (!color) color = 0xFF20D0D0;
-		cal_info.color = color;
-
-		vec_append(&app->cals, &cal);
-		vec_append(&app->cal_infos, &cal_info);
-	}
 
 	app->expand_to = app->now + 3600 * 24 * 365;
 	app_expand(app, COMP_TYPE_EVENT, app->expand_to);
@@ -880,11 +890,23 @@ void app_finish(struct app *app) {
 	vec_free(&app->cals);
 	vec_free(&app->cal_infos);
 
+	for (int i = 0; i < app->actions.len; ++i) {
+		struct action *act = vec_get(&app->actions, i);
+		str_free(&act->label);
+	}
+	vec_free(&app->actions);
+
 	for (int i = 0; i < app->editor_args.len; ++i) {
 		struct str *s = vec_get(&app->editor_args, i);
 		str_free(s);
 	}
 	vec_free(&app->editor_args);
+
+	for (int i = 0; i < app->filters.len; ++i) {
+		struct filter *f = vec_get(&app->filters, i);
+		str_free(&f->desc);
+	}
+	vec_free(&app->filters);
 
 	// tslice_finish(&app->slice_main);
 	// tslice_finish(&app->slice_top);
@@ -898,13 +920,48 @@ void app_finish(struct app *app) {
 	libtouch_surface_destroy(app->touch_surf);
 
 	if (app->config_ctx) uexpr_ctx_destroy(app->config_ctx);
-	if (app->builtin_expr_ctx) uexpr_ctx_destroy(app->builtin_expr_ctx);
+	if (app->builtin_ctx) uexpr_ctx_destroy(app->builtin_ctx);
 	if (app->builtin_expr) uexpr_destroy(app->builtin_expr);
-	if (app->expr) uexpr_destroy(app->expr);
-	free(app->config_fns);
 
 	slicing_destroy(app->slicing);
 	vec_free(&app->tap_areas);
 
 	app->backend->vptr->destroy(app->backend);
+}
+
+int app_add_cal(struct app *app, const char *path) {
+	wordexp_t p;
+	if (wordexp(path, &p, WRDE_NOCMD) == 0) {
+		const char *s = p.we_wordv[0];
+
+		struct calendar cal;
+		struct calendar_info cal_info;
+		calendar_init(&cal);
+		str_append(&cal.storage, s, strlen(s));
+		wordfree(&p);
+
+		fprintf(stderr, "add_cal %s\n", str_cstr(&cal.storage));
+		update_calendar_from_storage(&cal, app->zone);
+
+		/* calculate most frequent color */
+		const char *fc = most_frequent(&cal.comps_vec, &get_comp_color);
+		uint32_t color = fc ? lookup_color(fc, strlen(fc)) : 0;
+		if (!color) color = 0xFF20D0D0;
+		cal_info.color = color;
+
+		vec_append(&app->cals, &cal);
+		return vec_append(&app->cal_infos, &cal_info);
+	}
+	return -1;
+}
+void app_add_uexpr_filter(struct app *app, const char *key, int def_cal, int uexpr_fn) {
+	struct filter f = {
+		.desc = str_new_from_cstr(key),
+		.def_cal = def_cal,
+		.uexpr_fn = uexpr_fn
+	};
+	vec_append(&app->filters, &f);
+}
+void app_add_action(struct app *app, struct action act) {
+	vec_append(&app->actions, &act);
 }

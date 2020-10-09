@@ -26,10 +26,30 @@ struct active_comp {
 
 struct app;
 
+enum app_view {
+	VIEW_CALENDAR = 0,
+	VIEW_TODO = 1,
+	VIEW_N
+};
+
 struct tap_area {
 	float aabb[4];
-	int n;
-	void(*cmd)(struct app *app, int n);
+	int action_idx;
+};
+
+struct filter {
+	struct str desc;
+	int def_cal;
+	int uexpr_fn;
+};
+
+struct action {
+	char key_sym;
+	struct str label;
+	struct {
+		enum app_view view;
+	} cond;
+	int uexpr_fn;
 };
 
 struct app {
@@ -45,11 +65,7 @@ struct app {
 	ts expand_to;
 
 	/* global UI state, user input handling */
-	enum {
-		VIEW_CALENDAR = 0,
-		VIEW_TODO = 1,
-		VIEW_N
-	} main_view;
+	enum app_view main_view;
 	enum {
 		KEYSTATE_BASE,
 		KEYSTATE_VIEW_SWITCH,
@@ -60,8 +76,7 @@ struct app {
 	char mode_select_code[33];
 	int mode_select_code_n;
 	int mode_select_len;
-
-	const char *current_filter_fn;
+	int mode_select_uexpr_fn;
 
 	struct libtouch_surface *touch_surf;
 	float touch_aabb[4];
@@ -74,7 +89,6 @@ struct app {
 
 	/* editor subprocess info */
 	struct subprocess_handle *sp;
-	bool sp_expr;
 
 	/* current time */
 	ts now;
@@ -90,13 +104,16 @@ struct app {
 
 	struct vec editor_args; /* vec<struct str> */
 
-	uexpr expr;
-	uexpr builtin_expr;
-	uexpr_ctx builtin_expr_ctx;
+	struct uexpr *builtin_expr;
+	struct uexpr_ctx *builtin_ctx;
 
-	uexpr config_expr;
-	uexpr_ctx config_ctx;
-	const char **config_fns;
+	struct uexpr *config_expr;
+	struct uexpr_ctx *config_ctx;
+
+	struct vec filters; /* vec<struct filter> */
+	int current_filter;
+
+	struct vec actions; /* vec<struct action> */
 
 	/* utility objects */
 	struct text_renderer *tr;
@@ -115,8 +132,22 @@ struct application_options {
 
 void update_actual_fit();
 
-uexpr_val uexpr_cal_ac_get(void *cl, const char *key);
-bool uexpr_cal_ac_set(void *cl, const char *key, uexpr_val val);
+/* cal_uexpr stuff */
+enum cal_uexpr_kind {
+	CAL_UEXPR_CONFIG = (1 << 0),
+	CAL_UEXPR_FILTER = (1 << 1),
+	CAL_UEXPR_ACTION = (1 << 2),
+	CAL_UEXPR_SELECT_COMP = (1 << 3),
+};
+struct cal_uexpr_env {
+	struct app *app;
+	enum cal_uexpr_kind kind;
+	struct active_comp *ac;
+	struct props set_props;
+	bool set_edit;
+};
+bool cal_uexpr_get(void *_env, const char *key, struct uexpr_value *v);
+bool cal_uexpr_set(void *env, const char *key, struct uexpr_value v);
 
 void app_init(struct app *app, struct application_options opts,
 		struct backend *backend);
@@ -130,6 +161,9 @@ void app_update_active_objects(struct app *app);
 void app_get_editor_template(struct app *app, struct comp_inst *ci, FILE *out);
 
 /* commands directly accessible for the user */
+void app_cmd_select_comp_uexpr(struct app *app, int uexpr_fn);
+void app_cmd_launch_editor_new(struct app *app, enum comp_type t);
+void app_cmd_launch_editor(struct app *app, struct active_comp *ac);
 void app_cmd_editor(struct app *app, FILE *in);
 void app_cmd_reload(struct app *app);
 void app_cmd_activate_filter(struct app *app, int n);
@@ -137,5 +171,9 @@ void app_cmd_view_today(struct app *app, int n);
 void app_cmd_toggle_show_private(struct app *app, int n);
 void app_cmd_switch_view(struct app *app, int n);
 void app_cmd_move_view_discrete(struct app *app, int n);
+
+int app_add_cal(struct app *app, const char *path);
+void app_add_uexpr_filter(struct app *app, const char *key, int def_cal, int uexpr_fn);
+void app_add_action(struct app *app, struct action act);
 
 #endif
