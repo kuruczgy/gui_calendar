@@ -528,10 +528,12 @@ static int render_todo_item(cairo_t *cr, struct app *app,
 	bool has_est = props_get_estimated_duration(ac->ci->p, &est);
 	const char *desc = props_get_desc(ac->ci->p);
 	const char *summary = props_get_summary(ac->ci->p);
+	struct vec *cats = props_get_categories(ac->ci->p);
 
 	bool overdue = has_due && due < app->now;
 	bool inprocess = has_status && status == PROP_STATUS_INPROCESS;
 	bool not_started = has_start && start > app->now;
+	bool has_cats = cats && cats->len > 0;
 	double perc = has_perc_c ? perc_c / 100.0 : 0.0;
 	int hpad = 5;
 
@@ -544,6 +546,7 @@ static int render_todo_item(cairo_t *cr, struct app *app,
 	int w = b.w - 80;
 	int n = 1;
 	if (desc) n += 1;
+	if (has_cats) n += 1;
 
 	/* calculate height */
 	if (summary) {
@@ -599,13 +602,29 @@ static int render_todo_item(cairo_t *cr, struct app *app,
 		text_print_center(cr, app->tr, (box){ b.w - 80, 0, 80, b.h }, text);
 		free(text);
 	}
-	if (summary) {
+	if (has_cats) {
+		int i = 0;
+		struct str s = str_new_empty();
+		str_append_char(&s, '[');
+		for (int k = 0; k < cats->len; ++k) {
+			struct str *si = vec_get(cats, k);
+			str_append(&s, str_cstr(si), si->v.len);
+			if (k < cats->len - 1) str_append_char(&s, ' ');
+		}
+		str_append_char(&s, ']');
 		text_print_vert_center(cr, app->tr,
-			(box){ w*0/n + hpad, 0, w/n - 2*hpad, b.h }, summary);
+			(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, str_cstr(&s));
+		str_free(&s);
+	}
+	if (summary) {
+		int i = 0 + (has_cats ? 1 : 0);
+		text_print_vert_center(cr, app->tr,
+			(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, summary);
 	}
 	if (desc) {
+		int i = 1 + (has_cats ? 1 : 0);
 		text_print_vert_center(cr, app->tr,
-			(box){ w*1/n + hpad, 0, w/n - 2*hpad, b.h }, desc);
+			(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, desc);
 	}
 
 	/* draw slot separators */
