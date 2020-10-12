@@ -42,16 +42,18 @@ struct recur_cb_cl {
 static void recur_cb_fn(void *_cl, ts t) {
 	struct recur_cb_cl *cl = _cl;
 
+	struct ts_ran time = { t, t + cl->length };
 	struct props *p = &cl->c->p;
 	for (int i = 0; i < cl->c->recur_insts.len; ++i) {
 		struct comp_recur_inst *cri = vec_get(&cl->c->recur_insts, i);
 		if (cri->recurrence_id == t) {
 			p = &cri->p;
+			props_get_start(p, &time.fr);
+			props_get_end(p, &time.to);
 			break;
 		}
 	}
 
-	struct ts_ran time = { t, t + cl->length };
 	cl->cb(cl->cl, time, p);
 }
 struct props * comp_recur_expand(struct comp *c, ts to,
