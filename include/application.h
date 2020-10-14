@@ -2,9 +2,9 @@
 #define GUI_CALENDAR_APPLICATION_H
 #include <ds/tree.h>
 #include <libtouch.h>
+#include <mgu/win.h>
+#include <mgu/sr.h>
 #include "calendar.h"
-#include "backend.h"
-#include "pango.h"
 #include "datetime.h"
 #include "views.h"
 #include "uexpr.h"
@@ -123,8 +123,6 @@ struct app {
 
 	/* config */
 	struct cal_timezone *zone;
-	struct backend *backend;
-	bool interactive;
 
 	struct vec editor_args; /* vec<struct str> */
 
@@ -137,8 +135,8 @@ struct app {
 
 	struct vec actions; /* vec<struct action> */
 
-	/* utility objects */
-	struct text_renderer *tr;
+	struct mgu_win *win;
+	struct sr *sr;
 };
 
 struct application_options {
@@ -172,7 +170,7 @@ bool cal_uexpr_get(void *_env, const char *key, struct uexpr_value *v);
 bool cal_uexpr_set(void *env, const char *key, struct uexpr_value v);
 
 void app_init(struct app *app, struct application_options opts,
-		struct backend *backend);
+	struct mgu_win *win);
 void app_main(struct app *app);
 void app_finish(struct app *app);
 

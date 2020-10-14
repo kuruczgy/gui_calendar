@@ -2,15 +2,6 @@
 #include "util.h"
 #include <unistd.h>
 
-enum backend_type {
-	BACKEND_SVG,
-	BACKEND_IMAGE,
-	BACKEND_DUMMY,
-	BACKEND_WAYLAND,
-	BACKEND_FBDEV,
-	BACKEND_NONE
-};
-
 int main(int argc, char **argv) {
 	struct application_options opts = {
 		.show_private_events = false,
@@ -20,12 +11,7 @@ int main(int argc, char **argv) {
 		.terminal = NULL,
 		.config_file = NULL
 	};
-	enum backend_type bt = BACKEND_NONE;
 	int width = 100, height = 100;
-	char *output = NULL;
-
-	if (getenv("WAYLAND_DISPLAY")) bt = BACKEND_WAYLAND;
-	else if (access("/dev/fb0", F_OK) == 0) bt = BACKEND_FBDEV;
 
 	const char *help =
 		"-h: show this help\n"
@@ -34,12 +20,10 @@ int main(int argc, char **argv) {
 		"-v N: set the number of visible days to N\n"
 		"-e E: set editor command to E\n"
 		"-t T: set terminal command to T\n"
-		"-b B: set backend to B; values: svg, image, dummy, fbdev, wayland\n"
 		"-s WxH: set output size width to W, and height to H\n"
-		"-o F: set output filename to F\n"
 		"-c C: provide the path to the config script\n";
 	int opt, d;
-	while ((opt = getopt(argc, argv, "hpd:v:e:t:b:s:o:c:")) != -1) {
+	while ((opt = getopt(argc, argv, "hpd:v:e:t:s:o:c:")) != -1) {
 		switch (opt) {
 		case 'h':
 			fprintf(stdout, help);
@@ -64,18 +48,8 @@ int main(int argc, char **argv) {
 		case 't':
 			opts.terminal = str_dup(optarg);
 			break;
-		case 'b':
-			if (strcmp("svg", optarg) == 0) bt = BACKEND_SVG;
-			else if (strcmp("image", optarg) == 0) bt = BACKEND_IMAGE;
-			else if (strcmp("dummy", optarg) == 0) bt = BACKEND_DUMMY;
-			else if (strcmp("fbdev", optarg) == 0) bt = BACKEND_FBDEV;
-			else if (strcmp("wayland", optarg) == 0) bt = BACKEND_WAYLAND;
-			break;
 		case 's':
 			sscanf(optarg, "%dx%d", &width, &height);
-			break;
-		case 'o':
-			output = str_dup(optarg);
 			break;
 		case 'c':
 			opts.config_file = str_dup(optarg);
@@ -85,50 +59,18 @@ int main(int argc, char **argv) {
 	opts.argc = argc - optind;
 	opts.argv = argv + optind;
 
-	const char *cur_out = output;
-	(void)cur_out; // pacify warnings
-	struct backend backend;
-	switch (bt) {
-#ifdef CONFIG_BACKEND_SVG
-		case BACKEND_SVG:
-			if (!cur_out) cur_out = "out.svg";
-			backend = backend_init_svg(cur_out, width, height);
-			break;
-#endif
-#ifdef CONFIG_BACKEND_IMAGE
-		case BACKEND_IMAGE:
-			if (!cur_out) cur_out = "out.png";
-			backend = backend_init_image(cur_out, width, height);
-			break;
-#endif
-#ifdef CONFIG_BACKEND_DUMMY
-		case BACKEND_DUMMY:
-			backend = backend_init_dummy();
-			break;
-#endif
-#ifdef CONFIG_BACKEND_WAYLAND
-		case BACKEND_WAYLAND:
-			backend = backend_init_wayland();
-			break;
-#endif
-#ifdef CONFIG_BACKEND_FBDEV
-		case BACKEND_FBDEV:
-			backend = backend_init_fbdev();
-			break;
-#endif
-		default:
-			fprintf(stderr, "backend not supported\n");
-			exit(1);
-	}
-	if (!backend.self) {
-		fprintf(stderr, "backend failed init\n");
-		exit(1);
-	}
+	struct mgu_disp disp = { 0 };
+	struct mgu_win win = { 0 };
+	mgu_disp_init(&disp);
+	mgu_win_init(&win, &disp);
 
 	struct app app;
-	app_init(&app, opts, &backend);
+	app_init(&app, opts, &win);
 	app_main(&app);
 	app_finish(&app);
+
+	mgu_win_finish(&win);
+	mgu_disp_finish(&disp);
 
 	free(opts.editor);
 	free(opts.terminal);

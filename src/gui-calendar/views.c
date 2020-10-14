@@ -1,7 +1,6 @@
 #include <stdlib.h>
 
 #include "views.h"
-#include "pango.h"
 #include "algo.h"
 #include "core.h"
 

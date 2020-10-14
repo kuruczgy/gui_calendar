@@ -1,56 +1,58 @@
-project('smuc', 'c', default_options : [ 'c_std=c11' ])
+project('smuc', 'c', default_options : [ 'c_std=c11', 'default_library=static' ])
+
+em = host_machine.system() == 'emscripten'
 
 # Compiler setup
 cc = meson.get_compiler('c')
-add_global_arguments('-Wno-parentheses', language : 'c')
-add_global_arguments('-D_XOPEN_SOURCE=700', language : 'c')
+add_project_arguments('-Wno-parentheses', language : 'c')
+add_project_arguments('-D_XOPEN_SOURCE=700', language : 'c')
+
+if em
+  glesv2 = []
+  add_project_link_arguments([ '-s', 'FORCE_FILESYSTEM=1' ], language : 'c')
+  cmake = import('cmake')
+  opt_var = cmake.subproject_options()
+  opt_var.add_cmake_defines({
+    'CMAKE_INSTALL_PREFIX' : '/usr',
+    'CMAKE_DISABLE_FIND_PACKAGE_ICU' : true,
+    'CMAKE_DISABLE_FIND_PACKAGE_BDB' : true,
+    'WITH_CXX_BINDINGS' : false,
+    # 'USE_BUILTIN_TZDATA' : true,
+    'LIBICAL_BUILD_TESTING' : false,
+    'ICAL_BUILD_DOCS' : false,
+    'STATIC_ONLY' : true,
+    'ICAL_GLIB' : false,
+    'ENABLE_GTK_DOC' : false,
+  })
+  libical_proj = cmake.subproject('libical', options : opt_var)
+  libical = libical_proj.dependency('ical')
+else
+  glesv2 = dependency('glesv2')
+  libical = dependency('libical')
+endif
 
 # Dependencies
-wayland_client = dependency('wayland-client')
-wayland_cursor = dependency('wayland-cursor')
-cairo          = dependency('cairo')
-pango          = dependency('pango')
-pangocairo     = dependency('pangocairo')
-libical        = dependency('libical')
-m = cc.find_library('m', required : false)
+m = cc.find_library('m')
 
 ds_proj = subproject('ds')
 ds_vec = ds_proj.get_variable('ds_vec_dep')
 ds_hashmap = ds_proj.get_variable('ds_hashmap_dep')
 ds_tree = ds_proj.get_variable('ds_tree_dep')
+ds_matrix = ds_proj.get_variable('ds_matrix_dep')
 
 libtouch_proj = subproject('libtouch')
 libtouch = libtouch_proj.get_variable('libtouch_dep')
 
-dep_scanner = dependency('wayland-scanner')
-prog_scanner = find_program(dep_scanner
-  .get_pkgconfig_variable('wayland_scanner'))
-
-dep_wp = dependency('wayland-protocols', version: '>= 1.18')
-dir_wp_base = dep_wp.get_pkgconfig_variable('pkgdatadir')
-
-base_file = 'xdg-shell'
-xml_path = '@0@/stable/@1@/@1@.xml'.format(dir_wp_base, base_file)
-
-xdg_shell_header_target = custom_target(
-  'xdg_shell_header_target',
-  command: [ prog_scanner, 'client-header', '@INPUT@', '@OUTPUT@' ],
-  input: xml_path,
-  output: '@0@-client-protocol.h'.format(base_file),
-)
-
-xdg_shell_private_target = custom_target(
-  'xdg_shell_private_target',
-  command: [ prog_scanner, 'private-code', '@INPUT@', '@OUTPUT@' ],
-  input: xml_path,
-  output: '@0@-client-protocol.c'.format(base_file),
-)
+mgu_proj = subproject('mgu')
+mgu_gl = mgu_proj.get_variable('mgu_gl_dep')
+mgu_sr = mgu_proj.get_variable('mgu_sr_dep')
+mgu_win = mgu_proj.get_variable('mgu_win_dep')
 
 # gperf lookup table code generation
 prog_gperf = find_program('gperf')
 gperf_tables = {}
 if prog_gperf.found()
-  foreach gp : [ 'src/common/colors.gperf']
+  foreach gp : [ 'src/common/colors.gperf' ]
     basename = gp.split('.')[-2].split('/')[-1]
     output = basename + '.c'
     message('making target:', output)
@@ -120,24 +122,14 @@ src_gui_calendar = [
   'src/gui-calendar/editor_parser.c',
   'src/gui-calendar/keyboard.c',
   'src/gui-calendar/render.c',
-  'src/gui-calendar/pango.c',
   'src/gui-calendar/views.c',
 ]
 dep_gui_calendar = [
-  wayland_client, wayland_cursor, cairo, pango, pangocairo, m, ds_tree, libtouch
-]
-wayland_sources = [
-  'src/gui-calendar/backend/wayland.c',
-  xdg_shell_header_target,
-  xdg_shell_private_target,
+  glesv2, ds_matrix, mgu_gl, mgu_win, mgu_sr, m, ds_tree, libtouch
 ]
 lib_gui_calendar = static_library(
   'gui-calendar',
   src_gui_calendar,
-  wayland_sources,
-  'src/gui-calendar/backend/fbdev.c',
-  'src/gui-calendar/backend/svg.c',
-  'src/gui-calendar/backend/image.c',
   include_directories: incdir,
   dependencies: [ dep_gui_calendar, ds_vec, ds_hashmap, ds_tree ],
   link_with: [ lib_core, lib_common, lib_uexpr ]
@@ -148,42 +140,35 @@ executable(
   include_directories: incdir,
   dependencies: dep_gui_calendar,
   link_with: lib_gui_calendar,
-  c_args : [
-    '-DCONFIG_BACKEND_WAYLAND',
-    '-DCONFIG_BACKEND_FBDEV',
-    '-DCONFIG_BACKEND_SVG',
-    '-DCONFIG_BACKEND_IMAGE'
-  ]
 )
 
 executable(
   'gen',
   'src/utils/gen.c',
   include_directories: incdir,
-  dependencies: dep_gui_calendar,
+  dependencies: [ libical, dep_gui_calendar ],
   link_with: lib_gui_calendar
 )
 
-test_main = executable(
-  'test-editor',
-  'src/tests/test_main.c',
-  'src/gui-calendar/backend/dummy.c',
-  include_directories: incdir,
-  dependencies: dep_gui_calendar,
-  link_with: lib_gui_calendar,
-  c_args : '-DCONFIG_BACKEND_DUMMY'
-)
-test('test-main', test_main)
+# test_main = executable(
+#   'test-editor',
+#   'src/tests/test_main.c',
+#   'src/gui-calendar/backend/dummy.c',
+#   include_directories: incdir,
+#   dependencies: dep_gui_calendar,
+#   link_with: lib_gui_calendar,
+# )
+# test('test-main', test_main)
 
-executable(
-  'fuzz-editor',
-  'src/tests/fuzz_editor.c',
-  'src/gui-calendar/backend/dummy.c',
-  include_directories: incdir,
-  dependencies: dep_gui_calendar,
-  link_with: lib_gui_calendar,
-  c_args : '-DCONFIG_BACKEND_DUMMY'
-)
+# executable(
+#   'fuzz-editor',
+#   'src/tests/fuzz_editor.c',
+#   'src/gui-calendar/backend/dummy.c',
+#   include_directories: incdir,
+#   dependencies: dep_gui_calendar,
+#   link_with: lib_gui_calendar,
+#   c_args : '-DCONFIG_BACKEND_DUMMY'
+# )
 
 # executable(
 #   'fuzz-parse-ics',
@@ -195,15 +180,14 @@ executable(
 #   c_args : '-DCONFIG_BACKEND_DUMMY'
 # )
 
-executable(
-  'fuzz-image',
-  'src/gui-calendar/main.c',
-  'src/gui-calendar/backend/dummy.c',
-  include_directories: incdir,
-  dependencies: dep_gui_calendar,
-  link_with: lib_gui_calendar,
-  c_args : '-DCONFIG_BACKEND_DUMMY'
-)
+# executable(
+#   'fuzz-image',
+#   'src/gui-calendar/main.c',
+#   'src/gui-calendar/backend/dummy.c',
+#   include_directories: incdir,
+#   dependencies: dep_gui_calendar,
+#   link_with: lib_gui_calendar,
+# )
 
 prog_markdown = find_program('md2html', required: false)
 if prog_markdown.found()

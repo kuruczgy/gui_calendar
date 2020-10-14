@@ -9,7 +9,6 @@
 #include "util.h"
 #include "algo.h"
 #include "keyboard.h"
-#include "backend.h"
 #include "render.h"
 #include "editor.h"
 
@@ -646,10 +645,8 @@ static void run_action(struct app *app, struct action *act) {
 	}
 }
 
-static void application_handle_key(void *ud, uint32_t key, uint32_t mods) {
-	struct app *app = ud;
+static void handle_key(struct app *app, uint32_t key) {
 	int n;
-	// bool shift = mods & 1;
 	char sym = key_get_sym(key);
 	switch (app->keystate) {
 	case KEYSTATE_SELECT:
@@ -733,6 +730,11 @@ static void application_handle_child(void *ud, pid_t pid) {
 
 static void application_handle_input(void *ud, struct mgu_input_event_args ev) {
 	struct app *app = ud;
+	if (ev.t & MGU_KEYBOARD) {
+		if (ev.t & MGU_DOWN) {
+			handle_key(app, ev.keyboard.down.key);
+		}
+	}
 	if (ev.t & MGU_TOUCH) {
 		const double *p = ev.touch.down_or_move.p;
 		if (ev.t & MGU_DOWN) {
@@ -776,7 +778,7 @@ static void touch_end(void *env, struct libtouch_rt rt) {
 }
 
 void app_init(struct app *app, struct application_options opts,
-		struct backend *backend) {
+		struct mgu_win *win) {
 	struct stopwatch sw = sw_start();
 
 	*app = (struct app){
@@ -790,12 +792,11 @@ void app_init(struct app *app, struct application_options opts,
 		.show_private_events = opts.show_private_events,
 		.tap_areas = VEC_EMPTY(sizeof(struct tap_area)),
 		.window_width = -1, .window_height = -1,
-		.backend = backend,
-		.interactive = backend->vptr->is_interactive(backend),
 		.editor_args = VEC_EMPTY(sizeof(struct str)),
 		.filters = VEC_EMPTY(sizeof(struct filter)),
 		.current_filter = 0,
 		.actions = VEC_EMPTY(sizeof(struct action)),
+		.win = win,
 	};
 
 	rb_tree_init(&app->active_events.tree, &interval_ops);
@@ -884,27 +885,26 @@ void app_init(struct app *app, struct application_options opts,
 		(struct libtouch_area_ops){ .env = app, .end = touch_end }
 	);
 
-	app->tr = text_renderer_new("Monospace 8");
-
 	app->slicing = slicing_create(app->zone);
 
-	app->backend->vptr->set_callbacks(app->backend,
-		&render_application,
-		&application_handle_key,
-		&application_handle_child,
-		&application_handle_input,
-		app
-	);
+	app->win->disp->seat.cb = (struct mgu_seat_cb){
+		.env = app, .f = application_handle_input };
+	app->win->render_cb = (struct mgu_render_cb){
+		.env = app, .f = render_application };
+
+	app->sr = sr_create_opengl();
 
 	app->dirty = true;
 	sw_end_print(sw, "initialization");
 }
 
 void app_main(struct app *app) {
-	app->backend->vptr->run(app->backend);
+	mgu_win_run(app->win);
 }
 
 void app_finish(struct app *app) {
+	sr_destroy(app->sr);
+
 	for (int i = 0; i < app->cals.len; ++i) {
 		struct calendar *cal = vec_get(&app->cals, i);
 		calendar_finish(cal);
@@ -938,7 +938,6 @@ void app_finish(struct app *app) {
 	vec_free(&app->active_todos.v);
 
 	cal_timezone_destroy(app->zone);
-	text_renderer_free(app->tr);
 
 	libtouch_surface_destroy(app->touch_surf);
 
@@ -947,8 +946,6 @@ void app_finish(struct app *app) {
 
 	slicing_destroy(app->slicing);
 	vec_free(&app->tap_areas);
-
-	app->backend->vptr->destroy(app->backend);
 }
 
 int app_add_cal(struct app *app, const char *path) {
