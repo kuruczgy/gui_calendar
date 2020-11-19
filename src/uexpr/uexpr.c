@@ -182,11 +182,11 @@ static token next_token(FILE *f) {
 }
 
 /* ## Actual parser */
-static struct parser_state new_parser(FILE *f) {
+static struct parser_state new_parser(FILE *f, struct vec ast) {
 	return (struct parser_state){
 		.f = f,
 		.buf = next_token(f),
-		.ast = vec_new_empty(sizeof(ast_node))
+		.ast = ast
 	};
 }
 static token peek(st s) {
@@ -327,7 +327,6 @@ struct uexpr_ctx {
 	struct hashmap vars; /* hashmap<struct uexpr_value> */
 	void *cl;
 	struct uexpr_ops ops;
-	struct uexpr *uexpr;
 };
 void uexpr_value_finish(struct uexpr_value v) {
 	switch (v.type) {
@@ -377,7 +376,7 @@ static struct uexpr_value value_copy(struct uexpr_value *v) {
 static void print_value(FILE *f, struct uexpr_value v);
 
 /* # Evaluation */
-static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx);
+static struct uexpr_value eval(struct uexpr *e, int root, struct uexpr_ctx *ctx);
 static struct uexpr_value get_var(struct uexpr_ctx *ctx, const char *key) {
 	struct uexpr_ops *ops = &ctx->ops;
 	struct uexpr_value v, *vp;
@@ -409,13 +408,13 @@ void uexpr_set_var(struct uexpr_ctx *ctx, const char *key, struct uexpr_value va
 }
 
 /* ## Builtin functions */
-static struct uexpr_value fn_let(struct vec *ast, int root, struct uexpr_ctx *ctx) {
-	ast_node *np = vec_get(ast, root);
+static struct uexpr_value fn_let(struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 2) return error_val;
-	ast_node *na = vec_get(ast, *(int*)vec_get(&np->args, 0));
+	ast_node *na = vec_get(&e->ast, *(int*)vec_get(&np->args, 0));
 	if (na->op != UEXPR_OP_VAR) return error_val;
 	const char *key = str_cstr(&na->str);
-	struct uexpr_value vb = eval(ast, *(int*)vec_get(&np->args, 1), ctx);
+	struct uexpr_value vb = eval(e, *(int*)vec_get(&np->args, 1), ctx);
 	if (vb.type != UEXPR_TYPE_STRING && vb.type != UEXPR_TYPE_BOOLEAN) {
 		uexpr_value_finish(vb);
 		return error_val;
@@ -423,10 +422,10 @@ static struct uexpr_value fn_let(struct vec *ast, int root, struct uexpr_ctx *ct
 	uexpr_set_var(ctx, key, vb);
 	return void_val;
 }
-static struct uexpr_value fn_apply(struct vec *ast, int root, struct uexpr_ctx *ctx) {
-	ast_node *np = vec_get(ast, root);
+static struct uexpr_value fn_apply(struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 2) return error_val;
-	struct uexpr_value va = eval(ast, *(int*)vec_get(&np->args, 0), ctx);
+	struct uexpr_value va = eval(e, *(int*)vec_get(&np->args, 0), ctx);
 	if (va.type != UEXPR_TYPE_LIST) {
 		uexpr_value_finish(va);
 		return error_val;
@@ -438,17 +437,17 @@ static struct uexpr_value fn_apply(struct vec *ast, int root, struct uexpr_ctx *
 	for (int i = 0; i < va.list.len; ++i) {
 		struct uexpr_value r = *(struct uexpr_value*)vec_get(&va.list, i);
 		uexpr_set_var(ctx, "i", r);
-		r = eval(ast, *ib, ctx);
+		r = eval(e, *ib, ctx);
 		vec_append(&res.list, &r);
 	}
 	// no uexpr_value_finish(va) since we took all elements out of it...
 	return res;
 }
-static struct uexpr_value fn_startsw(struct vec *ast, int root, struct uexpr_ctx *ctx) {
-	ast_node *np = vec_get(ast, root);
+static struct uexpr_value fn_startsw(struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 2) return error_val;
-	struct uexpr_value va = eval(ast, *(int*)vec_get(&np->args, 0), ctx);
-	struct uexpr_value vb = eval(ast, *(int*)vec_get(&np->args, 1), ctx);
+	struct uexpr_value va = eval(e, *(int*)vec_get(&np->args, 0), ctx);
+	struct uexpr_value vb = eval(e, *(int*)vec_get(&np->args, 1), ctx);
 	struct uexpr_value res = error_val;
 	if (va.type == UEXPR_TYPE_STRING && vb.type == UEXPR_TYPE_STRING) {
 		res = (struct uexpr_value){
@@ -461,10 +460,10 @@ static struct uexpr_value fn_startsw(struct vec *ast, int root, struct uexpr_ctx
 	uexpr_value_finish(vb);
 	return res;
 }
-static struct uexpr_value fn_print(struct vec *ast, int root, struct uexpr_ctx *ctx) {
-	ast_node *np = vec_get(ast, root);
+static struct uexpr_value fn_print(struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	ast_node *np = vec_get(&e->ast, root);
 	for (int i = 0; i < np->args.len; ++i) {
-		struct uexpr_value vi = eval(ast, *(int*)vec_get(&np->args, i), ctx);
+		struct uexpr_value vi = eval(e, *(int*)vec_get(&np->args, i), ctx);
 		if (vi.type == UEXPR_TYPE_STRING) {
 			fprintf(stdout, "%s\n", vi.string_ref);
 		} else {
@@ -477,7 +476,7 @@ static struct uexpr_value fn_print(struct vec *ast, int root, struct uexpr_ctx *
 }
 struct builtin_fn {
 	const char *name;
-	struct uexpr_value (*f)(struct vec *ast, int root, struct uexpr_ctx *ctx);
+	struct uexpr_value (*f)(struct uexpr *e, int root, struct uexpr_ctx *ctx);
 };
 static struct builtin_fn builtin_fns[] = {
 	{ "let", &fn_let },
@@ -488,9 +487,9 @@ static struct builtin_fn builtin_fns[] = {
 };
 
 /* ## Evaluation logic */
-static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value eval(struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	struct uexpr_value res, *vp;
-	ast_node *np = vec_get(ast, root);
+	ast_node *np = vec_get(&e->ast, root);
 	switch (np->op) {
 	case UEXPR_OP_LIT: return (struct uexpr_value){
 		.type = UEXPR_TYPE_STRING, .string_ref = str_cstr(&np->str)
@@ -501,7 +500,7 @@ static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx)
 		};
 		for (int i = 0; i < np->args.len; ++i) {
 			int *ni = vec_get(&np->args, i);
-			struct uexpr_value r = eval(ast, *ni, ctx);
+			struct uexpr_value r = eval(e, *ni, ctx);
 			vec_append(&res.list, &r);
 		}
 		return res;
@@ -510,7 +509,7 @@ static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx)
 		for (int i = 0; i < np->args.len; ++i) {
 			int *ni = vec_get(&np->args, i);
 			uexpr_value_finish(res);
-			res = eval(ast, *ni, ctx);
+			res = eval(e, *ni, ctx);
 		}
 		return res;
 	case UEXPR_OP_FN: {
@@ -518,7 +517,7 @@ static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx)
 		struct builtin_fn *fn = builtin_fns;
 		while (fn->name) {
 			if (strcmp(fn->name, str_cstr(&np->str)) == 0) {
-				return fn->f(ast, root, ctx);
+				return fn->f(e, root, ctx);
 			}
 			++fn;
 		}
@@ -526,7 +525,7 @@ static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx)
 		/* try calling the variable with the same name */
 		struct uexpr_value v = get_var(ctx, str_cstr(&np->str));
 		if (v.type == UEXPR_TYPE_NATIVEFN) {
-			return v.nativefn.f(v.nativefn.env, ast, root, ctx);
+			return v.nativefn.f(v.nativefn.env, e, root, ctx);
 		}
 
 		return error_val;
@@ -535,7 +534,7 @@ static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx)
 		return get_var(ctx, str_cstr(&np->str));
 	case UEXPR_OP_NEG: {
 		int *ap = vec_get(&np->args, 0);
-		struct uexpr_value v = eval(ast, *ap, ctx);
+		struct uexpr_value v = eval(e, *ap, ctx);
 		if (v.type == UEXPR_TYPE_BOOLEAN) {
 			res = (struct uexpr_value){
 				.type = UEXPR_TYPE_BOOLEAN, .boolean = !v.boolean
@@ -549,11 +548,11 @@ static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx)
 	case UEXPR_OP_AND:
 	case UEXPR_OP_OR: {
 		int *ap = vec_get(&np->args, 0);
-		struct uexpr_value v = eval(ast, *ap, ctx);
+		struct uexpr_value v = eval(e, *ap, ctx);
 		if (v.type == UEXPR_TYPE_BOOLEAN) {
 			if (np->op == UEXPR_OP_AND ? v.boolean : !v.boolean) {
 				int *bp = vec_get(&np->args, 1);
-				res = eval(ast, *bp, ctx);
+				res = eval(e, *bp, ctx);
 			} else {
 				res = (struct uexpr_value){
 					.type = UEXPR_TYPE_BOOLEAN,
@@ -570,8 +569,8 @@ static struct uexpr_value eval(struct vec *ast, int root, struct uexpr_ctx *ctx)
 	case UEXPR_OP_IN: {
 		int *ap = vec_get(&np->args, 0);
 		int *bp = vec_get(&np->args, 1);
-		struct uexpr_value va = eval(ast, *ap, ctx);
-		struct uexpr_value vb = eval(ast, *bp, ctx);
+		struct uexpr_value va = eval(e, *ap, ctx);
+		struct uexpr_value vb = eval(e, *bp, ctx);
 		if (np->op == UEXPR_OP_EQ) {
 			if (va.type == UEXPR_TYPE_STRING && vb.type == UEXPR_TYPE_STRING) {
 				res = (struct uexpr_value){
@@ -729,26 +728,25 @@ static void print_value(FILE *f, struct uexpr_value v) {
 }
 
 /* # Public functions */
-struct uexpr *uexpr_parse(FILE *f) {
-	struct parser_state ps = new_parser(f);
+void uexpr_init(struct uexpr *e) {
+	*e = (struct uexpr){ .ast = vec_new_empty(sizeof(ast_node)) };
+}
+int uexpr_parse(struct uexpr *e, FILE *f) {
+	struct parser_state ps = new_parser(f, e->ast);
 	int root = term(&ps);
 	if (root == -1) {
-		// TODO: free ast
+		// TODO: some junk gets left in e->ast
 		return NULL;
 	}
-	struct uexpr *e = malloc_check(sizeof(struct uexpr));
 	e->ast = ps.ast;
-	e->root = root;
-	return e;
 }
 static int iter_finish_ctx_vars(void *_cl, void *item) {
 	struct uexpr_value *vp = item;
 	uexpr_value_finish(*vp);
 	return MAP_OK;
 }
-struct uexpr_ctx *uexpr_ctx_create(struct uexpr *e) {
+struct uexpr_ctx *uexpr_ctx_create() {
 	struct uexpr_ctx *ctx = malloc_check(sizeof(struct uexpr_ctx));
-	*ctx = (struct uexpr_ctx){ .uexpr = e };
 	hashmap_init(&ctx->vars, sizeof(struct uexpr_value));
 	return ctx;
 }
@@ -760,18 +758,17 @@ void uexpr_ctx_destroy(struct uexpr_ctx *ctx) {
 	hashmap_finish(&ctx->vars);
 	free(ctx);
 }
-void uexpr_eval(struct uexpr_ctx *ctx, int i, struct uexpr_value *v_out) {
-	struct uexpr_value val = eval(&ctx->uexpr->ast, i, ctx);
+void uexpr_eval(struct uexpr *e, int root, struct uexpr_ctx *ctx, struct uexpr_value *v_out) {
+	struct uexpr_value val = eval(e, root, ctx);
 	if (v_out) *v_out = val;
 	else uexpr_value_finish(val);
 }
-void uexpr_print(struct uexpr *e, FILE *f) {
-	dump_ast(f, e->ast, e->root);
+void uexpr_print(struct uexpr *e, int root, FILE *f) {
+	dump_ast(f, e->ast, root);
 }
-void uexpr_destroy(struct uexpr *e) {
+void uexpr_finish(struct uexpr *e) {
 	for (int i = 0; i < e->ast.len; ++i) {
 		ast_node_finish((ast_node*)vec_get(&e->ast, i));
 	}
 	vec_free(&e->ast);
-	free(e);
 }

@@ -104,11 +104,9 @@ struct app {
 
 	struct vec editor_args; /* vec<struct str> */
 
-	struct uexpr *builtin_expr;
-	struct uexpr_ctx *builtin_ctx;
-
-	struct uexpr *config_expr;
-	struct uexpr_ctx *config_ctx;
+	struct uexpr uexpr;
+	struct uexpr_ctx *uexpr_ctx;
+	int uexpr_builtin_fn;
 
 	struct vec filters; /* vec<struct filter> */
 	int current_filter;

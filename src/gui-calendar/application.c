@@ -255,16 +255,17 @@ static void execute_filters(struct app *app, struct active_comp *ac) {
 	};
 
 	/* apply builtin filter */
-	if (app->builtin_expr && ac->ci->c->type == COMP_TYPE_EVENT) {
-		uexpr_ctx_set_ops(app->builtin_ctx, ops);
-		uexpr_eval(app->builtin_ctx, app->builtin_expr->root, NULL);
+	if (app->uexpr_builtin_fn != -1 && ac->ci->c->type == COMP_TYPE_EVENT) {
+		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+		uexpr_eval(&app->uexpr, app->uexpr_builtin_fn,
+			app->uexpr_ctx, NULL);
 	}
 
 	/* apply current filter */
-	if (app->current_filter != -1 && app->config_expr) {
+	if (app->current_filter != -1) {
 		struct filter *f = vec_get(&app->filters, app->current_filter);
-		uexpr_ctx_set_ops(app->config_ctx, ops);
-		uexpr_eval(app->config_ctx, f->uexpr_fn, NULL);
+		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+		uexpr_eval(&app->uexpr, f->uexpr_fn, app->uexpr_ctx, NULL);
 	}
 }
 
@@ -469,10 +470,9 @@ static void app_mode_select_finish(struct app *app) {
 			.try_get_var = cal_uexpr_get,
 			.try_set_var = cal_uexpr_set
 		};
-		if (app->config_expr) {
-			uexpr_ctx_set_ops(app->config_ctx, ops);
-			uexpr_eval(app->config_ctx, app->mode_select_uexpr_fn, NULL);
-		}
+		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+		uexpr_eval(&app->uexpr, app->mode_select_uexpr_fn,
+			app->uexpr_ctx, NULL);
 
 		if (env.set_edit) {
 			struct edit_spec es;
@@ -627,9 +627,9 @@ static void run_action(struct app *app, struct action *act) {
 		.try_set_var = cal_uexpr_set
 	};
 
-	if (app->config_expr) {
-		uexpr_ctx_set_ops(app->config_ctx, ops);
-		uexpr_eval(app->config_ctx, act->uexpr_fn, NULL);
+	if (act->uexpr_fn != -1) {
+		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+		uexpr_eval(&app->uexpr, act->uexpr_fn, app->uexpr_ctx, NULL);
 	}
 }
 
@@ -786,22 +786,26 @@ void app_init(struct app *app, struct application_options opts,
 	rb_tree_init(&app->active_events, &interval_ops);
 
 	/* load all uexpr stuff */
+	uexpr_init(&app->uexpr);
+	app->uexpr_ctx = uexpr_ctx_create();
+
 	const char *builtin_expr = "{"
 			"($st % [ tentative, cancelled ]) & let($fade, a=a);"
 			"let($hide, ($clas = private) & ~$show_priv)"
 		"}";
 	FILE *f = fmemopen((void*)builtin_expr, strlen(builtin_expr), "r");
-	app->builtin_expr = uexpr_parse(f);
+	app->uexpr_builtin_fn = uexpr_parse(&app->uexpr, f);
 	fclose(f);
-	asrt(app->builtin_expr, "builtin_expr parsing failed");
-	app->builtin_ctx = uexpr_ctx_create(app->builtin_expr);
-	uexpr_eval(app->builtin_ctx, app->builtin_expr->root, NULL);
+	asrt(app->uexpr_builtin_fn != -1, "builtin_expr parsing failed");
 
 	if (opts.config_file) {
+		int config_root = -1;
 		f = fopen(opts.config_file, "r");
-		app->config_expr = uexpr_parse(f);
-		fclose(f);
-		if (app->config_expr) {
+		if (f) {
+			config_root = uexpr_parse(&app->uexpr, f);
+			fclose(f);
+		}
+		if (config_root != -1) {
 			struct cal_uexpr_env env = {
 				.app = app,
 				.kind = CAL_UEXPR_CONFIG,
@@ -812,11 +816,12 @@ void app_init(struct app *app, struct application_options opts,
 				.try_set_var = cal_uexpr_set
 			};
 
-			app->config_ctx = uexpr_ctx_create(app->config_expr);
-			uexpr_ctx_set_ops(app->config_ctx, ops);
-			uexpr_eval(app->config_ctx, app->config_expr->root, NULL);
+			uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+			uexpr_eval(&app->uexpr, config_root,
+				app->uexpr_ctx, NULL);
 		} else {
-			fprintf(stderr, "WARNING: could not parse config script!\n");
+			fprintf(stderr,
+				"WARNING: could not parse config script!\n");
 		}
 	}
 
@@ -919,9 +924,8 @@ void app_finish(struct app *app) {
 
 	libtouch_surface_destroy(app->touch_surf);
 
-	if (app->config_ctx) uexpr_ctx_destroy(app->config_ctx);
-	if (app->builtin_ctx) uexpr_ctx_destroy(app->builtin_ctx);
-	if (app->builtin_expr) uexpr_destroy(app->builtin_expr);
+	if (app->uexpr_ctx) uexpr_ctx_destroy(app->uexpr_ctx);
+	uexpr_finish(&app->uexpr);
 
 	slicing_destroy(app->slicing);
 	vec_free(&app->tap_areas);

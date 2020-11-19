@@ -25,18 +25,18 @@ static enum comp_type comp_type_from_cstr(const char *str) {
 
 #define TRACE() fprintf(stderr, "[cal_uexpr] %s\n", __func__)
 
-static struct uexpr_value fn_add_cal(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_add_cal(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	struct uexpr_ast_node *np = vec_get(ast, root);
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 2) return error_val;
 
-	struct uexpr_ast_node *na = vec_get(ast, *(int *)vec_get(&np->args, 0));
+	struct uexpr_ast_node *na = vec_get(&e->ast, *(int *)vec_get(&np->args, 0));
 	if (na->op != UEXPR_OP_VAR) return error_val;
 
 	struct uexpr_value vb;
-	uexpr_eval(ctx, *(int*)vec_get(&np->args, 1), &vb);
+	uexpr_eval(e, *(int*)vec_get(&np->args, 1), ctx, &vb);
 	if (vb.type != UEXPR_TYPE_STRING) {
 		uexpr_value_finish(vb);
 		return error_val;
@@ -49,22 +49,22 @@ static struct uexpr_value fn_add_cal(void *_env, struct vec *ast, int root, stru
 
 	return void_val;
 }
-static struct uexpr_value fn_add_filter(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_add_filter(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	struct uexpr_ast_node *np = vec_get(ast, root);
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 3) return error_val;
 
 	struct uexpr_value va;
-	uexpr_eval(ctx, *(int *)vec_get(&np->args, 0), &va);
+	uexpr_eval(e, *(int *)vec_get(&np->args, 0), ctx, &va);
 	if (va.type != UEXPR_TYPE_STRING) {
 		uexpr_value_finish(va);
 		return error_val;
 	}
 
 	struct uexpr_value vb;
-	uexpr_eval(ctx, *(int *)vec_get(&np->args, 1), &vb);
+	uexpr_eval(e, *(int *)vec_get(&np->args, 1), ctx, &vb);
 	if (vb.type != UEXPR_TYPE_NATIVEPTR) {
 		uexpr_value_finish(vb);
 		return error_val;
@@ -76,17 +76,17 @@ static struct uexpr_value fn_add_filter(void *_env, struct vec *ast, int root, s
 
 	return void_val;
 }
-static struct uexpr_value fn_add_action(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_add_action(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	struct uexpr_ast_node *np = vec_get(ast, root);
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len < 2 && np->args.len > 3) return error_val;
 
 	struct action act = { .label = str_new_empty(), .cond.view = VIEW_N };
 
 	struct uexpr_value va;
-	uexpr_eval(ctx, *(int*)vec_get(&np->args, 0), &va);
+	uexpr_eval(e, *(int*)vec_get(&np->args, 0), ctx, &va);
 	if (va.type == UEXPR_TYPE_STRING && va.string_ref[0]) {
 		act.key_sym = va.string_ref[0];
 	} else if (va.type == UEXPR_TYPE_LIST) {
@@ -114,7 +114,7 @@ static struct uexpr_value fn_add_action(void *_env, struct vec *ast, int root, s
 
 	if (np->args.len >= 3) {
 		struct uexpr_value vc;
-		uexpr_eval(ctx, *(int*)vec_get(&np->args, 2), &vc);
+		uexpr_eval(e, *(int*)vec_get(&np->args, 2), ctx, &vc);
 		if (vc.type == UEXPR_TYPE_STRING) {
 			act.cond.view = view_from_cstr(vc.string_ref);
 		}
@@ -133,12 +133,12 @@ static struct fn config_fns[] = {
 	{ NULL, NULL },
 };
 
-static const char * get_single_arg_str(struct vec *ast, int root, struct uexpr_ctx *ctx) {
-	struct uexpr_ast_node *np = vec_get(ast, root);
+static const char * get_single_arg_str(struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 1) return NULL;
 
 	struct uexpr_value va;
-	uexpr_eval(ctx, *(int *)vec_get(&np->args, 0), &va);
+	uexpr_eval(e, *(int *)vec_get(&np->args, 0), ctx, &va);
 	if (va.type != UEXPR_TYPE_STRING) {
 		uexpr_value_finish(va);
 		return NULL;
@@ -147,22 +147,22 @@ static const char * get_single_arg_str(struct vec *ast, int root, struct uexpr_c
 	return va.string_ref;
 }
 
-static struct uexpr_value fn_switch_view(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_switch_view(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	const char *str = get_single_arg_str(ast, root, ctx);
+	const char *str = get_single_arg_str(e, root, ctx);
 	if (!str) return error_val;
 
 	app_cmd_switch_view(env->app, view_from_cstr(str));
 
 	return void_val;
 }
-static struct uexpr_value fn_move_view_discrete(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_move_view_discrete(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	const char *str = get_single_arg_str(ast, root, ctx);
+	const char *str = get_single_arg_str(e, root, ctx);
 	if (!str) return error_val;
 
 	int n = atoi(str);
@@ -170,22 +170,22 @@ static struct uexpr_value fn_move_view_discrete(void *_env, struct vec *ast, int
 
 	return void_val;
 }
-static struct uexpr_value fn_view_today(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_view_today(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	struct uexpr_ast_node *np = vec_get(ast, root);
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 0) return error_val;
 
 	app_cmd_view_today(env->app, -1);
 
 	return void_val;
 }
-static struct uexpr_value fn_launch_editor(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_launch_editor(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	struct uexpr_ast_node *np = vec_get(ast, root);
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len > 2) return error_val;
 
 	if (np->args.len == 0) {
@@ -194,7 +194,7 @@ static struct uexpr_value fn_launch_editor(void *_env, struct vec *ast, int root
 		}
 	} else if (np->args.len == 1) {
 		struct uexpr_value va;
-		uexpr_eval(ctx, *(int *)vec_get(&np->args, 0), &va);
+		uexpr_eval(e, *(int *)vec_get(&np->args, 0), ctx, &va);
 		if (va.type != UEXPR_TYPE_STRING) {
 			uexpr_value_finish(va);
 			return error_val;
@@ -207,22 +207,22 @@ static struct uexpr_value fn_launch_editor(void *_env, struct vec *ast, int root
 
 	return void_val;
 }
-static struct uexpr_value fn_select_comp(void *_env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
+static struct uexpr_value fn_select_comp(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
 
-	struct uexpr_ast_node *np = vec_get(ast, root);
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 	if (np->args.len != 3) return error_val;
 
 	struct uexpr_value va;
-	uexpr_eval(ctx, *(int *)vec_get(&np->args, 0), &va);
+	uexpr_eval(e, *(int *)vec_get(&np->args, 0), ctx, &va);
 	if (va.type != UEXPR_TYPE_STRING) {
 		uexpr_value_finish(va);
 		return error_val;
 	}
 
 	struct uexpr_value vb;
-	uexpr_eval(ctx, *(int *)vec_get(&np->args, 1), &vb);
+	uexpr_eval(e, *(int *)vec_get(&np->args, 1), ctx, &vb);
 	if (vb.type != UEXPR_TYPE_STRING) {
 		uexpr_value_finish(vb);
 		return error_val;

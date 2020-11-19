@@ -3,14 +3,14 @@
 
 #include "uexpr.h"
 
-struct uexpr_value fn_test(void *env, struct vec *ast, int root, struct uexpr_ctx *ctx) {
-	struct uexpr_ast_node *np = vec_get(ast, root);
+struct uexpr_value fn_test(void *env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 
 	fprintf(stderr, "%s called!\n", __func__);
 
 	if (np->args.len == 1) {
 		int arg = *(int *)vec_get(&np->args, 0);
-		uexpr_eval(ctx, arg, NULL);
+		uexpr_eval(e, arg, ctx, NULL);
 	}
 
 	return (struct uexpr_value) { .type = UEXPR_TYPE_VOID };
@@ -30,12 +30,19 @@ static bool try_set_var(void *env, const char *key, struct uexpr_value v) {
 	return false;
 }
 int main(int argc, char **argv) {
-	struct uexpr *e = uexpr_parse(stdin);
-	struct uexpr_ctx *ctx = uexpr_ctx_create(e);
+	struct uexpr e;
+	int root = uexpr_parse(&e, stdin);
+	struct uexpr_ctx *ctx = uexpr_ctx_create();
 	uexpr_ctx_set_ops(ctx, (struct uexpr_ops){
 		.env = NULL,
 		.try_get_var = try_get_var,
 		.try_set_var = try_set_var
 	});
-	uexpr_eval(ctx, e->root, NULL);
+	if (root != -1) {
+		uexpr_eval(&e, root, ctx, NULL);
+	} else {
+		fprintf(stderr, "failed to parse!\n");
+	}
+	uexpr_ctx_destroy(ctx);
+	uexpr_finish(&e);
 }

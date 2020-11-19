@@ -23,7 +23,6 @@ struct uexpr_ast_node {
 };
 struct uexpr {
 	struct vec ast; /* vec<struct uexpr_ast_node> */
-	int root;
 };
 struct uexpr_ctx;
 
@@ -37,7 +36,7 @@ enum uexpr_type {
 	UEXPR_TYPE_ERROR
 };
 typedef struct uexpr_value (*uexpr_nativefn)(
-	void *env, struct vec *ast, int root, struct uexpr_ctx *ctx);
+	void *env, struct uexpr *e, int root, struct uexpr_ctx *ctx);
 struct uexpr_value {
 	enum uexpr_type type;
 	union {
@@ -61,13 +60,16 @@ struct uexpr_ops {
 	bool (*try_set_var)(void *env, const char *key, struct uexpr_value v);
 };
 
-struct uexpr *uexpr_parse(FILE *f);
-void uexpr_print(struct uexpr *e, FILE *f);
-void uexpr_destroy(struct uexpr *e);
-struct uexpr_ctx *uexpr_ctx_create(struct uexpr *e);
+void uexpr_init(struct uexpr *e);
+/* returns root if successful, or -1 if not */
+int uexpr_parse(struct uexpr *e, FILE *f);
+/* you can use multiple contexts with a uexpr, but not the other way around */
+struct uexpr_ctx *uexpr_ctx_create();
 void uexpr_ctx_set_ops(struct uexpr_ctx *ctx, struct uexpr_ops ops);
 void uexpr_ctx_destroy(struct uexpr_ctx *ctx);
-void uexpr_eval(struct uexpr_ctx *ctx, int i, struct uexpr_value *v_out);
+void uexpr_eval(struct uexpr *e, int root, struct uexpr_ctx *ctx, struct uexpr_value *v_out);
+void uexpr_print(struct uexpr *e, int root, FILE *f);
+void uexpr_finish(struct uexpr *e);
 void uexpr_set_var(struct uexpr_ctx *ctx, const char *key, struct uexpr_value val);
 
 #endif
