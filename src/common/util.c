@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/random.h>
 #include <stdio.h>
+#include <wordexp.h>
 #include <ds/vec.h>
 #include <ds/hashmap.h>
 
@@ -159,4 +160,14 @@ const char * most_frequent(const struct vec *source, const char *(*cb)(void*)) {
 
 void vec_sort(struct vec *v, sort_lt lt, void *cl) {
 	heapsort(v->d, v->len, v->itemsize, lt, cl);
+}
+
+struct str str_wordexp(const char *in) {
+	struct str s = str_empty;
+	wordexp_t p;
+	if (wordexp(in, &p, WRDE_NOCMD) == 0) {
+		s = str_new_from_cstr(p.we_wordv[0]);
+		wordfree(&p);
+	}
+	return s;
 }

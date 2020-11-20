@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <wordexp.h>
 
 #include "application.h"
 #include "core.h"
@@ -799,30 +798,17 @@ void app_init(struct app *app, struct application_options opts,
 	asrt(app->uexpr_builtin_fn != -1, "builtin_expr parsing failed");
 
 	if (opts.config_file) {
-		int config_root = -1;
-		f = fopen(opts.config_file, "r");
-		if (f) {
-			config_root = uexpr_parse(&app->uexpr, f);
-			fclose(f);
-		}
-		if (config_root != -1) {
-			struct cal_uexpr_env env = {
-				.app = app,
-				.kind = CAL_UEXPR_CONFIG,
-			};
-			struct uexpr_ops ops = {
-				.env = &env,
-				.try_get_var = cal_uexpr_get,
-				.try_set_var = cal_uexpr_set
-			};
-
-			uexpr_ctx_set_ops(app->uexpr_ctx, ops);
-			uexpr_eval(&app->uexpr, config_root,
-				app->uexpr_ctx, NULL);
-		} else {
-			fprintf(stderr,
-				"WARNING: could not parse config script!\n");
-		}
+		struct cal_uexpr_env env = {
+			.app = app,
+			.kind = CAL_UEXPR_CONFIG,
+		};
+		struct uexpr_ops ops = {
+			.env = &env,
+			.try_get_var = cal_uexpr_get,
+			.try_set_var = cal_uexpr_set
+		};
+		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+		app_add_uexpr_config(app, opts.config_file);
 	}
 
 	// TODO: state.view_days = opts.view_days;
@@ -934,29 +920,22 @@ void app_finish(struct app *app) {
 }
 
 int app_add_cal(struct app *app, const char *path) {
-	wordexp_t p;
-	if (wordexp(path, &p, WRDE_NOCMD) == 0) {
-		const char *s = p.we_wordv[0];
+	struct calendar cal;
+	struct calendar_info cal_info;
+	calendar_init(&cal);
+	cal.storage = str_wordexp(path);
 
-		struct calendar cal;
-		struct calendar_info cal_info;
-		calendar_init(&cal);
-		str_append(&cal.storage, s, strlen(s));
-		wordfree(&p);
+	fprintf(stderr, "add_cal %s\n", str_cstr(&cal.storage));
+	update_calendar_from_storage(&cal, app->zone);
 
-		fprintf(stderr, "add_cal %s\n", str_cstr(&cal.storage));
-		update_calendar_from_storage(&cal, app->zone);
+	/* calculate most frequent color */
+	const char *fc = most_frequent(&cal.comps_vec, &get_comp_color);
+	uint32_t color = fc ? lookup_color(fc, strlen(fc)) : 0;
+	if (!color) color = 0xFF20D0D0;
+	cal_info.color = color;
 
-		/* calculate most frequent color */
-		const char *fc = most_frequent(&cal.comps_vec, &get_comp_color);
-		uint32_t color = fc ? lookup_color(fc, strlen(fc)) : 0;
-		if (!color) color = 0xFF20D0D0;
-		cal_info.color = color;
-
-		vec_append(&app->cals, &cal);
-		return vec_append(&app->cal_infos, &cal_info);
-	}
-	return -1;
+	vec_append(&app->cals, &cal);
+	return vec_append(&app->cal_infos, &cal_info);
 }
 void app_add_uexpr_filter(struct app *app, const char *key, int def_cal, int uexpr_fn) {
 	struct filter f = {
@@ -968,4 +947,17 @@ void app_add_uexpr_filter(struct app *app, const char *key, int def_cal, int uex
 }
 void app_add_action(struct app *app, struct action act) {
 	vec_append(&app->actions, &act);
+}
+void app_add_uexpr_config(struct app *app, const char *path) {
+	int root = -1;
+	FILE *f = fopen(path, "r");
+	if (f) {
+		root = uexpr_parse(&app->uexpr, f);
+		fclose(f);
+	}
+	if (root != -1) {
+		uexpr_eval(&app->uexpr, root, app->uexpr_ctx, NULL);
+	} else {
+		fprintf(stderr, "WARNING: could not parse script: %s\n", path);
+	}
 }

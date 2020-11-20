@@ -739,6 +739,7 @@ int uexpr_parse(struct uexpr *e, FILE *f) {
 		return NULL;
 	}
 	e->ast = ps.ast;
+	return root;
 }
 static int iter_finish_ctx_vars(void *_cl, void *item) {
 	struct uexpr_value *vp = item;

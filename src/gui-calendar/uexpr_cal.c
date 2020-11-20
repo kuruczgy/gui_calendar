@@ -25,6 +25,26 @@ static enum comp_type comp_type_from_cstr(const char *str) {
 
 #define TRACE() fprintf(stderr, "[cal_uexpr] %s\n", __func__)
 
+static struct uexpr_value fn_include(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	TRACE();
+	struct cal_uexpr_env *env = _env;
+
+	struct uexpr_ast_node *np = vec_get(&e->ast, root);
+	if (np->args.len != 1) return error_val;
+
+	struct uexpr_value va;
+	uexpr_eval(e, *(int*)vec_get(&np->args, 0), ctx, &va);
+	if (va.type != UEXPR_TYPE_STRING) {
+		uexpr_value_finish(va);
+		return error_val;
+	}
+
+	struct str expanded = str_wordexp(va.string_ref);
+	app_add_uexpr_config(env->app, str_cstr(&expanded));
+	str_free(&expanded);
+
+	return void_val;
+}
 static struct uexpr_value fn_add_cal(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
@@ -130,6 +150,7 @@ static struct fn config_fns[] = {
 	{ "add_cal", fn_add_cal },
 	{ "add_filter", fn_add_filter },
 	{ "add_action", fn_add_action },
+	{ "include", fn_include },
 	{ NULL, NULL },
 };
 

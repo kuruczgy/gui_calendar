@@ -173,5 +173,6 @@ void app_cmd_move_view_discrete(struct app *app, int n);
 int app_add_cal(struct app *app, const char *path);
 void app_add_uexpr_filter(struct app *app, const char *key, int def_cal, int uexpr_fn);
 void app_add_action(struct app *app, struct action act);
+void app_add_uexpr_config(struct app *app, const char *path);
 
 #endif
