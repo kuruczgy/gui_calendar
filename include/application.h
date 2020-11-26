@@ -52,15 +52,39 @@ struct action {
 	int uexpr_fn;
 };
 
+struct proj_item {
+	struct comp_inst *ci;
+	int cal_index;
+	struct calendar *cal;
+};
+struct proj {
+	void *self;
+	void (*add)(void *self, struct proj_item pi);
+	void (*done)(void *self);
+	void (*clear)(void *self);
+	bool (*ran)(void *self, struct ts_ran *ran);
+	enum comp_type type;
+};
+struct proj_active_events {
+	struct app *app;
+	struct ts_ran ran;
+	int n;
+	struct rb_tree tree; /* items: struct active_comp */
+};
+struct proj_active_todos {
+	struct app *app;
+	struct vec v; /* vec<struct active_comp> */
+};
+
 struct app {
 	/* calendars */
 	struct vec cals; /* vec<struct calendar> */
 	struct vec cal_infos; /* vec<struct calendar_info> */
 
-	/* active comps */
-	int active_events_n;
-	struct rb_tree active_events;
-	struct vec active_todos; /* vec<struct active_comp> */
+	/* projections */
+	struct proj_active_events active_events;
+	struct proj_active_todos active_todos;
+	struct vec projs; /* vec<struct proj> */
 
 	ts expand_to;
 
@@ -153,9 +177,9 @@ void app_main(struct app *app);
 void app_finish(struct app *app);
 
 /* update app->active_events for view */
-void app_use_view(struct app *app, struct ts_ran view);
+void app_set_view(struct app *app, struct ts_ran view);
 
-void app_update_active_objects(struct app *app);
+void app_update_projections(struct app *app);
 void app_get_editor_template(struct app *app, struct comp_inst *ci, FILE *out);
 
 /* commands directly accessible for the user */

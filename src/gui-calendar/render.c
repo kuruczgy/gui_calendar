@@ -291,7 +291,7 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		/* draw overlapping objects */
 		vec_clear(ctx->tobjs);
 		interval_query(
-			&ctx->app->active_events,
+			&ctx->app->active_events.tree,
 			(long long int[]){ ran.fr, ran.to },
 			ctx,
 			iter_ac
@@ -672,8 +672,8 @@ static void render_todo_list(cairo_t *cr, struct app *app, box b) {
 	cairo_stroke(cr);
 
 	int y = 0;
-	for (int i = 0; i < app->active_todos.len; ++i) {
-		struct active_comp *ac = vec_get(&app->active_todos, i);
+	for (int i = 0; i < app->active_todos.v.len; ++i) {
+		struct active_comp *ac = vec_get(&app->active_todos.v, i);
 		y += render_todo_item(cr, app, ac, (box){0,y,b.w,40});
 		if (y > b.h) break;
 	}
@@ -742,7 +742,8 @@ bool render_application(void *ud, cairo_t *cr) {
 		double tx = (rt.t1 / w) * (b - a);
 		a -= tx, b -= tx;
 		struct ts_ran view = { a, b };
-		app_use_view(app, view);
+		app_set_view(app, view);
+		app_update_projections(app);
 		// fprintf(stderr, "g: %f, t1: %f, view: [%lld, %lld]\n", g, rt.t1, view.fr, view.to);
 
 		enum slicing_type st = SLICING_DAY;
@@ -791,6 +792,7 @@ bool render_application(void *ud, cairo_t *cr) {
 		view_name = "calendar";
 		break;
 	case VIEW_TODO:
+		app_update_projections(app);
 		render_todo_list(cr, app,
 			(box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
 		view_name = "todo";
