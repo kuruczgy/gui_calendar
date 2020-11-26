@@ -279,7 +279,7 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		/* draw overlapping objects */
 		vec_clear(ctx->tobjs);
 		interval_query(
-			&ctx->app->active_events.tree,
+			&ctx->app->active_events.processed_visible,
 			(long long int[]){ ran.fr, ran.to },
 			ctx,
 			iter_ac
@@ -797,8 +797,8 @@ bool render_application(void *env, float t) {
 		double tx = (rt.t1 / w) * (b - a);
 		a -= tx, b -= tx;
 		struct ts_ran view = { a, b };
-		app_set_view(app, view);
 		app_update_projections(app);
+		app_use_view(app, view);
 		// fprintf(stderr, "g: %f, t1: %f, view: [%lld, %lld]\n", g, rt.t1, view.fr, view.to);
 
 		enum slicing_type st = SLICING_DAY;

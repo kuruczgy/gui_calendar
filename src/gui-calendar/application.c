@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/poll.h>
+#include <sys/timerfd.h>
 
 #include "application.h"
 #include "core.h"
@@ -176,7 +177,8 @@ static void app_switch_mode_select(struct app *app) {
 	if (app->main_view == VIEW_CALENDAR) {
 		struct vec acs = vec_new_empty(sizeof(struct active_comp *));
 		struct ac_iter_assign_code_env env = { app, &acs };
-		rb_iter(&app->active_events.tree, &env, ac_iter_assign_code);
+		rb_iter(&app->active_events.processed_visible, &env,
+			ac_iter_assign_code);
 
 		struct key_gen g;
 		key_gen_init(acs.len, &g);
@@ -308,27 +310,67 @@ static void proj_active_events_add(void *_self, struct proj_item pi) {
 		.node = pi.ci->node, /* this is just to copy the interval */
 	};
 
-	/* execute filter expressions */
-	execute_filters(self->app, ac);
-	if (!ac->vis) return;
-
-	rb_insert(&self->tree, &ac->node.node);
+	rb_insert(&self->unprocessed, &ac->node.node);
 }
 static void proj_active_events_clear_ac_iter_free(void *env, struct rb_node *x) {
 	struct interval_node *nx = container_of(x, struct interval_node, node);
 	struct active_comp *ac = container_of(nx, struct active_comp, node);
-	free(ac->ci);
 	free(ac);
 }
 static void proj_active_events_clear(void *_self) {
 	struct proj_active_events *self = _self;
-	rb_iter_post(&self->tree, NULL, proj_active_events_clear_ac_iter_free);
-	rb_tree_init(&self->tree, &interval_ops);
+	rb_iter_post(&self->unprocessed, NULL,
+		proj_active_events_clear_ac_iter_free);
+	for (int i = 0; i < self->processed.len; ++i) {
+		struct active_comp *ac =
+			*(struct active_comp**)vec_get(&self->processed, i);
+		free(ac);
+	}
+	vec_clear(&self->processed);
+	rb_tree_init(&self->unprocessed, &interval_ops);
+	rb_tree_init(&self->processed_visible, &interval_ops);
 }
-static bool proj_active_events_ran(void *_self, struct ts_ran *ran) {
-	struct proj_active_events *self = _self;
-	*ran = self->ran;
-	return true;
+static bool proj_active_events_type(void *_self, enum comp_type t) {
+	return t == COMP_TYPE_EVENT;
+}
+static struct proj proj_active_events_init(struct proj_active_events *self,
+		struct app *app) {
+	self->app = app;
+	rb_tree_init(&self->unprocessed,  &interval_ops);
+	self->processed = vec_new_empty(sizeof(struct active_comp *));
+	rb_tree_init(&self->processed_visible, &interval_ops);
+	return (struct proj){
+		.self = self,
+		.add = proj_active_events_add,
+		.done = NULL,
+		.clear = proj_active_events_clear,
+		.type = proj_active_events_type,
+	};
+}
+static void proj_active_events_process_iter_interval(void *_env,
+		struct interval_node *x) {
+	struct proj_active_events *self = _env;
+	struct active_comp *ac = container_of(x, struct active_comp, node);
+	execute_filters(self->app, ac);
+	vec_append(&self->processed, &ac);
+}
+static void proj_active_events_process(struct proj_active_events *self,
+		struct ts_ran ran) {
+	int from = self->processed.len;
+	interval_query(
+		&self->unprocessed,
+		(long long int[]){ ran.fr, ran.to },
+		self,
+		proj_active_events_process_iter_interval
+	);
+	for (int i = from; i < self->processed.len; ++i) {
+		struct active_comp *ac =
+			*(struct active_comp**)vec_get(&self->processed, i);
+		rb_delete(&self->unprocessed, &ac->node.node);
+		if (ac->vis) {
+			rb_insert(&self->processed_visible, &ac->node.node);
+		}
+	}
 }
 static void proj_active_todos_add(void *_self, struct proj_item pi) {
 	struct proj_active_todos *self = _self;
@@ -364,60 +406,143 @@ static void proj_active_todos_clear(void *_self) {
 	struct proj_active_todos *self = _self;
 	vec_clear(&self->v);
 }
+static bool proj_active_todos_type(void *_self, enum comp_type t) {
+	return t == COMP_TYPE_TODO;
+}
+static struct proj proj_active_todos_init(struct proj_active_todos *self,
+		struct app *app) {
+	self->app = app;
+	self->v = vec_new_empty(sizeof(struct active_comp));
+	return (struct proj){
+		.self = self,
+		.add = proj_active_todos_add,
+		.done = proj_active_todos_done,
+		.clear = proj_active_todos_clear,
+		.type = proj_active_todos_type,
+	};
+}
+static void proj_alarm_add(void *_self, struct proj_item pi) {
+	struct proj_alarm *self = _self;
+
+	ts due = 0, start = 0;
+	bool has_due = props_get_due(pi.ci->p, &due);
+	bool has_start = props_get_start(pi.ci->p, &start);
+	(void)has_start;
+	struct alarm_comp *alc = malloc_check(sizeof(struct alarm_comp));
+	*alc = (struct alarm_comp){ .ci = pi.ci,
+		.node.val = has_due ? due : start };
+	rb_insert(&self->tree, &alc->node.node);
+}
+static void proj_alarm_done(void *_self) {
+	struct proj_alarm *self = _self;
+
+	struct timespec now;
+	asrt(clock_gettime(CLOCK_REALTIME, &now) == 0, "");
+	struct rb_integer_node *n = rb_integer_min_greater(&self->tree, now.tv_sec);
+	if (n) {
+		struct alarm_comp *alc =
+			container_of(n, struct alarm_comp, node);
+		fprintf(stderr, "next alarm at: %lld [now: %ld], %s\n",
+			n->val, now.tv_sec, props_get_summary(alc->ci->p));
+		struct itimerspec spec = { .it_value = { .tv_sec = n->val } };
+		asrt(timerfd_settime(self->app->alarm_timerfd,
+			TFD_TIMER_ABSTIME, &spec, NULL) == 0,
+			"timerfd_settime");
+	} else {
+		fprintf(stderr, "no next alarm [now: %ld]\n", now.tv_sec);
+	}
+}
+static void alarm_cb(void *env, struct pollfd pfd) {
+	struct app *app = env;
+	if (pfd.revents & POLLIN) {
+		uint64_t exp;
+		asrt(read(app->alarm_timerfd, &exp, sizeof(exp))
+			== sizeof(exp), "read timerfd");
+		fprintf(stderr, "ALARM: %lu\n", exp);
+		proj_alarm_done(&app->alarm_comps);
+	}
+}
+static void proj_alarm_clear_alc_iter_free(void *env, struct rb_node *x) {
+	struct rb_integer_node *nx =
+		container_of(x, struct rb_integer_node, node);
+	struct alarm_comp *alc = container_of(nx, struct alarm_comp, node);
+	free(alc);
+}
+static void proj_alarm_clear(void *_self) {
+	struct proj_alarm *self = _self;
+	rb_iter_post(&self->tree, NULL, proj_alarm_clear_alc_iter_free);
+	rb_tree_init(&self->tree, &rb_integer_ops);
+}
+static struct proj proj_alarm_init(struct proj_alarm *self, struct app *app) {
+	self->app = app;
+	rb_tree_init(&self->tree, &rb_integer_ops);
+	return (struct proj){
+		.self = self,
+		.add = proj_alarm_add,
+		.done = proj_alarm_done,
+		.clear = proj_alarm_clear,
+		.type = NULL,
+	};
+}
 
 struct app_project_cis_tree_iter_env {
-	struct proj *p;
+	struct app *app;
+	enum comp_type type;
 	int cal_index;
 	struct calendar *cal;
 	struct vec *remove;
 };
-static void app_project_cis_tree_iter_interval(void *_env, struct interval_node *x) {
-	struct app_project_cis_tree_iter_env *env = _env;
-	struct comp_inst *ci = container_of(x, struct comp_inst, node);
-	if (env->p->add) env->p->add(env->p->self, (struct proj_item){
-		.ci = ci, .cal_index = env->cal_index, .cal = env->cal
-	});
-	vec_append(env->remove, &x);
-}
 static void app_project_cis_tree_iter(void *_env, struct rb_node *x) {
-	app_project_cis_tree_iter_interval(_env,
-		container_of(x, struct interval_node, node));
-}
-static void app_project(struct app *app, struct proj *p) {
-	struct ts_ran ran;
-	bool use_ran = false;
-	if (p->ran) use_ran = p->ran(p->self, &ran);
-	struct vec remove = vec_new_empty(sizeof(struct interval_node *));
-	bool any = false;
-	for (int i = 0; i < app->cals.len; ++i) {
-		struct calendar *cal = vec_get(&app->cals, i);
-		struct app_project_cis_tree_iter_env env = {
-			.p = p, .cal_index = i, .cal = cal, .remove = &remove };
-		if (use_ran) {
-			interval_query(
-				&cal->cis[p->type],
-				(long long int[]){ ran.fr, ran.to },
-				&env,
-				app_project_cis_tree_iter_interval
-			);
-		} else {
-			rb_iter(&cal->cis[p->type], &env,
-				app_project_cis_tree_iter);
-		}
-		if (remove.len > 0) any = true;
-		for (int k = 0; k < remove.len; ++k) {
-			struct interval_node **ni = vec_get(&remove, k);
-			rb_delete(&cal->cis[p->type], &(*ni)->node);
-		}
-		vec_clear(&remove);
+	struct app_project_cis_tree_iter_env *env = _env;
+	struct interval_node *nx = container_of(x, struct interval_node, node);
+	struct comp_inst *ci = container_of(nx, struct comp_inst, node);
+	for (int i = 0; i < env->app->projs.len; ++i) {
+		struct proj *p = vec_get(&env->app->projs, i);
+		if (p->type && !p->type(p->self, env->type))
+			continue;
+		if (p->add) p->add(p->self, (struct proj_item){
+			.ci = ci, .cal_index = env->cal_index, .cal = env->cal
+		});
 	}
-	vec_free(&remove);
-	if (any && p->done) p->done(p->self);
+	vec_append(env->remove, &nx);
 }
 void app_update_projections(struct app *app) {
-	for (int i = 0; i < app->projs.len; ++i) {
-		struct proj *p = vec_get(&app->projs, i);
-		app_project(app, p);
+	app_expand(app, COMP_TYPE_EVENT, app->expand_to);
+	app_expand(app, COMP_TYPE_TODO, app->expand_to);
+
+	// push all expanded comp_insts to projs
+	bool any = false;
+	struct vec remove = vec_new_empty(sizeof(struct interval_node *));
+	for (int t = 0; t < COMP_TYPE_N; ++t) {
+		for (int j = 0; j < app->cals.len; ++j) {
+			struct calendar *cal = vec_get(&app->cals, j);
+			enum comp_type type = t;
+			struct app_project_cis_tree_iter_env env = {
+				.app = app,
+				.type = type,
+				.cal_index = j,
+				.cal = cal,
+				.remove = &remove
+			};
+			rb_iter(&cal->cis[type], &env,
+				app_project_cis_tree_iter);
+			if (remove.len > 0) any = true;
+			for (int k = 0; k < remove.len; ++k) {
+				struct interval_node **ni = vec_get(&remove, k);
+				rb_delete(&cal->cis[type], &(*ni)->node);
+				struct comp_inst *ci = container_of(*ni,
+					struct comp_inst, node);
+				vec_append(&app->cis, &ci);
+			}
+			vec_clear(&remove);
+		}
+	}
+	vec_free(&remove);
+	if (any) {
+		for (int i = 0; i < app->projs.len; ++i) {
+			struct proj *p = vec_get(&app->projs, i);
+			if (p->done) p->done(p->self);
+		}
 	}
 }
 
@@ -429,13 +554,16 @@ static void app_invalidate_calendars(struct app *app) {
 	}
 
 	app->expand_to = app->now + 3600 * 24 * 365;
-	app_expand(app, COMP_TYPE_EVENT, app->expand_to);
-	app_expand(app, COMP_TYPE_TODO, app->expand_to);
-
 	for (int i = 0; i < app->projs.len; ++i) {
 		struct proj *p = vec_get(&app->projs, i);
 		p->clear(p->self);
 	}
+
+	for (int i = 0; i < app->cis.len; ++i) {
+		struct comp_inst **ci = vec_get(&app->cis, i);
+		free(*ci);
+	}
+	vec_clear(&app->cis);
 }
 static void app_reload_calendars(struct app *app) {
 	for (int i = 0; i < app->cals.len; ++i) {
@@ -444,8 +572,8 @@ static void app_reload_calendars(struct app *app) {
 	}
 	app_invalidate_calendars(app);
 }
-void app_set_view(struct app *app, struct ts_ran view) {
-	app->active_events.ran = view;
+void app_use_view(struct app *app, struct ts_ran view) {
+	proj_active_events_process(&app->active_events, view);
 }
 
 struct ac_iter_find_code_env {
@@ -468,7 +596,8 @@ static void app_mode_select_finish(struct app *app) {
 	struct active_comp *ac = NULL;
 	if (app->main_view == VIEW_CALENDAR) {
 		struct ac_iter_find_code_env env = { app, NULL };
-		rb_iter(&app->active_events.tree, &env, ac_iter_find_code);
+		rb_iter(&app->active_events.processed_visible,
+			&env, ac_iter_find_code);
 		if (env.res) {
 			fprintf(stderr, "selected comp: %s\n",
 				props_get_summary(env.res->ci->p));
@@ -805,9 +934,8 @@ void app_init(struct app *app, struct application_options opts,
 	*app = (struct app){
 		.cals = VEC_EMPTY(sizeof(struct calendar)),
 		.cal_infos = VEC_EMPTY(sizeof(struct calendar_info)),
-		.active_events = { .app = app, .n = 0 },
-		.active_todos = { .app = app, .v = VEC_EMPTY(sizeof(struct active_comp)) },
 		.projs = VEC_EMPTY(sizeof(struct proj)),
+		.cis = VEC_EMPTY(sizeof(struct comp_inst *)),
 		.main_view = VIEW_CALENDAR,
 		.keystate = KEYSTATE_BASE,
 		.show_private_events = opts.show_private_events,
@@ -820,24 +948,13 @@ void app_init(struct app *app, struct application_options opts,
 		.win = win,
 	};
 
-	rb_tree_init(&app->active_events.tree, &interval_ops);
-
-	vec_append(&app->projs, &(struct proj){
-		.self = &app->active_events,
-		.add = proj_active_events_add,
-		.done = NULL,
-		.clear = proj_active_events_clear,
-		.ran = proj_active_events_ran,
-		.type = COMP_TYPE_EVENT,
-	});
-	vec_append(&app->projs, &(struct proj){
-		.self = &app->active_todos,
-		.add = proj_active_todos_add,
-		.done = proj_active_todos_done,
-		.clear = proj_active_todos_clear,
-		.ran = NULL,
-		.type = COMP_TYPE_TODO,
-	});
+	struct proj p;
+	p = proj_active_events_init(&app->active_events, app);
+	vec_append(&app->projs, &p);
+	p = proj_active_todos_init(&app->active_todos, app);
+	vec_append(&app->projs, &p);
+	p = proj_alarm_init(&app->alarm_comps, app);
+	vec_append(&app->projs, &p);
 
 	/* load all uexpr stuff */
 	uexpr_init(&app->uexpr);
@@ -919,6 +1036,10 @@ void app_init(struct app *app, struct application_options opts,
 	loop_add(app->loop, mgu_disp_get_fd(app->win->disp),
 		POLLIN, app, disp_dispatch);
 
+	app->alarm_timerfd = timerfd_create(CLOCK_REALTIME,
+		TFD_NONBLOCK | TFD_CLOEXEC);
+	loop_add(app->loop, app->alarm_timerfd, POLLIN, app, alarm_cb);
+
 	app->dirty = true;
 	sw_end_print(sw, "initialization");
 }
@@ -928,6 +1049,8 @@ void app_main(struct app *app) {
 }
 
 void app_finish(struct app *app) {
+	close(app->alarm_timerfd);
+
 	loop_destroy(app->loop);
 
 	sr_destroy(app->sr);
@@ -965,6 +1088,11 @@ void app_finish(struct app *app) {
 	vec_free(&app->projs);
 	proj_active_events_clear(&app->active_events);
 	vec_free(&app->active_todos.v);
+	for (int i = 0; i < app->cis.len; ++i) {
+		struct comp_inst **ci = vec_get(&app->cis, i);
+		free(*ci);
+	}
+	vec_free(&app->cis);
 
 	cal_timezone_destroy(app->zone);
 

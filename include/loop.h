@@ -5,6 +5,7 @@
 
 struct loop;
 typedef void (*loop_cb)(void *env, struct pollfd pfd);
+typedef void (*loop_alarm_cb)(void *env);
 
 struct loop *loop_create();
 void loop_destroy(struct loop *l);

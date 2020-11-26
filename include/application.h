@@ -25,6 +25,10 @@ struct active_comp {
 
 	struct interval_node node;
 };
+struct alarm_comp {
+	struct comp_inst *ci;
+	struct rb_integer_node node;
+};
 
 struct app;
 
@@ -64,18 +68,21 @@ struct proj {
 	void (*add)(void *self, struct proj_item pi);
 	void (*done)(void *self);
 	void (*clear)(void *self);
-	bool (*ran)(void *self, struct ts_ran *ran);
-	enum comp_type type;
+	bool (*type)(void *self, enum comp_type type);
 };
 struct proj_active_events {
 	struct app *app;
-	struct ts_ran ran;
-	int n;
-	struct rb_tree tree; /* items: struct active_comp */
+	struct rb_tree unprocessed; /* items: struct active_comp */
+	struct vec processed; /* vec<struct active_comp *> */
+	struct rb_tree processed_visible; /* items: struct active_comp */
 };
 struct proj_active_todos {
 	struct app *app;
 	struct vec v; /* vec<struct active_comp> */
+};
+struct proj_alarm {
+	struct app *app;
+	struct rb_tree tree; /* items: struct alarm_comp */
 };
 
 struct app {
@@ -86,7 +93,9 @@ struct app {
 	/* projections */
 	struct proj_active_events active_events;
 	struct proj_active_todos active_todos;
+	struct proj_alarm alarm_comps;
 	struct vec projs; /* vec<struct proj> */
+	struct vec cis; /* vec<struct comp_inst *> */
 
 	ts expand_to;
 
@@ -140,6 +149,7 @@ struct app {
 	struct mgu_win *win;
 	struct sr *sr;
 	struct loop *loop;
+	int alarm_timerfd;
 };
 
 struct application_options {
@@ -177,8 +187,7 @@ void app_init(struct app *app, struct application_options opts,
 void app_main(struct app *app);
 void app_finish(struct app *app);
 
-/* update app->active_events for view */
-void app_set_view(struct app *app, struct ts_ran view);
+void app_use_view(struct app *app, struct ts_ran view);
 
 void app_update_projections(struct app *app);
 void app_get_editor_template(struct app *app, struct comp_inst *ci, FILE *out);
