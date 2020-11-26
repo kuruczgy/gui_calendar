@@ -8,6 +8,7 @@
 #include "datetime.h"
 #include "views.h"
 #include "uexpr.h"
+#include "loop.h"
 
 struct calendar_info {
 	uint32_t color;
@@ -137,6 +138,7 @@ struct app {
 
 	struct mgu_win *win;
 	struct sr *sr;
+	struct loop *loop;
 };
 
 struct application_options {

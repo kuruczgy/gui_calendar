@@ -86,10 +86,13 @@ void update_calendar_from_storage(struct calendar *cal,
 int libical_parse_ics(FILE *f, struct calendar *cal);
 
 /* subprocess stuff */
-struct subprocess_handle;
+struct subprocess_handle {
+	int pidfd;
+	char *name;
+};
 struct subprocess_handle* subprocess_new_input(const char *file,
 		const char *argv[], void (*cb)(void*, FILE*), void *ud);
-FILE *subprocess_get_result(struct subprocess_handle **handle, pid_t pid);
+FILE *subprocess_get_result(struct subprocess_handle **handle);
 
 /* calendar utility functions */
 const char * cal_status_str(enum prop_status v);

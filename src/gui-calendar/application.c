@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/poll.h>
 
 #include "application.h"
 #include "core.h"
@@ -100,6 +101,14 @@ static const char ** new_editor_args(struct app *app) {
 	args[len - 1] = NULL;
 	return args;
 }
+static void application_handle_child(struct app *app, int pidfd);
+static void subprocess_pidfd_cb(void *env, struct pollfd pfd) {
+	struct app *app = env;
+	if (pfd.revents & POLLIN) {
+		loop_remove(app->loop, pfd.fd);
+		application_handle_child(app, pfd.fd);
+	}
+}
 void app_cmd_launch_editor(struct app *app, struct active_comp *ac) {
 	if (!app->sp) {
 		struct print_template_cl cl = { .app = app, .ac = ac };
@@ -107,6 +116,8 @@ void app_cmd_launch_editor(struct app *app, struct active_comp *ac) {
 		struct str *s = vec_get(&app->editor_args, 0);
 		app->sp = subprocess_new_input(str_cstr(s),
 			args, &print_template_callback, &cl);
+		if (app->sp) loop_add(app->loop, app->sp->pidfd, POLLIN, app,
+			subprocess_pidfd_cb);
 		free(args);
 	}
 }
@@ -116,6 +127,8 @@ static void app_launch_editor_str(struct app *app, const struct str *str) {
 		struct str *s = vec_get(&app->editor_args, 0);
 		app->sp = subprocess_new_input(str_cstr(s),
 			args, &print_str_callback, (void*)str);
+		if (app->sp) loop_add(app->loop, app->sp->pidfd, POLLIN, app,
+			subprocess_pidfd_cb);
 		free(args);
 	}
 }
@@ -133,6 +146,8 @@ void app_cmd_launch_editor_new(struct app *app, enum comp_type t) {
 		const char **args = new_editor_args(app);
 		struct str *s = vec_get(&app->editor_args, 0);
 		app->sp = subprocess_new_input(str_cstr(s), args, cb, app);
+		if (app->sp) loop_add(app->loop, app->sp->pidfd, POLLIN, app,
+			subprocess_pidfd_cb);
 		free(args);
 	}
 }
@@ -719,13 +734,12 @@ static void handle_key(struct app *app, uint32_t key) {
 	}
 }
 
-static void application_handle_child(void *ud, pid_t pid) {
-	struct app *app = ud;
-
-	FILE *f = subprocess_get_result(&app->sp, pid);
-	if (!f) return;
-
-	app_cmd_editor(app, f);
+static void application_handle_child(struct app *app, int pidfd) {
+	if (app->sp->pidfd == pidfd) {
+		FILE *f = subprocess_get_result(&app->sp);
+		if (!f) return;
+		app_cmd_editor(app, f);
+	}
 }
 
 static void application_handle_input(void *ud, struct mgu_input_event_args ev) {
@@ -777,6 +791,13 @@ static void touch_end(void *env, struct libtouch_rt rt) {
 	app->view = view;
 }
 
+static void disp_dispatch(void *env, struct pollfd pfd) {
+	struct app *app = env;
+	if (pfd.revents & POLLIN) {
+		mgu_disp_dispatch(app->win->disp);
+		if (app->win->req_close) loop_stop(app->loop);
+	}
+}
 void app_init(struct app *app, struct application_options opts,
 		struct mgu_win *win) {
 	struct stopwatch sw = sw_start();
@@ -794,7 +815,7 @@ void app_init(struct app *app, struct application_options opts,
 		.window_width = -1, .window_height = -1,
 		.editor_args = VEC_EMPTY(sizeof(struct str)),
 		.filters = VEC_EMPTY(sizeof(struct filter)),
-		.current_filter = 0,
+		.current_filter = -1,
 		.actions = VEC_EMPTY(sizeof(struct action)),
 		.win = win,
 	};
@@ -894,15 +915,21 @@ void app_init(struct app *app, struct application_options opts,
 
 	app->sr = sr_create_opengl();
 
+	app->loop = loop_create();
+	loop_add(app->loop, mgu_disp_get_fd(app->win->disp),
+		POLLIN, app, disp_dispatch);
+
 	app->dirty = true;
 	sw_end_print(sw, "initialization");
 }
 
 void app_main(struct app *app) {
-	mgu_win_run(app->win);
+	loop_run(app->loop);
 }
 
 void app_finish(struct app *app) {
+	loop_destroy(app->loop);
+
 	sr_destroy(app->sr);
 
 	for (int i = 0; i < app->cals.len; ++i) {
