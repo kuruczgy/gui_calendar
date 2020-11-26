@@ -45,6 +45,28 @@ static struct uexpr_value fn_include(void *_env, struct uexpr *e, int root, stru
 
 	return void_val;
 }
+struct cal_obj {
+	int ref;
+	int cal_idx;
+};
+void cal_obj_ref(void *_self, int ref) {
+	struct cal_obj *self = _self;
+	asrt(self->ref > 0, "");
+	self->ref += ref;
+	asrt(self->ref >= 0, "");
+	if (self->ref == 0) {
+		free(self);
+	}
+}
+struct uexpr_value cal_obj_create(int cal_idx) {
+	struct cal_obj *obj = malloc_check(sizeof(struct cal_obj));
+	*obj = (struct cal_obj){
+		.ref = 1,
+		.cal_idx = cal_idx,
+	};
+	return (struct uexpr_value){ .type = UEXPR_TYPE_NATIVEOBJ,
+		.nativeobj = { .self = obj, .ref = cal_obj_ref } };
+}
 static struct uexpr_value fn_add_cal(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
 	TRACE();
 	struct cal_uexpr_env *env = _env;
@@ -63,7 +85,9 @@ static struct uexpr_value fn_add_cal(void *_env, struct uexpr *e, int root, stru
 	}
 
 	int cal_idx = app_add_cal(env->app, vb.string_ref);
-	struct uexpr_value res = { .type = UEXPR_TYPE_NATIVEPTR, .nativeptr = (void*)cal_idx };
+	struct uexpr_value res = cal_obj_create(cal_idx);
+	((struct calendar_info *)vec_get(&env->app->cal_infos, cal_idx))
+		->uexpr_tag = uexpr_value_copy(&res);
 
 	uexpr_set_var(ctx, str_cstr(&na.str), res);
 
@@ -85,14 +109,15 @@ static struct uexpr_value fn_add_filter(void *_env, struct uexpr *e, int root, s
 
 	struct uexpr_value vb;
 	uexpr_eval(e, *(int *)vec_get(&np.args, 1), ctx, &vb);
-	if (vb.type != UEXPR_TYPE_NATIVEPTR) {
+	if (vb.type != UEXPR_TYPE_NATIVEOBJ || vb.nativeobj.ref != cal_obj_ref) {
 		uexpr_value_finish(vb);
 		return error_val;
 	}
+	struct cal_obj *cal_obj = vb.nativeobj.self;
 
 	int root_c = *(int*)vec_get(&np.args, 2);
 
-	app_add_uexpr_filter(env->app, va.string_ref, (int)vb.nativeptr, root_c);
+	app_add_uexpr_filter(env->app, va.string_ref, cal_obj->cal_idx, root_c);
 
 	return void_val;
 }
@@ -251,8 +276,9 @@ static struct uexpr_value fn_select_comp(void *_env, struct uexpr *e, int root, 
 
 	int root_c = *(int*)vec_get(&np.args, 2);
 
-	enum comp_type type = comp_type_from_cstr(va.string_ref);
-	const char *msg = vb.string_ref;
+	// TODO: use these
+	// enum comp_type type = comp_type_from_cstr(va.string_ref);
+	// const char *msg = vb.string_ref;
 
 	app_cmd_select_comp_uexpr(env->app, root_c);
 
@@ -321,10 +347,8 @@ static bool get_ac(struct cal_uexpr_env *env, const char *key, struct uexpr_valu
 	}
 
 	if (strcmp(key, "cal") == 0) {
-		*v = (struct uexpr_value){
-			.type = UEXPR_TYPE_NATIVEPTR,
-			.nativeptr = (void *)ac->cal_index
-		};
+		*v = uexpr_value_copy(&((struct calendar_info *)vec_get(
+			&env->app->cal_infos, ac->cal_index))->uexpr_tag);
 		return true;
 	}
 

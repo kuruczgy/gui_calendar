@@ -12,6 +12,7 @@
 
 struct calendar_info {
 	uint32_t color;
+	struct uexpr_value uexpr_tag;
 };
 
 /* contains a struct comp_inst, and some other data we use during viewing */

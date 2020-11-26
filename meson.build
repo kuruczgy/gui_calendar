@@ -1,4 +1,8 @@
-project('smuc', 'c', default_options : [ 'c_std=c11', 'default_library=static' ])
+project('smuc', 'c', default_options : [
+  'c_std=c11',
+  'default_library=static',
+  'werror=true',
+])
 
 em = host_machine.system() == 'emscripten'
 

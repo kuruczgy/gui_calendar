@@ -228,7 +228,8 @@ static void iter_ac(void *env, struct interval_node *x) {
 static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 	struct ctx *ctx = env;
 	struct app *app = ctx->app;
-	fbox btop = ctx->btop, bmain = ctx->bmain, bhead = ctx->bhead;
+	// fbox btop = ctx->btop;
+	fbox bmain = ctx->bmain, bhead = ctx->bhead;
 	fbox bsl = fbox_slice(bmain, ctx->dir, ctx->view, ran);
 	fbox bhsl = fbox_slice(bhead, ctx->dir, ctx->view, ran);
 
@@ -776,10 +777,10 @@ bool render_application(void *env, float t) {
 			cal_box.x + time_strip_w, cal_box.y,
 			cal_box.w - time_strip_w, header_h
 		};
-		fbox time_strip_box = {
-			cal_box.x, cal_box.y + header_h + top_h,
-			time_strip_w, cal_box.h - header_h - top_h
-		};
+		// fbox time_strip_box = {
+		// 	cal_box.x, cal_box.y + header_h + top_h,
+		// 	time_strip_w, cal_box.h - header_h - top_h
+		// };
 		fbox top_box = {
 			cal_box.x + time_strip_w, cal_box.y + header_h,
 			cal_box.w - time_strip_w, top_h
@@ -849,6 +850,10 @@ bool render_application(void *env, float t) {
 		render_todo_list(app,
 			(box){ sidebar_w, header_h, w-sidebar_w, h-header_h });
 		view_name = "todo";
+		break;
+	default:
+		asrt(false, "");
+		break;
 	}
 	render_sidebar(app, (box){ 0, header_h, sidebar_w, h-header_h });
 

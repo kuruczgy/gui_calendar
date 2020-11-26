@@ -934,7 +934,9 @@ void app_finish(struct app *app) {
 
 	for (int i = 0; i < app->cals.len; ++i) {
 		struct calendar *cal = vec_get(&app->cals, i);
+		struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
 		calendar_finish(cal);
+		uexpr_value_finish(cal_info->uexpr_tag);
 	}
 	vec_free(&app->cals);
 	vec_free(&app->cal_infos);

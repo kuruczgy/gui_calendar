@@ -31,7 +31,7 @@ enum uexpr_type {
 	UEXPR_TYPE_BOOLEAN,
 	UEXPR_TYPE_LIST,
 	UEXPR_TYPE_VOID,
-	UEXPR_TYPE_NATIVEPTR,
+	UEXPR_TYPE_NATIVEOBJ,
 	UEXPR_TYPE_NATIVEFN,
 	UEXPR_TYPE_ERROR
 };
@@ -43,10 +43,11 @@ struct uexpr_value {
 		const char *string_ref;
 		bool boolean;
 		struct vec list; /* vec<struct uexpr_value> */
-		void *nativeptr;
+		struct { void *self; void (*ref)(void *, int); } nativeobj;
 		struct { uexpr_nativefn f; void *env; } nativefn;
 	};
 };
+struct uexpr_value uexpr_value_copy(const struct uexpr_value *v);
 void uexpr_value_finish(struct uexpr_value v);
 
 #define UEXPR_BOOLEAN(x) (struct uexpr_value){ .type = UEXPR_TYPE_BOOLEAN, .boolean = (x) }

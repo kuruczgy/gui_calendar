@@ -339,33 +339,33 @@ void uexpr_value_finish(struct uexpr_value v) {
 		}
 		vec_free(&v.list);
 		break;
+	case UEXPR_TYPE_NATIVEOBJ:
+		v.nativeobj.ref(v.nativeobj.self, -1);
+		break;
 	case UEXPR_TYPE_BOOLEAN:
 	case UEXPR_TYPE_VOID:
-	case UEXPR_TYPE_NATIVEPTR:
 	case UEXPR_TYPE_NATIVEFN:
 	case UEXPR_TYPE_ERROR:
 		break;
 	}
 }
-static struct uexpr_value value_copy(struct uexpr_value *v) {
+struct uexpr_value uexpr_value_copy(const struct uexpr_value *v) {
 	struct uexpr_value res;
 	switch (v->type) {
-	case UEXPR_TYPE_STRING:
-		res.type = UEXPR_TYPE_STRING;
-		res.string_ref = v->string_ref;
-		return res;
 	case UEXPR_TYPE_LIST:
 		res.type = UEXPR_TYPE_LIST;
 		res.list = vec_new_empty(sizeof(struct uexpr_value));
 		for (int i = 0; i < v->list.len; ++i) {
-			struct uexpr_value *vp = vec_get(&v->list, i);
-			struct uexpr_value resi = value_copy(vp);
+			const struct uexpr_value *vp = vec_get_c(&v->list, i);
+			struct uexpr_value resi = uexpr_value_copy(vp);
 			vec_append(&res.list, &resi);
 		}
 		return res;
+	case UEXPR_TYPE_NATIVEOBJ:
+		v->nativeobj.ref(v->nativeobj.self, 1);
+	case UEXPR_TYPE_STRING:
 	case UEXPR_TYPE_BOOLEAN:
 	case UEXPR_TYPE_VOID:
-	case UEXPR_TYPE_NATIVEPTR:
 	case UEXPR_TYPE_NATIVEFN:
 	case UEXPR_TYPE_ERROR:
 		return *v;
@@ -387,8 +387,8 @@ static struct uexpr_value get_var(struct uexpr_ctx *ctx, const char *key) {
 		if (vp->type == UEXPR_TYPE_STRING
 				|| vp->type == UEXPR_TYPE_BOOLEAN
 				|| vp->type == UEXPR_TYPE_NATIVEFN
-				|| vp->type == UEXPR_TYPE_NATIVEPTR) {
-			return value_copy(vp);
+				|| vp->type == UEXPR_TYPE_NATIVEOBJ) {
+			return uexpr_value_copy(vp);
 		}
 	}
 	return error_val;
@@ -577,10 +577,10 @@ static struct uexpr_value eval(struct uexpr *e, int root, struct uexpr_ctx *ctx)
 					.type = UEXPR_TYPE_BOOLEAN,
 					.boolean = strcmp(va.string_ref, vb.string_ref) == 0
 				};
-			} else if (va.type == UEXPR_TYPE_NATIVEPTR && vb.type == UEXPR_TYPE_NATIVEPTR) {
+			} else if (va.type == UEXPR_TYPE_NATIVEOBJ && vb.type == UEXPR_TYPE_NATIVEOBJ) {
 				res = (struct uexpr_value){
 					.type = UEXPR_TYPE_BOOLEAN,
-					.boolean = va.nativeptr == vb.nativeptr
+					.boolean = va.nativeobj.self == vb.nativeobj.self
 				};
 			} else {
 				res = error_val;
@@ -597,8 +597,8 @@ static struct uexpr_value eval(struct uexpr *e, int root, struct uexpr_ctx *ctx)
 								.boolean = true };
 							break;
 						}
-					} else if (vp->type == UEXPR_TYPE_NATIVEPTR && va.type == UEXPR_TYPE_NATIVEPTR) {
-						if (va.nativeptr == vp->nativeptr) {
+					} else if (vp->type == UEXPR_TYPE_NATIVEOBJ && va.type == UEXPR_TYPE_NATIVEOBJ) {
+						if (va.nativeobj.self == vp->nativeobj.self) {
 							uexpr_value_finish(res);
 							res = (struct uexpr_value){ .type = UEXPR_TYPE_BOOLEAN,
 								.boolean = true };
@@ -715,8 +715,9 @@ static void print_value(FILE *f, struct uexpr_value v) {
 	case UEXPR_TYPE_VOID:
 		fprintf(f, "Void");
 		break;
-	case UEXPR_TYPE_NATIVEPTR:
-		fprintf(f, "Native(%p)\n", v.nativeptr);
+	case UEXPR_TYPE_NATIVEOBJ:
+		fprintf(f, "Native(%p, %p)\n",
+			v.nativeobj.self, v.nativeobj.ref);
 		break;
 	case UEXPR_TYPE_NATIVEFN:
 		fprintf(f, "NativeFn(%p, %p)\n", v.nativefn.f, v.nativefn.env);
