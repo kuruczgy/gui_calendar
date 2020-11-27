@@ -83,6 +83,9 @@ struct proj_active_todos {
 struct proj_alarm {
 	struct app *app;
 	struct rb_tree tree; /* items: struct alarm_comp */
+	struct alarm_comp *next;
+	const char *shell_cmd;
+	int uexpr_filter;
 };
 
 struct app {

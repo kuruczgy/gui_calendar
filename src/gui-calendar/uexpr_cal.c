@@ -170,12 +170,34 @@ static struct uexpr_value fn_add_action(void *_env, struct uexpr *e, int root, s
 
 	return void_val;
 }
+static struct uexpr_value fn_set_alarm(void *_env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+	TRACE();
+	struct cal_uexpr_env *env = _env;
+
+	struct uexpr_ast_node np = *(struct uexpr_ast_node *)vec_get(&e->ast, root);
+	if (np.args.len != 2) return error_val;
+
+	struct uexpr_value va;
+	uexpr_eval(e, *(int *)vec_get(&np.args, 0), ctx, &va);
+	if (va.type != UEXPR_TYPE_STRING) {
+		uexpr_value_finish(va);
+		return error_val;
+	}
+
+	int root_b = *(int*)vec_get(&np.args, 1);
+
+	env->app->alarm_comps.shell_cmd = va.string_ref;
+	env->app->alarm_comps.uexpr_filter = root_b;
+
+	return void_val;
+}
 
 static struct fn config_fns[] = {
 	{ "add_cal", fn_add_cal },
 	{ "add_filter", fn_add_filter },
 	{ "add_action", fn_add_action },
 	{ "include", fn_include },
+	{ "set_alarm", fn_set_alarm },
 	{ NULL, NULL },
 };
 

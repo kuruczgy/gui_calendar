@@ -85,15 +85,6 @@ void update_calendar_from_storage(struct calendar *cal,
 		struct cal_timezone *local_zone);
 int libical_parse_ics(FILE *f, struct calendar *cal);
 
-/* subprocess stuff */
-struct subprocess_handle {
-	int pidfd;
-	char *name;
-};
-struct subprocess_handle* subprocess_new_input(const char *file,
-		const char *argv[], void (*cb)(void*, FILE*), void *ud);
-FILE *subprocess_get_result(struct subprocess_handle **handle);
-
 /* calendar utility functions */
 const char * cal_status_str(enum prop_status v);
 const char * cal_class_str(enum prop_class v);

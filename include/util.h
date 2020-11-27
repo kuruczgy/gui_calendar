@@ -19,6 +19,16 @@ const char * most_frequent(const struct vec *source, const char *(*cb)(void*));
 void vec_sort(struct vec *v, sort_lt lt, void *cl);
 struct str str_wordexp(const char *in);
 
+/* subprocess stuff */
+void subprocess_shell(const char *cmd, const char *const argv[]);
+struct subprocess_handle {
+	int pidfd;
+	char *name;
+};
+struct subprocess_handle* subprocess_new_input(const char *file,
+		const char *argv[], void (*cb)(void*, FILE*), void *ud);
+FILE *subprocess_get_result(struct subprocess_handle **handle);
+
 #define container_of(ptr, type, member) \
     (type *)((char *)(ptr) - offsetof(type, member))
 

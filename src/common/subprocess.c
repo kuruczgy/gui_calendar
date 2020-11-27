@@ -25,6 +25,21 @@ struct clone_args {
 	u64 cgroup;
 };
 
+void subprocess_shell(const char *cmd, const char *const argv[]) {
+	if (fork() == 0) {
+		int len = 0; while (argv[len]) ++len;
+		char **a = malloc(sizeof(char *) * (len + 4));
+		a[0] = "sh";
+		a[1] = "-c";
+		a[2] = (/* mutable */ char *)cmd;
+		for (int i = 0; i < len + 1; ++i) {
+			a[i + 3] = (/* mutable */ char *)argv[i];
+		}
+		execv("/bin/sh", a);
+		exit(1);
+	}
+}
+
 struct subprocess_handle* subprocess_new_input(const char *file,
 		const char *argv[], void (*cb)(void*, FILE*), void *ud) {
 	char *name = create_tmpfile_template();

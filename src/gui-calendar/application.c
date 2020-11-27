@@ -438,10 +438,13 @@ static void proj_alarm_done(void *_self) {
 
 	struct timespec now;
 	asrt(clock_gettime(CLOCK_REALTIME, &now) == 0, "");
-	struct rb_integer_node *n = rb_integer_min_greater(&self->tree, now.tv_sec);
+	struct rb_integer_node *n =
+		rb_integer_min_greater(&self->tree, now.tv_sec);
+	self->next = NULL;
 	if (n) {
 		struct alarm_comp *alc =
 			container_of(n, struct alarm_comp, node);
+		self->next = alc;
 		fprintf(stderr, "next alarm at: %lld [now: %ld], %s\n",
 			n->val, now.tv_sec, props_get_summary(alc->ci->p));
 		struct itimerspec spec = { .it_value = { .tv_sec = n->val } };
@@ -458,7 +461,13 @@ static void alarm_cb(void *env, struct pollfd pfd) {
 		uint64_t exp;
 		asrt(read(app->alarm_timerfd, &exp, sizeof(exp))
 			== sizeof(exp), "read timerfd");
-		fprintf(stderr, "ALARM: %lu\n", exp);
+		asrt(exp > 0, "");
+		struct alarm_comp *alc = app->alarm_comps.next;
+		asrt(alc, "alarm next");
+		const char *summary = props_get_summary(alc->ci->p);
+		fprintf(stderr, "ALARM for %s\n", summary);
+		const char *argv[] = { "-", summary, NULL };
+		subprocess_shell(app->alarm_comps.shell_cmd, argv);
 		proj_alarm_done(&app->alarm_comps);
 	}
 }
@@ -475,6 +484,7 @@ static void proj_alarm_clear(void *_self) {
 }
 static struct proj proj_alarm_init(struct proj_alarm *self, struct app *app) {
 	self->app = app;
+	self->next = NULL;
 	rb_tree_init(&self->tree, &rb_integer_ops);
 	return (struct proj){
 		.self = self,
