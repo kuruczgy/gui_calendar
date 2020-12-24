@@ -1,0 +1,26 @@
+{
+	"# Define keybinds and actions";
+
+	"## View switching";
+	add_action([ a, "cal view"  ], switch_view(cal),  todo);
+	add_action([ s, "todo view" ], switch_view(todo), cal);
+
+	"## Calendar navigation";
+	add_action([ h, "go back" ], move_view_discrete("-1"), cal);
+	add_action([ l, "go forward" ], move_view_discrete("1"), cal);
+	add_action([ t, "goto now" ], view_today(), cal);
+
+	"## Editing commands";
+	add_action([ n, "create event" ], launch_editor(event), cal);
+	add_action([ n, "create todo" ], launch_editor(todo), todo);
+	add_action([ e, "edit event" ], select_comp(event, "edit", launch_editor()), cal);
+	add_action([ e, "edit todo" ], select_comp(todo, "edit", launch_editor()), todo);
+	add_action([ c, "complete todo" ], select_comp(todo, "complete", let($st, completed)), todo);
+	add_action([ i, "inprocess todo" ], select_comp(todo, "inprocess", let($st, inprocess)), todo);
+
+	"## Misc";
+	let($show_priv, a=b);
+	add_action([ p, "show priv" ], let($show_priv, ~$show_priv));
+
+	{}
+}
