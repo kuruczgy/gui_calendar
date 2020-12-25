@@ -28,6 +28,14 @@ const char * cal_class_str(enum prop_class v) {
 	default: return "";
 	}
 }
+const char * cal_reltype_str(enum prop_reltype v) {
+	switch (v) {
+	case PROP_RELTYPE_PARENT: return "parent";
+	case PROP_RELTYPE_CHILD: return "child";
+	case PROP_RELTYPE_SIBLING: return "sibling";
+	default: return "";
+	}
+}
 static void print_literal(FILE *f, const char *key, const char *val) {
 	if (val) {
 		fprintf(f, "%s `%s`\n", key, val);
@@ -80,6 +88,7 @@ void print_template(FILE *f, struct comp_inst *ci,
 	bool has_perc = props_get_percent_complete(p, &perc);
 
 	const struct vec *cats = props_get_categories(p);
+	const struct vec *rels = props_get_related_to(p);
 
 	if (is_event) fprintf(f, "update event\n");
 	if (is_todo) fprintf(f, "update todo\n");
@@ -119,6 +128,18 @@ void print_template(FILE *f, struct comp_inst *ci,
 	if (cats->len > 0) {
 		fprintf(f, "cats `");
 		print_vec_str(f, cats);
+		fprintf(f, "`\n");
+	}
+
+	if (rels->len > 0) {
+		fprintf(f, "rel `");
+		for (int i = 0; i < rels->len; ++i) {
+			const struct prop_related_to *rel = vec_get_c(rels, i);
+			fprintf(f, "%s:%s",
+				cal_reltype_str(rel->reltype),
+				str_cstr(&rel->uid));
+			if (i < rels->len - 1) fprintf(f, ",");
+		}
 		fprintf(f, "`\n");
 	}
 

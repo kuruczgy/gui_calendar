@@ -31,6 +31,13 @@ static void free_vec_str(struct vec *v) {
 static void copy_vec_default(struct vec *dst, const struct vec *src) {
 	*dst = vec_copy(src);
 }
+static void free_vec_related_to(struct vec *v) {
+	for (int i = 0; i < v->len; ++i) {
+		struct prop_related_to *rel = vec_get(v, i);
+		str_free(&rel->uid);
+	}
+	free_vec_default(v);
+}
 static void copy_vec_str(struct vec *dst, const struct vec *src) {
 	for (int i = 0; i < src->len; ++i) {
 		const struct str *s = vec_get_c(src, i);
@@ -38,9 +45,23 @@ static void copy_vec_str(struct vec *dst, const struct vec *src) {
 		vec_append(dst, &copy);
 	}
 }
+static void copy_vec_related_to(struct vec *dst, const struct vec *src) {
+	for (int i = 0; i < src->len; ++i) {
+		const struct prop_related_to *rel = vec_get_c(src, i);
+		struct prop_related_to copy = *rel;
+		copy.uid = str_copy(&rel->uid);
+		vec_append(dst, &copy);
+	}
+}
 static bool eq_str(const void *pa, const void *pb) {
 	const struct str *a = pa, *b = pb;
 	return strcmp(str_cstr(a), str_cstr(b)) == 0;
+}
+static bool eq_prop_related_to(const void *pa, const void *pb) {
+	const struct prop_related_to *a = pa, *b = pb;
+	if (a->reltype != b->reltype) return false;
+	if (strcmp(str_cstr(&a->uid), str_cstr(&b->uid)) != 0) return false;
+	return true;
 }
 static bool eq_vec(const struct vec *a, const struct vec *b,
 		bool (*eq)(const void *a, const void *b)) {
@@ -55,14 +76,20 @@ static bool eq_vec(const struct vec *a, const struct vec *b,
 
 
 #define FREE_VEC(type, v) \
-	_Generic(*(type *)0, struct str: free_vec_str, default: free_vec_default)(v)
+	_Generic(*(type *)0, \
+		struct str: free_vec_str, \
+		struct prop_related_to: free_vec_related_to \
+	)(v)
 #define COPY_VEC(type, dst, src) \
 	_Generic(*(type *)0, \
 		struct str: copy_vec_str, \
-		default: copy_vec_default)(dst, src)
+		struct prop_related_to: copy_vec_related_to, \
+		default: copy_vec_default \
+	)(dst, src)
 #define EQ_VEC(type, a, b) eq_vec(a, b, \
 	_Generic(*(type *)0, \
-		struct str: eq_str \
+		struct str: eq_str, \
+		struct prop_related_to: eq_prop_related_to \
 	))
 
 /* struct props getters */

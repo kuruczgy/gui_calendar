@@ -19,6 +19,15 @@ enum prop_class {
 	PROP_CLASS_PRIVATE,
 	PROP_CLASS_PUBLIC,
 };
+enum prop_reltype {
+	PROP_RELTYPE_PARENT,
+	PROP_RELTYPE_CHILD,
+	PROP_RELTYPE_SIBLING,
+};
+struct prop_related_to {
+	enum prop_reltype reltype;
+	struct str uid;
+};
 
 struct props;
 
@@ -32,6 +41,7 @@ struct props;
 	m(int, estimated_duration, ESTIMATED_DURATION) \
 	m(int, percent_complete, PERCENT_COMPLETE)
 #define PROPS_LIST_VEC(m) \
+	m(struct prop_related_to, related_to, RELATED_TO) \
 	m(struct str, categories, CATEGORIES)
 #define PROPS_LIST_STR(m) \
 	m(struct str, color, COLOR) \

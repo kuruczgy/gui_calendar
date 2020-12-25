@@ -43,6 +43,7 @@ ds_vec = ds_proj.get_variable('ds_vec_dep')
 ds_hashmap = ds_proj.get_variable('ds_hashmap_dep')
 ds_tree = ds_proj.get_variable('ds_tree_dep')
 ds_matrix = ds_proj.get_variable('ds_matrix_dep')
+ds_iter = ds_proj.get_variable('ds_iter_dep')
 
 libtouch_proj = subproject('libtouch')
 libtouch = libtouch_proj.get_variable('libtouch_dep')
@@ -130,7 +131,7 @@ src_gui_calendar = [
   'src/gui-calendar/views.c',
 ]
 dep_gui_calendar = [
-  glesv2, ds_matrix, mgu_gl, mgu_win, mgu_sr, m, ds_tree, libtouch
+  glesv2, ds_matrix, mgu_gl, mgu_win, mgu_sr, m, ds_tree, ds_iter, libtouch
 ]
 lib_gui_calendar = static_library(
   'gui-calendar',

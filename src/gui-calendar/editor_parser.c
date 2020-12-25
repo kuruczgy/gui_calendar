@@ -7,6 +7,7 @@
 #include "editor.h"
 #include "core.h"
 #include <ds/vec.h>
+#include <ds/iter.h>
 
 /*
 
@@ -42,6 +43,7 @@ uprop =
 	( ( "start" | "end" | "due" ), ws, dt ) |
 	( ( "summary" | "location" | "desc" | "color" | "cats" ), ws, literal ) |
 	( ( "uid" | "instance" ), ws, literal ) |
+	( "rel", ws, literal ) |
 	( "est", ws, dur ) |
 	( "perc", ws, integer ) |
 	( "class", ws, ( "private" | "public" ) ) |
@@ -259,6 +261,19 @@ static res parse_status(st s, enum prop_status *status) {
 	return OK;
 }
 
+static bool cal_parse_reltype(struct str_slice s, enum prop_reltype *reltype) {
+	if (strncmp(s.d, "parent", s.len) == 0) {
+		*reltype = PROP_RELTYPE_PARENT;
+	} else if (strncmp(s.d, "child", s.len) == 0) {
+		*reltype = PROP_RELTYPE_CHILD;
+	} else if (strncmp(s.d, "sibling", s.len) == 0) {
+		*reltype = PROP_RELTYPE_SIBLING;
+	} else {
+		return false;
+	}
+	return true;
+}
+
 static res prop(st s, struct edit_spec *es) {
 	struct simple_date sd;
 	struct str str = str_new_empty();
@@ -325,6 +340,29 @@ static res prop(st s, struct edit_spec *es) {
 		if (rem) return ERROR;
 		if (literal(s, &str) != OK) return ERROR;
 		es->recurrence_id = atol(str_cstr(&str));
+	} else if (strcmp(key, "rel") == 0) {
+		if (rem) return props_mask_add(&es->rem, PROP_RELATED_TO), OK;
+		if (literal(s, &str) != OK) return ERROR;
+
+		struct vec rels = vec_new_empty(sizeof(struct prop_related_to));
+		struct str_slice s_comma;
+		struct str_gen g_comma = str_gen_split(str_as_slice(&str), ',');
+		while (str_gen_next(&g_comma, &s_comma)) {
+			struct str_slice s_colon;
+			struct str_gen g_colon = str_gen_split(s_comma, ':');
+			struct prop_related_to rel;
+			for (int i = 0; i < 2; ++i) {
+				if (!str_gen_next(&g_colon, &s_colon)) return ERROR;
+				if (i == 0) {
+					if (!cal_parse_reltype(s_colon, &rel.reltype)) return ERROR;
+				} else if (i == 1) {
+					rel.uid = str_new_from_slice(s_colon);
+				}
+			}
+			vec_append(&rels, &rel);
+		}
+
+		props_set_related_to(&es->p, rels);
 	} else if (strcmp(key, "est") == 0) {
 		if (rem) return props_mask_add(&es->rem, PROP_ESTIMATED_DURATION), OK;
 		if (dur(s, &d) != OK) return ERROR;
@@ -560,6 +598,28 @@ void test_editor_parser() {
 	int est = -1;
 	props_get_estimated_duration(&es.p, &est);
 	asrt(est == 5 + 4*3600*24 + 1*3600, "prop est");
+	edit_spec_finish(&es);
+
+	edit_spec_init(&es);
+	es.type = COMP_TYPE_TODO;
+	test_prop(&s, "rel parent:a,child:b,sibling:c", &es);
+	const struct vec *rels = props_get_related_to(&es.p);
+	asrt(rels->len == 3, "");
+
+	const struct prop_related_to *rel;
+
+	rel = vec_get_c(rels, 0);
+	asrt(rel->reltype == PROP_RELTYPE_PARENT, "");
+	asrt(strcmp(str_cstr(&rel->uid), "a") == 0, "");
+
+	rel = vec_get_c(rels, 1);
+	asrt(rel->reltype == PROP_RELTYPE_CHILD, "");
+	asrt(strcmp(str_cstr(&rel->uid), "b") == 0, "");
+
+	rel = vec_get_c(rels, 2);
+	asrt(rel->reltype == PROP_RELTYPE_SIBLING, "");
+	asrt(strcmp(str_cstr(&rel->uid), "c") == 0, "");
+
 	edit_spec_finish(&es);
 
 	edit_spec_init(&es);

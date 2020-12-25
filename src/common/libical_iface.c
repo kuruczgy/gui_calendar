@@ -166,6 +166,16 @@ static bool ical_class_to_prop_class(icalproperty_class ical_class,
 	}
 	return true;
 }
+static bool ical_reltype_to_prop_reltype(icalparameter_reltype ical_reltype,
+		enum prop_reltype *s) {
+	switch (ical_reltype) {
+	case ICAL_RELTYPE_PARENT: *s = PROP_RELTYPE_PARENT; break;
+	case ICAL_RELTYPE_CHILD: *s = PROP_RELTYPE_CHILD; break;
+	case ICAL_RELTYPE_SIBLING: *s = PROP_RELTYPE_SIBLING; break;
+	default: return false;
+	}
+	return true;
+}
 
 char* read_stream(char *s, size_t size, void *d)
 {
@@ -190,6 +200,15 @@ static enum icalproperty_class prop_class_to_ical_class(enum prop_class class) {
 	case PROP_CLASS_PUBLIC: return ICAL_CLASS_PUBLIC;
 	}
 	return ICAL_CLASS_NONE;
+}
+static enum icalparameter_reltype prop_reltype_to_ical_reltype(
+		enum prop_reltype reltype) {
+	switch (reltype) {
+	case PROP_RELTYPE_PARENT: return ICAL_RELTYPE_PARENT;
+	case PROP_RELTYPE_CHILD: return ICAL_RELTYPE_CHILD;
+	case PROP_RELTYPE_SIBLING: return ICAL_RELTYPE_SIBLING;
+	}
+	return ICAL_RELTYPE_NONE;
 }
 
 static void assign_val(icalcomponent *c, enum icalproperty_kind kind,
@@ -296,6 +315,23 @@ static void comp_assign_categories(icalcomponent *ic,
 		}
 	}
 }
+static void comp_assign_related_to(icalcomponent *ic,
+		const struct vec *src, bool rem) {
+	if (rem || src->len > 0) {
+		icalcomponent_remove_properties(ic, ICAL_RELATEDTO_PROPERTY);
+	}
+	if (!rem) {
+		for (int i = 0; i < src->len; ++i) {
+			const struct prop_related_to *rel = vec_get_c(src, i);
+			icalproperty *p = icalproperty_new_relatedto(
+				str_cstr(&rel->uid));
+			icalparameter *param = icalparameter_new_reltype(
+				prop_reltype_to_ical_reltype(rel->reltype));
+			icalproperty_add_parameter(p, param);
+			icalcomponent_add_property(ic, p);
+		}
+	}
+}
 static void apply_edit_spec_to_icalcomponent(struct edit_spec *es,
 		icalcomponent *ic) {
 	comp_assign_text(ic, ICAL_COLOR_PROPERTY,
@@ -308,6 +344,8 @@ static void apply_edit_spec_to_icalcomponent(struct edit_spec *es,
 		props_get_desc(&es->p), props_mask_get(&es->rem, PROP_DESC));
 	comp_assign_categories(ic, props_get_categories(&es->p),
 		props_mask_get(&es->rem, PROP_CATEGORIES));
+	comp_assign_related_to(ic, props_get_related_to(&es->p),
+		props_mask_get(&es->rem, PROP_RELATED_TO));
 
 	bool has;
 
@@ -412,6 +450,24 @@ static void props_init_from_ical(struct props *p, icalcomponent *ic) {
 		ip = icalcomponent_get_next_property(ic, ICAL_CATEGORIES_PROPERTY);
 	}
 	props_set_categories(p, categories);
+
+	struct vec rels = vec_new_empty(sizeof(struct prop_related_to));
+	ip = icalcomponent_get_first_property(ic, ICAL_RELATEDTO_PROPERTY);
+	while (ip) {
+		const char *text = icalproperty_get_relatedto(ip);
+		icalparameter *param = icalproperty_get_first_parameter(ip,
+			ICAL_RELTYPE_PARAMETER);
+		icalparameter_reltype reltype =
+			icalparameter_get_reltype(param);
+		struct prop_related_to rel = { 0 };
+		if (!ical_reltype_to_prop_reltype(reltype, &rel.reltype))
+			continue;
+		rel.uid = str_new_from_cstr(text);
+		vec_append(&rels, &rel);
+		ip = icalcomponent_get_next_property(ic,
+			ICAL_RELATEDTO_PROPERTY);
+	}
+	props_set_related_to(p, rels);
 }
 static bool comp_init_from_ical(struct comp *c, icalcomponent *ic) {
 	if (icalcomponent_isa(ic) == ICAL_VEVENT_COMPONENT) {
