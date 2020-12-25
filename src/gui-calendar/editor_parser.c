@@ -28,7 +28,7 @@ time = twodigit, ":", twodigit ;
 dt = [ date, " " ], time ;
 
 (* function `literal` *)
-literal = "`", { char - "`" }, "`" ;
+literal = ( (char - "`"), { char - "\n" } ) | ( "`", { char - "`" }, "`" ) ;
 (* function `integer` *)
 integer = digit, { digit } ;
 
@@ -189,7 +189,11 @@ static res header(st s, enum edit_method *method, enum comp_type *type) {
 
 static res literal(st s, struct str *out) {
 	static char buf[16384];
-	if (fscanf(s->f, "`%16383[^`]`", buf) != 1) return ERROR;
+	if (peek(s) != '`') {
+		if (fscanf(s->f, "%16383[^\n]", buf) != 1) return ERROR;
+	} else {
+		if (fscanf(s->f, "`%16383[^`]`", buf) != 1) return ERROR;
+	}
 	int len = strlen(buf);
 	str_clear(out);
 	str_append(out, buf, len);
@@ -637,7 +641,7 @@ void test_editor_parser() {
 		"-status\n"
 		"summary `lol`\n"
 		"# test comment\n"
-		"location `somewhere`\n"
+		"location somewhere space\n"
 		"desc `some\nsome\ndesc`\n"
 		"calendar `asdfg`\n"
 	);
@@ -648,7 +652,7 @@ void test_editor_parser() {
 	asrt(simple_date_eq(s.end, make_simple_date(-1, -1, -1, 13, 0, -1)),
 		"grammar prop end");
 	asrt(strcmp(props_get_summary(&es.p), "lol") == 0, "");
-	asrt(strcmp(props_get_location(&es.p), "somewhere") == 0, "");
+	asrt(strcmp(props_get_location(&es.p), "somewhere space") == 0, "");
 	asrt(strcmp(props_get_desc(&es.p), "some\nsome\ndesc") == 0, "");
 	asrt(props_mask_get(&es.rem, PROP_STATUS), "");
 	asrt(strcmp(str_cstr(&es.calendar_uid), "asdfg") == 0, "");
