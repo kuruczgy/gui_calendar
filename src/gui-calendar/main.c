@@ -1,5 +1,6 @@
 #include "application.h"
 #include "util.h"
+#include "config.h"
 #include <unistd.h>
 
 int main(int argc, char **argv) {
@@ -62,7 +63,7 @@ int main(int argc, char **argv) {
 	struct mgu_disp disp = { 0 };
 	struct mgu_win win = { 0 };
 	mgu_disp_init(&disp);
-	mgu_win_init(&win, &disp);
+	mgu_win_init(&win, &disp, CONFIG_TITLE);
 
 	struct app app;
 	app_init(&app, opts, &win);
