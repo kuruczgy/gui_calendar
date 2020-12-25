@@ -702,8 +702,7 @@ void app_cmd_editor(struct app *app, FILE *in) {
 	asrt(f, "");
 
 	struct edit_spec es;
-	edit_spec_init(&es);
-	int res = parse_edit_template(f, &es, app->zone);
+	int res = edit_spec_init_parse(&es, f, app->zone, app->now);
 	fclose(f);
 	if (res != 0) {
 		fprintf(stderr, "[editor] can't parse edit template.\n");
@@ -728,7 +727,7 @@ void app_cmd_editor(struct app *app, FILE *in) {
 	if (!cal) {
 		fprintf(stderr, "[editor] calendar not specified.\n");
 		app_launch_editor_str(app, &in_s); /* relaunch editor */
-		goto cleanup;
+		goto cleanup_es;
 	}
 
 	/* apply edit */
@@ -738,11 +737,12 @@ void app_cmd_editor(struct app *app, FILE *in) {
 	} else {
 		fprintf(stderr, "[editor] error: could not save edit\n");
 		app_launch_editor_str(app, &in_s); /* relaunch editor */
-		goto cleanup;
+		goto cleanup_es;
 	}
 
-cleanup:
+cleanup_es:
 	edit_spec_finish(&es);
+cleanup:
 	str_free(&in_s);
 }
 void app_cmd_reload(struct app *app) {

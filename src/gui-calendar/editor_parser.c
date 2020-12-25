@@ -419,24 +419,31 @@ static res grammar(st s, struct edit_spec *es) {
 	return OK;
 }
 
-int parse_edit_template(FILE *f, struct edit_spec *es,
-		struct cal_timezone *zone) {
+static void sd_default_date(struct simple_date *sd, struct simple_date now) {
+	if (sd->day == -1) sd->day = now.day;
+	if (sd->month == -1) sd->month = now.month;
+	if (sd->year == -1) sd->year = now.year;
+}
+
+int edit_spec_init_parse(struct edit_spec *es, FILE *f,
+		struct cal_timezone *zone, ts now) {
 	struct parser_state s = { f };
 	s.start = s.end = s.due = make_simple_date(-1, -1, -1, -1, -1, -1);
 	edit_spec_init(es);
-	if (grammar(&s, es) != OK) return -1;
+	if (grammar(&s, es) != OK) goto error;
 
+	/* set second to constant zero */
 	if (s.start.second == -1) s.start.second = 0;
 	if (s.end.second == -1) s.end.second = 0;
 	if (s.due.second == -1) s.due.second = 0;
 
+	/* default date components to today */
+	struct simple_date sd_now = simple_date_from_ts(now, zone);
+	sd_default_date(&s.start, sd_now);
+	sd_default_date(&s.due, sd_now);
+
 	if (es->type == COMP_TYPE_EVENT) {
-		if (s.start.year == -1 ||
-			s.start.month == -1 ||
-			s.start.day == -1) return -1;
-		if (s.end.year == -1) s.end.year = s.start.year;
-		if (s.end.month == -1) s.end.month = s.start.month;
-		if (s.end.day == -1) s.end.day = s.start.day;
+		sd_default_date(&s.end, s.start);
 
 		ts start = simple_date_to_ts(s.start, zone);
 		ts end = simple_date_to_ts(s.end, zone);
@@ -451,6 +458,9 @@ int parse_edit_template(FILE *f, struct edit_spec *es,
 	}
 
 	return 0;
+error:
+	edit_spec_finish(es);
+	return -1;
 }
 
 struct simple_date parse_date(const char *str) {

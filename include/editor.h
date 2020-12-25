@@ -57,8 +57,8 @@ void print_template(FILE *f, struct comp_inst *ci,
 		struct cal_timezone *zone, int cal);
 void print_new_event_template(FILE *f, struct cal_timezone *zone, int cal);
 void print_new_todo_template(FILE *f, struct cal_timezone *zone, int cal);
-int parse_edit_template(FILE *f, struct edit_spec *es,
-	struct cal_timezone *zone);
+int edit_spec_init_parse(struct edit_spec *es, FILE *f,
+	struct cal_timezone *zone, ts now);
 
 int edit_spec_apply_to_storage(struct edit_spec *es,
 		struct calendar *cal);

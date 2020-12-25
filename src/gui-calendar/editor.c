@@ -161,14 +161,11 @@ void print_template(FILE *f, struct comp_inst *ci,
 
 void print_new_event_template(FILE *f, struct cal_timezone *zone, int cal) {
 	// DEP: struct event
-	char start[32];
-	struct simple_date now = simple_date_now(zone);
-	snprintf(start, 32, "%04d-%02d-%02d", now.year, now.month, now.day);
 
 	fprintf(f,
 		"create event\n"
 		"summary\n"
-		"start %s\n"
+		"start \n"
 		"end \n"
 		"#location\n"
 		"#desc\n"
@@ -179,22 +176,19 @@ void print_new_event_template(FILE *f, struct cal_timezone *zone, int cal) {
 		"calendar %d\n"
 		"%s"
 		"# calendar 1/2/...\n",
-		start, cal,
+		cal,
 		event_usage
 	);
 }
 void print_new_todo_template(FILE *f, struct cal_timezone *zone, int cal) {
 	// DEP: struct todo
-	char start[32];
-	struct simple_date now = simple_date_now(zone);
-	snprintf(start, 32, "%04d-%02d-%02d", now.year, now.month, now.day);
 
 	fprintf(f,
 		"create todo\n"
 		"summary\n"
 		"#status\n"
-		"#due %s\n"
-		"#start %s\n"
+		"#due\n"
+		"#start\n"
 		"#est\n"
 		"#perc\n"
 		"#desc\n"
@@ -203,7 +197,7 @@ void print_new_todo_template(FILE *f, struct cal_timezone *zone, int cal) {
 		"calendar %d\n"
 		"%s"
 		"# calendar 1/2/...\n",
-		start, start, cal,
+		cal,
 		todo_usage
 	);
 }

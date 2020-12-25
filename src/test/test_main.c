@@ -62,8 +62,7 @@ static void test_editor_do(
 	FILE *f = fmemopen((void*)edit, strlen(edit), "r");
 	asrt(f, "");
 	struct edit_spec es;
-	edit_spec_init(&es);
-	asrt(parse_edit_template(f, &es, zone) == 0, "cant parse edit spec");
+	asrt(edit_spec_init_parse(&es, f, zone, 0) == 0, "cant parse edit spec");
 	fclose(f);
 	asrt(apply_edit_spec_to_calendar(&es, &cal) == 0, "cant apply edit spec");
 	edit_spec_finish(&es);
@@ -106,7 +105,7 @@ static void test_editor() {
 	/* edit */
 	"update event\n"
 	"start 2020-01-01 13:01\n"
-	"end 2020-01-01 15:02\n"
+	"end 15:02\n"
 	"status cancelled\n"
 	"class private\n"
 	"color red\n"

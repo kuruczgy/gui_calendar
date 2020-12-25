@@ -6,5 +6,5 @@
 
 int main() {
 	struct edit_spec es;
-	parse_edit_template(stdin, &es, NULL);
+	edit_spec_init_parse(&es, stdin, NULL, 0);
 }
