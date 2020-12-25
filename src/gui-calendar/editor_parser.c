@@ -516,19 +516,23 @@ void test_editor_parser() {
 	test_prop(&s, "start 05-3 12:45", &es);
 	asrt(simple_date_eq(s.start, make_simple_date(-1, 5, 3, 12, 45, -1)),
 		"prop start");
+	edit_spec_finish(&es);
 
 	edit_spec_init(&es);
 	test_prop(&s, "end 4", &es);
 	asrt(simple_date_eq(s.end, make_simple_date(-1, -1, 4, -1, -1, -1)),
 		"prop end");
+	edit_spec_finish(&es);
 
 	edit_spec_init(&es);
 	test_prop(&s, "location `a\n\ns\n`", &es);
 	asrt(strcmp(props_get_location(&es.p), "a\n\ns\n") == 0, "prop location");
+	edit_spec_finish(&es);
 
 	edit_spec_init(&es);
 	test_prop(&s, "uid `asdfg`", &es);
 	asrt(strcmp(str_cstr(&es.uid), "asdfg") == 0, "prop uid");
+	edit_spec_finish(&es);
 
 	// TODO: recurrence id
 	// edit_spec_init(&es);
@@ -540,6 +544,7 @@ void test_editor_parser() {
 	enum prop_class class = (enum prop_class)123;
 	props_get_class(&es.p, &class);
 	asrt(class == PROP_CLASS_PRIVATE, "prop class");
+	edit_spec_finish(&es);
 
 	edit_spec_init(&es);
 	es.type = COMP_TYPE_TODO;
@@ -547,6 +552,7 @@ void test_editor_parser() {
 	enum prop_status status = (enum prop_status)123;
 	props_get_status(&es.p, &status);
 	asrt(status == PROP_STATUS_NEEDSACTION, "prop status");
+	edit_spec_finish(&es);
 
 	edit_spec_init(&es);
 	es.type = COMP_TYPE_TODO;
@@ -554,6 +560,7 @@ void test_editor_parser() {
 	int est = -1;
 	props_get_estimated_duration(&es.p, &est);
 	asrt(est == 5 + 4*3600*24 + 1*3600, "prop est");
+	edit_spec_finish(&es);
 
 	edit_spec_init(&es);
 	test_grammar(&s, &es,
@@ -580,4 +587,6 @@ void test_editor_parser() {
 	asrt(props_mask_get(&es.rem, PROP_STATUS), "");
 	asrt(strcmp(str_cstr(&es.calendar_uid), "asdfg") == 0, "");
 	asrt(es.calendar_num == 12345, "");
+
+	edit_spec_finish(&es);
 }

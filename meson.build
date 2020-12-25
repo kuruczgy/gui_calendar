@@ -155,15 +155,25 @@ executable(
   link_with: lib_gui_calendar
 )
 
-# test_main = executable(
-#   'test-editor',
-#   'src/tests/test_main.c',
-#   'src/gui-calendar/backend/dummy.c',
-#   include_directories: incdir,
-#   dependencies: dep_gui_calendar,
-#   link_with: lib_gui_calendar,
-# )
-# test('test-main', test_main)
+# Tests
+prog_valgrind = find_program('valgrind', required: false)
+
+if prog_valgrind.found()
+  foreach path : [ 'src/test/test_main.c' ]
+    exe = executable(
+      'exe-' + path.underscorify(),
+      path,
+      include_directories: incdir,
+      dependencies: dep_gui_calendar,
+      link_with: lib_gui_calendar,
+    )
+    test(
+      'test-' + path.underscorify(),
+      prog_valgrind,
+      args: [ '--leak-check=full', '--error-exitcode=1', exe ]
+    )
+  endforeach
+endif
 
 # executable(
 #   'fuzz-editor',

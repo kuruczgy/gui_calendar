@@ -13,11 +13,11 @@ enum prop_status {
 	PROP_STATUS_CANCELLED,
 	PROP_STATUS_COMPLETED,
 	PROP_STATUS_NEEDSACTION,
-	PROP_STATUS_INPROCESS
+	PROP_STATUS_INPROCESS,
 };
 enum prop_class {
 	PROP_CLASS_PRIVATE,
-	PROP_CLASS_PUBLIC
+	PROP_CLASS_PUBLIC,
 };
 
 struct props;
@@ -31,17 +31,17 @@ struct props;
 	m(enum prop_class, class, CLASS) \
 	m(int, estimated_duration, ESTIMATED_DURATION) \
 	m(int, percent_complete, PERCENT_COMPLETE)
+#define PROPS_LIST_VEC(m) \
+	m(struct str, categories, CATEGORIES)
 #define PROPS_LIST_STR(m) \
 	m(struct str, color, COLOR) \
 	m(struct str, summary, SUMMARY) \
 	m(struct str, location, LOCATION) \
 	m(struct str, desc, DESC)
-#define PROPS_LIST_VEC_STR(m) \
-	m(struct vec, categories, CATEGORIES)
 #define PROPS_LIST_ALL(m) \
 	PROPS_LIST_BY_VAL(m) \
-	PROPS_LIST_STR(m) \
-	PROPS_LIST_VEC_STR(m)
+	PROPS_LIST_VEC(m) \
+	PROPS_LIST_STR(m)
 
 /* struct props getters */
 #define DECL(type, name, capname) \
@@ -50,13 +50,13 @@ PROPS_LIST_BY_VAL(DECL)
 #undef DECL
 
 #define DECL(type, name, capname) \
-	const char * props_get_##name(const struct props *p);
-PROPS_LIST_STR(DECL)
+	const struct vec * props_get_##name(const struct props *p);
+PROPS_LIST_VEC(DECL)
 #undef DECL
 
 #define DECL(type, name, capname) \
-	const struct vec * props_get_##name(const struct props *p);
-PROPS_LIST_VEC_STR(DECL)
+	const char * props_get_##name(const struct props *p);
+PROPS_LIST_STR(DECL)
 #undef DECL
 
 /* struct props setters */
@@ -66,13 +66,13 @@ PROPS_LIST_BY_VAL(DECL)
 #undef DECL
 
 #define DECL(type, name, capname) \
-	void props_set_##name(struct props *p, const char *val);
-PROPS_LIST_STR(DECL)
+	void props_set_##name(struct props *p, struct vec val);
+PROPS_LIST_VEC(DECL)
 #undef DECL
 
 #define DECL(type, name, capname) \
-	void props_set_##name(struct props *p, struct vec val);
-PROPS_LIST_VEC_STR(DECL)
+	void props_set_##name(struct props *p, const char *val);
+PROPS_LIST_STR(DECL)
 #undef DECL
 
 /* enum prop */
@@ -85,18 +85,20 @@ enum prop {
 
 /* struct props */
 #define FIELD(type, name, capname) type name;
+#define FIELD_VEC(type, name, capname) struct vec name;
 #define FIELD_HAS(type, name, capname) bool has_##name : 1;
 struct props {
 	PROPS_LIST_BY_VAL(FIELD)
+	PROPS_LIST_VEC(FIELD_VEC)
 	PROPS_LIST_STR(FIELD)
-	PROPS_LIST_VEC_STR(FIELD)
-	PROPS_LIST_BY_VAL(FIELD_HAS)
 
 	uint32_t color_val;
 
-	bool dirty; /* have any fields changed since last recalc */
+	PROPS_LIST_BY_VAL(FIELD_HAS)
+	bool dirty : 1; /* have any fields changed since last recalc */
 };
 #undef FIELD
+#undef FIELD_VEC
 #undef FIELD_HAS
 
 /* use this to initialize struct props */
@@ -119,6 +121,7 @@ void props_apply_mask(struct props *p, const struct props_mask *pm);
 void props_union(struct props *p, const struct props *rhs);
 void props_finish(struct props *p);
 
+/* exact equality, mainly used for debugging */
 bool props_equal(const struct props *a, const struct props *b);
 
 /* calculated values */

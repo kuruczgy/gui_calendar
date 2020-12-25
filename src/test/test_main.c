@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "calendar.h"
 #include "editor.h"
 #include "core.h"
@@ -25,6 +26,8 @@ static void test_todo_schedule() {
 		asrt(G[i].fr == exp[i].fr, "");
 		asrt(G[i].to == exp[i].to, "");
 	}
+
+	free(G);
 }
 
 static void test_lookup_color() {
@@ -48,6 +51,7 @@ static void write_to_file(const char *path, const char *data) {
 static void test_editor_do(
 		const char *ics, const char *edit, const char *exp_ics) {
 	struct cal_timezone *zone = cal_timezone_new("Europe/Budapest");
+	system("mkdir -p /tmp/test_cal");
 	write_to_file("/tmp/test_cal/uid.ics", ics);
 	struct calendar cal;
 	calendar_init(&cal);
@@ -62,6 +66,7 @@ static void test_editor_do(
 	asrt(parse_edit_template(f, &es, zone) == 0, "cant parse edit spec");
 	fclose(f);
 	asrt(apply_edit_spec_to_calendar(&es, &cal) == 0, "cant apply edit spec");
+	edit_spec_finish(&es);
 
 	f = fopen("/tmp/test_cal/uid.ics", "r");
 	asrt(f, "");
@@ -78,6 +83,12 @@ static void test_editor_do(
 	struct comp *c_act = calendar_get_comp(&cal, 0);
 	asrt(comp_equal(&c_file, c_act), "comps do not match");
 	asrt(comp_equal(&c_exp, c_act), "comps do not match");
+
+	comp_finish(&c_file);
+	comp_finish(&c_exp);
+
+	calendar_finish(&cal);
+	cal_timezone_destroy(zone);
 }
 static void test_editor() {
 	test_editor_do(
@@ -181,7 +192,8 @@ static void vec_ts_ran_asrt(struct vec *v, struct ts_ran *a, int n) {
 		asrt(vi->to == ai->to, "");
 	}
 }
-static void test_slicing_f(void *env, struct ts_ran ran) {
+static void test_slicing_f(void *env, struct ts_ran ran,
+		struct simple_date label) {
 	struct vec *res = env;
 	vec_append(res, &ran);
 }
@@ -221,7 +233,9 @@ static void test_slicing() {
 	}
 	asrt(start_n == slicing_test_get_total_len(s), "");
 
+	vec_free(&res);
 	slicing_destroy(s);
+	cal_timezone_destroy(zone);
 }
 
 int main() {

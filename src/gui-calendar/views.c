@@ -32,6 +32,7 @@ void slicing_destroy(struct slicing *s) {
 	for (int i = 0; i < N_LEVELS; ++i) {
 		vec_free(&s->items[i]);
 	}
+	free(s);
 }
 int get_or_create(struct slicing *s, enum hlevel lev, struct ts_ran ran) {
 	struct vec *v = &s->items[lev];
