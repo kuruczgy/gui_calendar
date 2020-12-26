@@ -44,7 +44,8 @@ static bool valid_simple_date(struct simple_date sd) {
 		sd.second >= 0;
 }
 static icaltimetype ts_to_icaltime(ts t, struct cal_timezone *zone) {
-	icaltimetype tt = icaltime_from_timet_with_zone((time_t)t, 0, zone->impl);
+	icaltimetype tt =
+		icaltime_from_timet_with_zone((time_t)t, 0, zone->impl);
 	return tt;
 }
 static struct simple_date simple_date_from_icaltime(icaltimetype t) {

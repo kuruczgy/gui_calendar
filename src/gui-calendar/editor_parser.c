@@ -41,7 +41,7 @@ status-val = "tentative" | "confirmed" |
 	"cancelled" | "needsaction" | "completed" | "inprocess" ;
 uprop =
 	( ( "start" | "end" | "due" ), ws, dt ) |
-	( ( "summary" | "location" | "desc" | "color" | "cats" ), ws, literal ) |
+	( ("summary" | "location" | "desc" | "color" | "cats"), ws, literal ) |
 	( ( "uid" | "instance" ), ws, literal ) |
 	( "rel", ws, literal ) |
 	( "est", ws, dur ) |
@@ -50,7 +50,7 @@ uprop =
 	( "status", ws, status-val ) |
 	( "calendar", ws, ( integer | literal ) ) ;
 remprop = "-",
-	( "start", "due", "location", "desc", "color", "class", "status", "est" ),
+	("start", "due", "location", "desc", "color", "class", "status", "est"),
 	[ ws, { char - "\n" } ] ;
 prop = uprop | remprop
 
@@ -358,9 +358,11 @@ static res prop(st s, struct edit_spec *es) {
 			struct str_gen g_colon = str_gen_split(s_comma, ':');
 			struct prop_related_to rel;
 			for (int i = 0; i < 2; ++i) {
-				if (!str_gen_next(&g_colon, &s_colon)) return ERROR;
+				if (!str_gen_next(&g_colon, &s_colon))
+					return ERROR;
 				if (i == 0) {
-					if (!cal_parse_reltype(s_colon, &rel.reltype)) return ERROR;
+					if (!cal_parse_reltype(s_colon,
+						&rel.reltype)) return ERROR;
 				} else if (i == 1) {
 					rel.uid = str_new_from_slice(s_colon);
 				}
@@ -370,11 +372,13 @@ static res prop(st s, struct edit_spec *es) {
 
 		props_set_related_to(&es->p, rels);
 	} else if (strcmp(key, "est") == 0) {
-		if (rem) return props_mask_add(&es->rem, PROP_ESTIMATED_DURATION), OK;
+		if (rem) return props_mask_add(&es->rem,
+			PROP_ESTIMATED_DURATION), OK;
 		if (dur(s, &d) != OK) return ERROR;
 		props_set_estimated_duration(&es->p, d);
 	} else if (strcmp(key, "perc") == 0) {
-		if (rem) return props_mask_add(&es->rem, PROP_PERCENT_COMPLETE), OK;
+		if (rem) return props_mask_add(&es->rem,
+			PROP_PERCENT_COMPLETE), OK;
 		if (integer(s, &d) != OK) return ERROR;
 		props_set_percent_complete(&es->p, d);
 	} else if (strcmp(key, "class") == 0) {
@@ -394,7 +398,8 @@ static res prop(st s, struct edit_spec *es) {
 		} else {
 			if (literal(s, &str) != OK) return ERROR;
 			es->calendar_uid = str_empty;
-			str_append(&es->calendar_uid, str_cstr(&str), str.v.len);
+			str_append(&es->calendar_uid,
+				str_cstr(&str), str.v.len);
 		}
 	} else {
 		return ERROR;
@@ -580,7 +585,8 @@ void test_editor_parser() {
 
 	edit_spec_init(&es);
 	test_prop(&s, "location `a\n\ns\n`", &es);
-	asrt(strcmp(props_get_location(&es.p), "a\n\ns\n") == 0, "prop location");
+	asrt(strcmp(props_get_location(&es.p), "a\n\ns\n") == 0,
+		"prop location");
 	edit_spec_finish(&es);
 
 	edit_spec_init(&es);

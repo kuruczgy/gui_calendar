@@ -124,7 +124,7 @@ const char * most_frequent(const struct vec *source, const char *(*cb)(void*)) {
 	struct vec keys = vec_new_empty(sizeof(const char*));
 
 	for (int i = 0; i < source->len; ++i) {
-		const char *key = cb(vec_get((struct vec *)source, i)); /* const cast */
+		const char *key = cb((void *)vec_get_c(source, i));
 		if (!key) continue;
 		int *k;
 		int **res;

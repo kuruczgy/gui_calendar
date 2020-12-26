@@ -98,7 +98,8 @@ static bool calendar_contains(struct calendar *cal, const char *uid) {
 static int calendar_add_comp_unchecked(struct calendar *cal,
 		struct comp c) {
 	int idx = vec_append(&cal->comps_vec, &c);
-	asrt(hashmap_put(&cal->comps_map, str_cstr(&c.uid), &idx) == MAP_OK, "");
+	asrt(hashmap_put(&cal->comps_map, str_cstr(&c.uid), &idx)
+		== MAP_OK, "");
 
 	struct comp_info info = { .deleted = false };
 	vec_append(&cal->comp_infos, &info);
@@ -165,7 +166,8 @@ int calendar_add_comp(struct calendar *cal, struct comp c) {
 }
 int calendar_find_comp(struct calendar *cal, const char *uid) {
 	int *idx;
-	if (hashmap_get(&cal->comps_map, uid, (void**)&idx) != MAP_OK) return -1;
+	if (hashmap_get(&cal->comps_map, uid, (void**)&idx) != MAP_OK)
+		return -1;
 	return *idx;
 }
 void calendar_delete_comp(struct calendar *cal, int idx) {
@@ -220,7 +222,8 @@ void calendar_expand_instances_to(struct calendar *cal, enum comp_type type,
 		struct comp_info *info = vec_get(&cal->comp_infos, i);
 		if (info->deleted) continue;
 
-		struct comp_recur_cb_env env = { .cal = cal, .c = c, .comp_idx = i };
+		struct comp_recur_cb_env env = {
+			.cal = cal, .c = c, .comp_idx = i };
 		comp_recur_expand(c, to, &comp_recur_cb_fn, &env);
 	}
 }

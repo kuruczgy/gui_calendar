@@ -28,12 +28,15 @@ int next_k_permutation(int* elements, size_t n, size_t k) {
 	if (tail) {
 		size_t swap_in;
 		int pivot = elements[tail - 1];
-		// Find the smallest element strictly greater than the pivot, either
-		// by searching forward from the pivot or backwards from the end.
+		// Find the smallest element strictly greater than the pivot,
+		// either by searching forward from the pivot or backwards from
+		// the end.
 		if (pivot >= elements[n - 1]) {
-			for (swap_in = tail; swap_in + 1 < k && elements[swap_in + 1] > pivot; ++swap_in) {}
+			for (swap_in = tail; swap_in + 1 < k
+				&& elements[swap_in + 1] > pivot; ++swap_in);
 		} else {
-			for (swap_in = n - 1; swap_in > k && elements[swap_in - 1] > pivot; --swap_in) {}
+			for (swap_in = n - 1; swap_in > k
+				&& elements[swap_in - 1] > pivot; --swap_in);
 		}
 		// Swap the pivots
 		elements[tail - 1] = elements[swap_in];

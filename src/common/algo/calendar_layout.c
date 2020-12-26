@@ -31,7 +31,8 @@ static int first_free_bit(uint32_t n) {
 
 
 /* looked at:
- * https://github.com/aosp-mirror/platform_packages_apps_calendar/blob/master/src/com/android/calendar/Event.java
+ * https://github.com/aosp-mirror/platform_packages_apps_calendar/
+ * blob/master/src/com/android/calendar/Event.java
  * for reference */
 void calendar_layout(struct layout_event *e, int N) {
 	struct point *points = malloc(sizeof(struct point) * N * 2);
@@ -53,7 +54,7 @@ void calendar_layout(struct layout_event *e, int N) {
 	for (int i = 0; i < 2 * N; ++i) {
 		const struct point *p = &points[i];
 		/* printf("p %d %s, active_n=%d\n",
-				p->index, p->start ? "start" : "end", active_n); */
+			p->index, p->start ? "start" : "end", active_n); */
 
 		if (p->start) {
 			component[component_size++] = p->index;

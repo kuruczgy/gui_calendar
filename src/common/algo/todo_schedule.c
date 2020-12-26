@@ -23,7 +23,8 @@ static struct schedule_todo *next_todo(int *j, int k,
 		if (G[*j].fr != -1) continue; // skip if already scheduled
 		struct schedule_todo *td = &T[*j];
 		if (td->estimated_duration <= 0) continue; // skip if no est
-		if (b == -1) return td; // we can schedule anything with infinite space
+		// we can schedule anything with infinite space
+		if (b == -1) return td;
 		ts l = b - max_ts(a, (ts)td->start);
 		if (td->estimated_duration > l) continue;
 		return td;

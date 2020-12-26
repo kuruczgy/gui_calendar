@@ -227,7 +227,8 @@ bool props_equal(const struct props *a, const struct props *b) {
 
 static void props_recalc(struct props *p) {
 	if (p->dirty) {
-		p->color_val = lookup_color(str_cstr(&p->color), p->color.v.len);
+		p->color_val =
+			lookup_color(str_cstr(&p->color), p->color.v.len);
 		p->dirty = false;
 	}
 }

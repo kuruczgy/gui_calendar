@@ -78,7 +78,8 @@ cloned:
 	recur->exdate = vec_new_empty(sizeof(ts));
 	recur->rrule = icalproperty_get_rrule(rrule);
 	recur->ritr = NULL;
-	recur->dtstart = icalcomponent_get_dtstart(ic); /* this is why we clone */
+	/* this is why we clone */
+	recur->dtstart = icalcomponent_get_dtstart(ic);
 	recur->last = -1;
 
 	ical_get_dtperiod_set(&recur->rdate, ic, ICAL_RDATE_PROPERTY);
@@ -109,7 +110,8 @@ void recurrence_expand(struct recurrence *recur, ts to, recur_cb cb, void *cl) {
 			if (recurrence_exdate(recur, *ti)) continue;
 			cb(cl, *ti);
 		}
-		recur->ritr = icalrecur_iterator_new(recur->rrule, recur->dtstart);
+		recur->ritr =
+			icalrecur_iterator_new(recur->rrule, recur->dtstart);
 	}
 
 	if (recur->last != -1) {
@@ -253,7 +255,8 @@ static void comp_assign_status(icalcomponent *c,
 	if (rem) {
 		icalcomponent_remove_properties(c, kind);
 	} else if (has) {
-		enum icalproperty_status status = prop_status_to_ical_status(src);
+		enum icalproperty_status status =
+			prop_status_to_ical_status(src);
 		icalvalue *val = icalvalue_new_status(status);
 		assign_val(c, kind, val);
 	}
@@ -306,8 +309,8 @@ static void comp_assign_ts(icalcomponent *c, enum icalproperty_kind kind,
 		icalcomponent_remove_properties(c, kind);
 	} else if (has) {
 		icalvalue *val =
-			icalvalue_new_datetime(icaltime_from_timet_with_zone(src, 0,
-						icaltimezone_get_utc_timezone()));
+			icalvalue_new_datetime(icaltime_from_timet_with_zone(
+				src, 0, icaltimezone_get_utc_timezone()));
 		assign_val(c, kind, val);
 	}
 }
@@ -320,12 +323,13 @@ static void comp_assign_categories(icalcomponent *ic,
 		if (src->len > 0) {
 			struct str cats_str = str_empty;
 			for (int i = 0; i < src->len; ++i) {
-				/* const cast */
-				const struct str *s = vec_get((struct vec*)src, i);
+				const struct str *s = vec_get_c(src, i);
 				str_append(&cats_str, str_cstr(s), s->v.len);
-				if (i < src->len - 1) str_append_char(&cats_str, ',');
+				if (i < src->len - 1)
+					str_append_char(&cats_str, ',');
 			}
-			icalproperty *p = icalproperty_new_categories(str_cstr(&cats_str));
+			icalproperty *p = icalproperty_new_categories(
+				str_cstr(&cats_str));
 			icalcomponent_add_property(ic, p);
 			str_free(&cats_str);
 		}
@@ -350,14 +354,14 @@ static void comp_assign_related_to(icalcomponent *ic,
 }
 static void apply_edit_spec_to_icalcomponent(struct edit_spec *es,
 		icalcomponent *ic) {
-	comp_assign_text(ic, ICAL_COLOR_PROPERTY,
-		props_get_color(&es->p), props_mask_get(&es->rem, PROP_COLOR));
-	comp_assign_text(ic, ICAL_SUMMARY_PROPERTY,
-		props_get_summary(&es->p), props_mask_get(&es->rem, PROP_SUMMARY));
-	comp_assign_text(ic, ICAL_LOCATION_PROPERTY,
-		props_get_location(&es->p), props_mask_get(&es->rem, PROP_LOCATION));
-	comp_assign_text(ic, ICAL_DESCRIPTION_PROPERTY,
-		props_get_desc(&es->p), props_mask_get(&es->rem, PROP_DESC));
+	comp_assign_text(ic, ICAL_COLOR_PROPERTY, props_get_color(&es->p),
+		props_mask_get(&es->rem, PROP_COLOR));
+	comp_assign_text(ic, ICAL_SUMMARY_PROPERTY, props_get_summary(&es->p),
+		props_mask_get(&es->rem, PROP_SUMMARY));
+	comp_assign_text(ic, ICAL_LOCATION_PROPERTY, props_get_location(&es->p),
+		props_mask_get(&es->rem, PROP_LOCATION));
+	comp_assign_text(ic, ICAL_DESCRIPTION_PROPERTY, props_get_desc(&es->p),
+		props_mask_get(&es->rem, PROP_DESC));
 	comp_assign_categories(ic, props_get_categories(&es->p),
 		props_mask_get(&es->rem, PROP_CATEGORIES));
 	comp_assign_related_to(ic, props_get_related_to(&es->p),
@@ -378,7 +382,8 @@ static void apply_edit_spec_to_icalcomponent(struct edit_spec *es,
 
 	enum prop_status status;
 	has = props_get_status(&es->p, &status);
-	comp_assign_status(ic, has, status, props_mask_get(&es->rem, PROP_STATUS));
+	comp_assign_status(ic, has, status,
+		props_mask_get(&es->rem, PROP_STATUS));
 
 	enum prop_class class;
 	has = props_get_class(&es->p, &class);
@@ -430,12 +435,14 @@ static void props_init_from_ical(struct props *p, icalcomponent *ic) {
 	icalproperty *ip = icalcomponent_get_first_property(ic,
 			ICAL_ESTIMATEDDURATION_PROPERTY);
 	if (ip) {
-		struct icaldurationtype v = icalproperty_get_estimatedduration(ip);
+		struct icaldurationtype v =
+			icalproperty_get_estimatedduration(ip);
 		int est = icaldurationtype_as_int(v);
 		props_set_estimated_duration(p, est);
 	}
 
-	ip = icalcomponent_get_first_property(ic, ICAL_PERCENTCOMPLETE_PROPERTY);
+	ip = icalcomponent_get_first_property(ic,
+		ICAL_PERCENTCOMPLETE_PROPERTY);
 	if (ip) {
 		int perc = icalproperty_get_percentcomplete(ip);
 		props_set_percent_complete(p, perc);
@@ -463,7 +470,8 @@ static void props_init_from_ical(struct props *p, icalcomponent *ic) {
 		const char *text = icalproperty_get_categories(ip);
 		struct str s = str_new_from_cstr(text);
 		vec_append(&categories, &s);
-		ip = icalcomponent_get_next_property(ic, ICAL_CATEGORIES_PROPERTY);
+		ip = icalcomponent_get_next_property(ic,
+			ICAL_CATEGORIES_PROPERTY);
 	}
 	props_set_categories(p, categories);
 
@@ -500,7 +508,8 @@ static bool comp_init_from_ical(struct comp *c, icalcomponent *ic) {
 	c->p = props_empty;
 	props_init_from_ical(&c->p, ic);
 	if (!props_valid_for_type(&c->p, c->type)) {
-		fprintf(stderr, "WARNING: component `%s` is invalid. skipping\n",
+		fprintf(stderr,
+			"WARNING: component `%s` is invalid. skipping\n",
 			str_cstr(&c->uid));
 		str_free(&c->uid);
 		props_finish(&c->p);
@@ -527,33 +536,38 @@ int libical_parse_ics(FILE *f, struct calendar *cal) {
 	if (!root) return -1;
 	icalcomponent *ic = icalcomponent_get_first_component(
 		root, ICAL_ANY_COMPONENT);
-	while(ic) {
+	while (ic) {
 		enum icalcomponent_kind kind = icalcomponent_isa(ic);
 		const char *uid = icalcomponent_get_uid(ic);
 		icalproperty *recurrenceid =
-			icalcomponent_get_first_property(ic, ICAL_RECURRENCEID_PROPERTY);
-		if ((kind == ICAL_VEVENT_COMPONENT || kind == ICAL_VTODO_COMPONENT)
+			icalcomponent_get_first_property(ic,
+			ICAL_RECURRENCEID_PROPERTY);
+		if ((kind == ICAL_VEVENT_COMPONENT
+				|| kind == ICAL_VTODO_COMPONENT)
 				&& uid && recurrenceid) {
 			/* we got a recurrence instance here */
 			struct comp_recur_inst cri;
-			cri.recurrence_id =
-				ts_from_icaltime(icalproperty_get_recurrenceid(recurrenceid));
+			cri.recurrence_id = ts_from_icaltime(
+				icalproperty_get_recurrenceid(recurrenceid));
 			cri.p = props_empty;
 			props_init_from_ical(&cri.p, ic);
 
 			int idx = calendar_find_comp(cal, uid);
-			struct comp *c = idx == -1 ? NULL : calendar_get_comp(cal, idx);
+			struct comp *c = idx == -1
+				? NULL : calendar_get_comp(cal, idx);
 			if (c && props_valid_for_type(&cri.p, c->type)) {
 				vec_append(&c->recur_insts, &cri);
 			} else {
 				fprintf(stderr,
-				"WARNING: component instance for `%s` is invalid. skipping\n",
-				uid);
+					"WARNING: component instance for `%s` "
+					"is invalid. skipping\n",
+					uid);
 				props_finish(&cri.p);
 			}
 		} else {
 			struct comp c;
-			if (comp_init_from_ical(&c, ic)) calendar_add_comp(cal, c);
+			if (comp_init_from_ical(&c, ic))
+				calendar_add_comp(cal, c);
 		}
 		ic = icalcomponent_get_next_component(root, ICAL_ANY_COMPONENT);
 	}
@@ -608,10 +622,12 @@ void update_calendar_from_storage(struct calendar *cal,
 			if (!timespec_leq(loaded, sb.st_mtim)) continue;
 			int l = strlen(dir->d_name);
 			bool displayname = false;
-			if (!( l >= 4 && strcmp(dir->d_name + l - 4, ".ics") == 0 )) {
+			if (!( l >= 4 && strcmp(dir->d_name + l - 4,
+					".ics") == 0 )) {
 				if (strcmp(dir->d_name, "displayname") == 0) {
 					displayname = true;
-				} else if (strcmp(dir->d_name, "my_private") == 0) {
+				} else if (strcmp(dir->d_name,
+						"my_private") == 0) {
 					cal->priv = true;
 					continue;
 				} else {
@@ -623,14 +639,17 @@ void update_calendar_from_storage(struct calendar *cal,
 			FILE *f = fopen(buf, "rb");
 			asrt(f, "could not open");
 			if (displayname) {
-				asrt(!str_any(&cal->name), "calendar already has name");
+				asrt(!str_any(&cal->name),
+					"calendar already has name");
 				int cnt = fread(buf, 1, 1024, f);
 				asrt(cnt > 0, "meta");
 				cal->name = str_empty;
 				str_append(&cal->name, buf, cnt);
 			} else {
 				if (libical_parse_ics(f, cal) < 0) {
-					fprintf(stderr, "warning: could not parse %s\n", buf);
+					fprintf(stderr,
+						"warning: could not parse %s\n",
+						buf);
 				}
 			}
 			fclose(f);
@@ -670,7 +689,8 @@ int edit_spec_apply_to_storage(struct edit_spec *es,
 		break;
 	case EDIT_METHOD_UPDATE:
 		if (access(path, F_OK) != 0) {
-			fprintf(stderr, "[editor storage] can't access existing file\n");
+			fprintf(stderr, "[editor storage] "
+				"can't access existing file\n");
 			return -1;
 		}
 
@@ -679,12 +699,15 @@ int edit_spec_apply_to_storage(struct edit_spec *es,
 		icalcomponent *root = libical_component_from_file(f);
 		fclose(f);
 
-		/* find the specific component we are interested in, using the uid */
-		icalcomponent *c = icalcomponent_get_first_component(root, type);
+		/* find the specific component we are interested in, using the
+		 * uid */
+		icalcomponent *c =
+			icalcomponent_get_first_component(root, type);
 		while (c) {
 			const char *c_uid = icalcomponent_get_uid(c);
-			if (strcmp(c_uid, str_cstr(&es->uid)) == 0) { // found it
-				/* populate component with new values */
+			if (strcmp(c_uid, str_cstr(&es->uid)) == 0) {
+				/* found it;
+				 * populate component with new values */
 				apply_edit_spec_to_icalcomponent(es, c);
 				break;
 			}
@@ -711,7 +734,8 @@ int edit_spec_apply_to_storage(struct edit_spec *es,
 		icalcomponent *calendar = icalcomponent_vanew(
 			ICAL_VCALENDAR_COMPONENT,
 			icalproperty_new_version("2.0"),
-			icalproperty_new_prodid("-//ABC Corporation//gui_calendar//EN"),
+			icalproperty_new_prodid(
+				"-//ABC Corporation//gui_calendar//EN"),
 			comp,
 			NULL
 		);

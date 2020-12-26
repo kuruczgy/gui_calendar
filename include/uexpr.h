@@ -50,8 +50,10 @@ struct uexpr_value {
 struct uexpr_value uexpr_value_copy(const struct uexpr_value *v);
 void uexpr_value_finish(struct uexpr_value v);
 
-#define UEXPR_BOOLEAN(x) (struct uexpr_value){ .type = UEXPR_TYPE_BOOLEAN, .boolean = (x) }
-#define UEXPR_STRING(x) (struct uexpr_value){ .type = UEXPR_TYPE_STRING, .string_ref = (x) }
+#define UEXPR_BOOLEAN(x) \
+	(struct uexpr_value){ .type = UEXPR_TYPE_BOOLEAN, .boolean = (x) }
+#define UEXPR_STRING(x) \
+	(struct uexpr_value){ .type = UEXPR_TYPE_STRING, .string_ref = (x) }
 
 struct uexpr_ops {
 	void *env;
@@ -68,9 +70,11 @@ int uexpr_parse(struct uexpr *e, FILE *f);
 struct uexpr_ctx *uexpr_ctx_create();
 void uexpr_ctx_set_ops(struct uexpr_ctx *ctx, struct uexpr_ops ops);
 void uexpr_ctx_destroy(struct uexpr_ctx *ctx);
-void uexpr_eval(struct uexpr *e, int root, struct uexpr_ctx *ctx, struct uexpr_value *v_out);
+void uexpr_eval(struct uexpr *e, int root, struct uexpr_ctx *ctx,
+	struct uexpr_value *v_out);
 void uexpr_print(struct uexpr *e, int root, FILE *f);
 void uexpr_finish(struct uexpr *e);
-void uexpr_set_var(struct uexpr_ctx *ctx, const char *key, struct uexpr_value val);
+void uexpr_set_var(struct uexpr_ctx *ctx, const char *key,
+	struct uexpr_value val);
 
 #endif

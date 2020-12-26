@@ -35,7 +35,8 @@ int main(int argc, char **argv) {
 
 		char uid_buf[64];
 		generate_uid(uid_buf);
-		icalcomponent *calendar = icalcomponent_vanew(ICAL_VCALENDAR_COMPONENT,
+		icalcomponent *calendar =
+			icalcomponent_vanew(ICAL_VCALENDAR_COMPONENT,
 			icalproperty_new_version("2.0"),
 			icalproperty_new_prodid("gen"),
 			icalcomponent_vanew(

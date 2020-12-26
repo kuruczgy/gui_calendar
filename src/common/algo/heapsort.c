@@ -24,7 +24,8 @@ static void siftDown(void *a, int start, int end, size_t is,
 
 		if (lt(a + swap * is, a + child * is, cl))
 			swap = child;
-		if (child + 1 <= end && lt(a + swap * is, a + (child + 1) * is, cl))
+		if (child + 1 <= end
+				&& lt(a + swap * is, a + (child + 1) * is, cl))
 			swap = child + 1;
 		if (swap == root) {
 			return;

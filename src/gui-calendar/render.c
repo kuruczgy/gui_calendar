@@ -94,7 +94,8 @@ struct tview_params {
 	bool dir;
 	double pad;
 	double sep_line;
-	/* skip view_ran.fr from the start of each slice, and end at view_ran.to */
+	/* skip view_ran.fr from the start of each slice, and end at
+	 * view_ran.to */
 	struct ts_ran view_ran;
 };
 static void render_tobject(struct app *app,
@@ -183,7 +184,8 @@ static void render_tobject(struct app *app,
 	// 	cairo_set_source_argb(cr, fg);
 	// 	cairo_move_to(cr, x, y);
 	// 	app->tr->p.width = w; app->tr->p.height = h;
-	// 	char *text = text_format("TODO: %s", props_get_summary(obj->ac->ci->p));
+	// 	char *text = text_format("TODO: %s",
+	// 		props_get_summary(obj->ac->ci->p));
 	// 	text_print_free(cr, app->tr, text);
 	// }
 
@@ -193,7 +195,7 @@ static void render_tobject(struct app *app,
 			.t = SR_TEXT,
 			.p = { x, y, w, h },
 			.argb = (color ^ 0x00FFFFFF) | 0xFF000000,
-			.text = { .px = 40, .s = obj->ac->code, .o = SR_CENTER }
+			.text = {.px = 40, .s = obj->ac->code, .o = SR_CENTER}
 		});
 	}
 }
@@ -254,7 +256,8 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		}
 		//- cairo_set_source_argb(ctx->cr, bg);
 		//- cairo_rectangle(ctx->cr, bsl.x, bsl.y, bsl.w, bsl.h);
-		//- if (ctx->level == 1) cairo_rectangle(ctx->cr, bhsl.x, bhsl.y, bhsl.w, bhsl.h);
+		//- if (ctx->level == 1) cairo_rectangle(
+		//-	ctx->cr, bhsl.x, bhsl.y, bhsl.w, bhsl.h);
 		//- cairo_fill(ctx->cr);
 	}
 
@@ -267,7 +270,8 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		next_ctx.dir = !next_ctx.dir;
 		++next_ctx.st;
 		if (next_ctx.st <= SLICING_HOUR) {
-			slicing_iter_items(ctx->s, &next_ctx, render_ran, next_ctx.st, ran);
+			slicing_iter_items(ctx->s, &next_ctx,
+				render_ran, next_ctx.st, ran);
 		}
 	}
 
@@ -275,7 +279,8 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 	// cairo_rectangle(ctx->cr, btop.x, btop.y, btop.w, btop.h);
 	// cairo_clip(ctx->cr);
 
-	if ((ctx->level == 0 && ctx->st < SLICING_HOUR) || ctx->st == SLICING_DAY) {
+	if ((ctx->level == 0 && ctx->st < SLICING_HOUR)
+			|| ctx->st == SLICING_DAY) {
 		/* draw overlapping objects */
 		vec_clear(ctx->tobjs);
 		interval_query(
@@ -287,7 +292,7 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		tobject_layout(ctx->tobjs, NULL);
 		double len = ran.to - ran.fr;
 		for (int i = 0; i < ctx->tobjs->len; ++i) {
-			struct tobject *obj = vec_get(ctx->tobjs, i);;
+			struct tobject *obj = vec_get(ctx->tobjs, i);
 			struct ts_ran time = obj->time;
 
 			time.fr = max_ts(time.fr, ran.fr);
@@ -376,8 +381,10 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 
 		char *text;
 		if (label.t[1] == 0) text = text_format("%d", label.t[0]);
-		else if (label.t[2] == 0) text = text_format("%d-%d", label.t[0], label.t[1]);
-		else text = text_format("%d-%d-%d", label.t[0], label.t[1], label.t[2]);
+		else if (label.t[2] == 0) text = text_format("%d-%d",
+			label.t[0], label.t[1]);
+		else text = text_format("%d-%d-%d",
+			label.t[0], label.t[1], label.t[2]);
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEXT,
 			.p = { bhsl.x, bhsl.y, bhsl.w, bhsl.h },
@@ -611,7 +618,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 	if (has_est) {
 		char *text_dur = format_dur(est);
 		if (text != NULL) {
-			char *text_comb = text_format("%s\n~%s", text, text_dur);
+			char *text_comb =
+				text_format("%s\n~%s", text, text_dur);
 			free(text);
 			text = text_comb;
 		} else {
@@ -627,7 +635,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.argb = t_col,
 			.text = { .px = 10, .s = text, .o = SR_CENTER },
 		});
-		//- text_print_center(cr, app->tr, (box){ b.w - 80, 0, 80, b.h }, text);
+		//- text_print_center(cr, app->tr,
+		//-	(box){ b.w - 80, 0, 80, b.h }, text);
 		free(text);
 	}
 	if (has_cats) {
@@ -647,7 +656,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.text = { .px = 10, .s = str_cstr(&s), .o = SR_CENTER },
 		});
 		//- text_print_vert_center(cr, app->tr,
-		//- 	(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, str_cstr(&s));
+		//- 	(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h },
+		//-	str_cstr(&s));
 		str_free(&s);
 	}
 	if (summary) {
@@ -659,7 +669,7 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.text = { .px = 10, .s = summary, .o = SR_CENTER },
 		});
 		//- text_print_vert_center(cr, app->tr,
-		//- 	(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, summary);
+		//- (box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, summary);
 	}
 	if (desc) {
 		int i = 1 + (has_cats ? 1 : 0);
@@ -799,7 +809,8 @@ bool render_application(void *env, float t) {
 		struct ts_ran view = { a, b };
 		app_update_projections(app);
 		app_use_view(app, view);
-		// fprintf(stderr, "g: %f, t1: %f, view: [%lld, %lld]\n", g, rt.t1, view.fr, view.to);
+		// fprintf(stderr, "g: %f, t1: %f, view: [%lld, %lld]\n", g,
+		// rt.t1, view.fr, view.to);
 
 		enum slicing_type st = SLICING_DAY;
 		ts top_th = 3600 * 24;

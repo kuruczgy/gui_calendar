@@ -30,7 +30,8 @@ void sw_end_print(struct stopwatch sw, const char *msg) {
 	struct timespec to;
 	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &to);
 	unsigned long long int diff =
-		(to.tv_sec - sw.fr.tv_sec)*1000000000ULL + (to.tv_nsec - sw.fr.tv_nsec);
+		(to.tv_sec - sw.fr.tv_sec)*1000000000ULL
+		+ (to.tv_nsec - sw.fr.tv_nsec);
 	double ms = diff / 1e6;
 	fprintf(stderr, "STOPWATCH %0.2fms: %s\n", ms, msg);
 }

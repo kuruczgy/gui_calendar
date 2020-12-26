@@ -3,7 +3,8 @@
 
 #include "uexpr.h"
 
-struct uexpr_value fn_test(void *env, struct uexpr *e, int root, struct uexpr_ctx *ctx) {
+struct uexpr_value fn_test(void *env, struct uexpr *e,
+		int root, struct uexpr_ctx *ctx) {
 	struct uexpr_ast_node *np = vec_get(&e->ast, root);
 
 	fprintf(stderr, "%s called!\n", __func__);

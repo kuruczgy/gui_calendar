@@ -47,7 +47,7 @@ static void print_literal(FILE *f, const char *key, const char *val) {
 
 static void print_vec_str(FILE *f, const struct vec *cats) {
 	for (int i = 0; i < cats->len; ++i) {
-		const struct str *s = vec_get((struct vec*)cats, i); // const cast
+		const struct str *s = vec_get_c(cats, i);
 		fprintf(f, "%s", str_cstr(s));
 		if (i < cats->len - 1) fprintf(f, ",");
 	}

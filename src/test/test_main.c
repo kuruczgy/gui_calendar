@@ -62,9 +62,11 @@ static void test_editor_do(
 	FILE *f = fmemopen((void*)edit, strlen(edit), "r");
 	asrt(f, "");
 	struct edit_spec es;
-	asrt(edit_spec_init_parse(&es, f, zone, 0) == 0, "cant parse edit spec");
+	asrt(edit_spec_init_parse(&es, f, zone, 0) == 0,
+		"cant parse edit spec");
 	fclose(f);
-	asrt(apply_edit_spec_to_calendar(&es, &cal) == 0, "cant apply edit spec");
+	asrt(apply_edit_spec_to_calendar(&es, &cal) == 0,
+		"cant apply edit spec");
 	edit_spec_finish(&es);
 
 	f = fopen("/tmp/test_cal/uid.ics", "r");

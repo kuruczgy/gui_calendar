@@ -22,24 +22,24 @@ struct edit_spec {
 
 	/* this specifies the action
 	 * CREATE:
-	 *	 IF uid is empty, create a brand new component
-	 *	 IF uid is specified, recurrence_id must be valid, but the recurrence
-	 *	 set must not contain it. add an RDATE, and create the special
-	 *	 instance
-	 *	 ACTION: set all props from p
+	 *  IF uid is empty, create a brand new component
+	 *  IF uid is specified, recurrence_id must be valid, but the
+	 *  recurrence set must not contain it. add an RDATE, and create the
+	 *  special instance
+	 *  ACTION: set all props from p
 	 * UPDATE:
-	 *	 uid must not be empty
-	 *	 IF recurrence_id is invalid, update the base instance
-	 *	 IF recurrence_id is valid, update the special instance (possibly
-	 *	 creating it). recurrence_id must be contained in the recurrence set
-	 *	 `update` member is valid
-	 *	 ACTION: update all props from p
-	 *	 ACTION: remove all props in rem
+	 *  uid must not be empty
+	 *  IF recurrence_id is invalid, update the base instance
+	 *  IF recurrence_id is valid, update the special instance (possibly
+	 *  creating it). recurrence_id must be contained in the recurrence set
+	 *  `update` member is valid
+	 *  ACTION: update all props from p
+	 *  ACTION: remove all props in rem
 	 * DELETE:
-	 *	 uid must not be empty
-	 *	 IF recurrence_id is invalid, delete the entire recurrence set
-	 *	 IF recurrence_id is valid, delete the special instance if it exists,
-	 *	 and add an EXDATE to the recurrence set
+	 *  uid must not be empty
+	 *  IF recurrence_id is invalid, delete the entire recurrence set
+	 *  IF recurrence_id is valid, delete the special instance if it
+	 *  exists, and add an EXDATE to the recurrence set
 	 */
 	enum edit_method method;
 

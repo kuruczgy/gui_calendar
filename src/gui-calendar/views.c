@@ -39,7 +39,8 @@ int get_or_create(struct slicing *s, enum hlevel lev, struct ts_ran ran) {
 	for (int i = 0; i < v->len; ++i) {
 		struct item *item = vec_get(v, i);
 		if (item->ran.fr == ran.fr) {
-			asrt(item->ran.to == ran.to, "[slicing] ran.to does not match");
+			asrt(item->ran.to == ran.to,
+				"[slicing] ran.to does not match");
 			return i;
 		}
 	}
@@ -73,7 +74,8 @@ static void iter_items(struct slicing *s, struct iter *iter,
 
 	if (item->n == -1) {
 		/* b: the start of this range */
-		struct simple_date b = simple_date_from_ts(item->ran.fr, s->zone);
+		struct simple_date b =
+			simple_date_from_ts(item->ran.fr, s->zone);
 		switch (lev) { /* all of these FALLTHROUGH */
 		default: asrt(false, "[slicing] bad lev");
 		case YEAR: asrt(b.t[1] == 1, "[slicing] year");
@@ -84,7 +86,8 @@ static void iter_items(struct slicing *s, struct iter *iter,
 
 		if (lev == YEAR) item->n = 12;
 		else if (lev == MONTH) item->n = simple_date_days_in_month(b);
-		else if (lev == DAY) item->n = -1; /* could be a 23 or 25 hour day */
+		else if (lev == DAY)
+			item->n = -1; /* could be a 23 or 25 hour day */
 		asrt(item->n <= 31, "");
 		for (int i = 0;; ++i) {
 			struct simple_date bi = b;
@@ -101,7 +104,8 @@ static void iter_items(struct slicing *s, struct iter *iter,
 					asrt(item->n == i, "item n mismatch");
 				} else {
 					asrt(lev == DAY, "");
-					asrt(23 <= i && i <= 25, "bad day item n");
+					asrt(23 <= i && i <= 25,
+						"bad day item n");
 					item->n = i;
 				}
 				break;
@@ -113,8 +117,8 @@ static void iter_items(struct slicing *s, struct iter *iter,
 			r.to = simple_date_to_ts(bi, s->zone);
 
 			if (r.fr == r.to) {
-				/* invalid range, we got a zero length hour brought to you by
-				 * our dear friend DST */
+				/* invalid range, we got a zero length hour
+				 * brought to you by our dear friend DST */
 				asrt(lev == DAY, "");
 				++adj;
 				--i;
@@ -136,7 +140,8 @@ static void iter_items(struct slicing *s, struct iter *iter,
 	}
 }
 void slicing_iter_items(struct slicing *s, void *env,
-		void (*f)(void *env, struct ts_ran ran, struct simple_date label),
+		void (*f)(void *env, struct ts_ran ran,
+			struct simple_date label),
 		enum slicing_type type, struct ts_ran ran) {
 	struct iter iter = { .env = env, .f = f, .ran = ran };
 	switch (type) {
@@ -184,7 +189,8 @@ void tobject_layout(struct vec *tobjs, int *max_overlap) {
 		obj->max_n = l->max_n;
 		obj->col = l->col;
 		if (max_overlap) {
-			if (obj->max_n > *max_overlap) *max_overlap = obj->max_n;
+			if (obj->max_n > *max_overlap)
+				*max_overlap = obj->max_n;
 		}
 	}
 	vec_free(&la);

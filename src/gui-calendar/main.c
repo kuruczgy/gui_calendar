@@ -17,7 +17,8 @@ int main(int argc, char **argv) {
 	const char *help =
 		"-h: show this help\n"
 		"-p: show private events by default\n"
-		"-d I: set calendar I to be visible by default. (1 based index)\n"
+		"-d I: set calendar I to be visible by default."
+			" (1 based index)\n"
 		"-v N: set the number of visible days to N\n"
 		"-e E: set editor command to E\n"
 		"-t T: set terminal command to T\n"

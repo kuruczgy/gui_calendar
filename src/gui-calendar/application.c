@@ -195,7 +195,8 @@ static void app_switch_mode_select(struct app *app) {
 		key_gen_init(app->active_todos.v.len, &g);
 		app->mode_select_len = g.k;
 		for (int i = 0; i < app->active_todos.v.len; ++i) {
-			struct active_comp *ac = vec_get(&app->active_todos.v, i);
+			struct active_comp *ac =
+				vec_get(&app->active_todos.v, i);
 			const char *code = key_gen_get(&g);
 			asrt(code, "not enough codes");
 			strcpy(ac->code, code);
@@ -230,7 +231,8 @@ static void app_switch_mode_select(struct app *app) {
 //		 bool has_est = props_get_estimated_duration(ac->ci->p, &est);
 //		 if (has_est) {
 //			 struct schedule_todo st = {
-//				 .start = has_start ? start : -1, .estimated_duration = est };
+//				 .start = has_start ? start : -1,
+//				 .estimated_duration = est };
 //			 vec_append(&T, &st);
 //			 vec_append(&acs, &ac);
 //		 }
@@ -312,7 +314,8 @@ static void proj_active_events_add(void *_self, struct proj_item pi) {
 
 	rb_insert(&self->unprocessed, &ac->node.node);
 }
-static void proj_active_events_clear_ac_iter_free(void *env, struct rb_node *x) {
+static void proj_active_events_clear_ac_iter_free(void *env,
+		struct rb_node *x) {
 	struct interval_node *nx = container_of(x, struct interval_node, node);
 	struct active_comp *ac = container_of(nx, struct active_comp, node);
 	free(ac);
@@ -615,7 +618,8 @@ static void app_mode_select_finish(struct app *app) {
 		}
 	} else if (app->main_view == VIEW_TODO) {
 		for (int i = 0; i < app->active_todos.v.len; ++i) {
-			struct active_comp *aci = vec_get(&app->active_todos.v, i);
+			struct active_comp *aci =
+				vec_get(&app->active_todos.v, i);
 			if (strncmp(aci->code, app->mode_select_code,
 					app->mode_select_code_n) == 0) {
 				fprintf(stderr, "selected comp: %s\n",
@@ -658,7 +662,8 @@ static void app_mode_select_finish(struct app *app) {
 				app_invalidate_calendars(app);
 				app->dirty = true;
 			} else {
-				fprintf(stderr, "[editor] error: could not save edit\n");
+				fprintf(stderr, "[editor] "
+					"error: could not save edit\n");
 			}
 
 			edit_spec_finish(&es);
@@ -891,21 +896,27 @@ static void application_handle_input(void *ud, struct mgu_input_event_args ev) {
 	if (ev.t & MGU_TOUCH) {
 		const double *p = ev.touch.down_or_move.p;
 		if (ev.t & MGU_DOWN) {
-			libtouch_surface_down(app->touch_surf, ev.time, ev.touch.id,
-				(float[]){ p[0], p[1] });
+			libtouch_surface_down(app->touch_surf, ev.time,
+				ev.touch.id, (float[]){ p[0], p[1] });
 			for (int i = 0; i < app->tap_areas.len; ++i) {
-				struct tap_area *ta = vec_get(&app->tap_areas, i);
-				if (p[0] >= ta->aabb[0] && p[0] < ta->aabb[0] + ta->aabb[2]
-						&& p[1] >= ta->aabb[1] && p[1] < ta->aabb[1] + ta->aabb[3]) {
-					struct action *act = vec_get(&app->actions, ta->action_idx);
+				struct tap_area *ta =
+					vec_get(&app->tap_areas, i);
+				if (p[0] >= ta->aabb[0]
+					&& p[0] < ta->aabb[0] + ta->aabb[2]
+					&& p[1] >= ta->aabb[1]
+					&& p[1] < ta->aabb[1] + ta->aabb[3]) {
+					struct action *act =
+						vec_get(&app->actions,
+						ta->action_idx);
 					run_action(app, act);
 				}
 			}
 		} else if (ev.t & MGU_MOVE) {
-			libtouch_surface_motion(app->touch_surf, ev.time, ev.touch.id,
-				(float[]){ p[0], p[1] });
+			libtouch_surface_motion(app->touch_surf, ev.time,
+				ev.touch.id, (float[]){ p[0], p[1] });
 		} else if (ev.t & MGU_UP) {
-			libtouch_surface_up(app->touch_surf, ev.time, ev.touch.id);
+			libtouch_surface_up(app->touch_surf, ev.time,
+				ev.touch.id);
 		}
 		app->dirty = true;
 	}
@@ -1133,7 +1144,8 @@ int app_add_cal(struct app *app, const char *path) {
 	vec_append(&app->cals, &cal);
 	return vec_append(&app->cal_infos, &cal_info);
 }
-void app_add_uexpr_filter(struct app *app, const char *key, int def_cal, int uexpr_fn) {
+void app_add_uexpr_filter(struct app *app, const char *key,
+		int def_cal, int uexpr_fn) {
 	struct filter f = {
 		.desc = str_new_from_cstr(key),
 		.def_cal = def_cal,

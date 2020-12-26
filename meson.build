@@ -176,6 +176,12 @@ if prog_valgrind.found()
   endforeach
 endif
 
+test(
+  'test-lint',
+  files('scripts/lint.sh'),
+  workdir: meson.project_source_root(),
+)
+
 # executable(
 #   'fuzz-editor',
 #   'src/tests/fuzz_editor.c',
@@ -207,7 +213,11 @@ endif
 
 prog_markdown = find_program('md2html', required: false)
 if prog_markdown.found()
-  foreach md : [ 'Documentation/interface.md', 'Documentation/bugs.md' ]
+  foreach md : [
+    'README.md',
+    'Documentation/interface.md',
+    'Documentation/bugs.md',
+  ]
     basename = md.split('.')[-2].split('/')[-1]
     output = basename + '.html'
     message('making target:', output)
