@@ -166,12 +166,19 @@ static bool ical_class_to_prop_class(icalproperty_class ical_class,
 	}
 	return true;
 }
-static bool ical_reltype_to_prop_reltype(icalparameter_reltype ical_reltype,
+static bool ical_reltype_to_prop_reltype(icalparameter *param,
 		enum prop_reltype *s) {
+	icalparameter_reltype ical_reltype = icalparameter_get_reltype(param);
 	switch (ical_reltype) {
 	case ICAL_RELTYPE_PARENT: *s = PROP_RELTYPE_PARENT; break;
 	case ICAL_RELTYPE_CHILD: *s = PROP_RELTYPE_CHILD; break;
 	case ICAL_RELTYPE_SIBLING: *s = PROP_RELTYPE_SIBLING; break;
+	case ICAL_RELTYPE_X: ;
+		const char *text = icalparameter_get_xvalue(param);
+		if (strcmp(text, "DEPENDS-ON") == 0) {
+			*s = PROP_RELTYPE_DEPENDS_ON;
+			break;
+		}
 	default: return false;
 	}
 	return true;
@@ -201,14 +208,23 @@ static enum icalproperty_class prop_class_to_ical_class(enum prop_class class) {
 	}
 	return ICAL_CLASS_NONE;
 }
-static enum icalparameter_reltype prop_reltype_to_ical_reltype(
+static icalparameter * prop_reltype_to_ical_reltype(
 		enum prop_reltype reltype) {
+	enum icalparameter_reltype t;
+	icalparameter *param = icalparameter_new(ICAL_RELTYPE_PARAMETER);
 	switch (reltype) {
-	case PROP_RELTYPE_PARENT: return ICAL_RELTYPE_PARENT;
-	case PROP_RELTYPE_CHILD: return ICAL_RELTYPE_CHILD;
-	case PROP_RELTYPE_SIBLING: return ICAL_RELTYPE_SIBLING;
+	case PROP_RELTYPE_PARENT: t = ICAL_RELTYPE_PARENT; break;
+	case PROP_RELTYPE_CHILD: t = ICAL_RELTYPE_CHILD; break;
+	case PROP_RELTYPE_SIBLING: t = ICAL_RELTYPE_SIBLING; break;
+	case PROP_RELTYPE_DEPENDS_ON:
+		t = ICAL_RELTYPE_X;
+		icalparameter_set_xvalue(param, "DEPENDS-ON");
+		break;
 	}
-	return ICAL_RELTYPE_NONE;
+	if (t != ICAL_RELTYPE_X) {
+		icalparameter_set_reltype(param, t);
+	}
+	return param;
 }
 
 static void assign_val(icalcomponent *c, enum icalproperty_kind kind,
@@ -325,8 +341,8 @@ static void comp_assign_related_to(icalcomponent *ic,
 			const struct prop_related_to *rel = vec_get_c(src, i);
 			icalproperty *p = icalproperty_new_relatedto(
 				str_cstr(&rel->uid));
-			icalparameter *param = icalparameter_new_reltype(
-				prop_reltype_to_ical_reltype(rel->reltype));
+			icalparameter *param =
+				prop_reltype_to_ical_reltype(rel->reltype);
 			icalproperty_add_parameter(p, param);
 			icalcomponent_add_property(ic, p);
 		}
@@ -457,10 +473,8 @@ static void props_init_from_ical(struct props *p, icalcomponent *ic) {
 		const char *text = icalproperty_get_relatedto(ip);
 		icalparameter *param = icalproperty_get_first_parameter(ip,
 			ICAL_RELTYPE_PARAMETER);
-		icalparameter_reltype reltype =
-			icalparameter_get_reltype(param);
 		struct prop_related_to rel = { 0 };
-		if (!ical_reltype_to_prop_reltype(reltype, &rel.reltype))
+		if (!ical_reltype_to_prop_reltype(param, &rel.reltype))
 			continue;
 		rel.uid = str_new_from_cstr(text);
 		vec_append(&rels, &rel);

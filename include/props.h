@@ -23,6 +23,7 @@ enum prop_reltype {
 	PROP_RELTYPE_PARENT,
 	PROP_RELTYPE_CHILD,
 	PROP_RELTYPE_SIBLING,
+	PROP_RELTYPE_DEPENDS_ON,
 };
 struct prop_related_to {
 	enum prop_reltype reltype;

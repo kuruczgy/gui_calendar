@@ -268,6 +268,8 @@ static bool cal_parse_reltype(struct str_slice s, enum prop_reltype *reltype) {
 		*reltype = PROP_RELTYPE_CHILD;
 	} else if (strncmp(s.d, "sibling", s.len) == 0) {
 		*reltype = PROP_RELTYPE_SIBLING;
+	} else if (strncmp(s.d, "dep", s.len) == 0) {
+		*reltype = PROP_RELTYPE_DEPENDS_ON;
 	} else {
 		return false;
 	}
@@ -602,9 +604,9 @@ void test_editor_parser() {
 
 	edit_spec_init(&es);
 	es.type = COMP_TYPE_TODO;
-	test_prop(&s, "rel parent:a,child:b,sibling:c", &es);
+	test_prop(&s, "rel parent:a,child:b,sibling:c,dep:d", &es);
 	const struct vec *rels = props_get_related_to(&es.p);
-	asrt(rels->len == 3, "");
+	asrt(rels->len == 4, "");
 
 	const struct prop_related_to *rel;
 
@@ -619,6 +621,10 @@ void test_editor_parser() {
 	rel = vec_get_c(rels, 2);
 	asrt(rel->reltype == PROP_RELTYPE_SIBLING, "");
 	asrt(strcmp(str_cstr(&rel->uid), "c") == 0, "");
+
+	rel = vec_get_c(rels, 3);
+	asrt(rel->reltype == PROP_RELTYPE_DEPENDS_ON, "");
+	asrt(strcmp(str_cstr(&rel->uid), "d") == 0, "");
 
 	edit_spec_finish(&es);
 

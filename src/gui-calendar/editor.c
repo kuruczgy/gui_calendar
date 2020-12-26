@@ -33,6 +33,7 @@ const char * cal_reltype_str(enum prop_reltype v) {
 	case PROP_RELTYPE_PARENT: return "parent";
 	case PROP_RELTYPE_CHILD: return "child";
 	case PROP_RELTYPE_SIBLING: return "sibling";
+	case PROP_RELTYPE_DEPENDS_ON: return "dep";
 	default: return "";
 	}
 }
