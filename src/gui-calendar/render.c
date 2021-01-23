@@ -740,11 +740,11 @@ static void render_todo_list(struct app *app, box b) {
 	}
 }
 
-bool render_application(void *env, float t) {
+bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 	struct app *app = env;
 
 	/* check whether we need to render */
-	int w = app->win->size[0], h = app->win->size[1];
+	int w = surf->size[0], h = surf->size[1];
 	ts now = ts_now();
 	if (app->now != now) {
 		app->now = now;
@@ -888,7 +888,7 @@ bool render_application(void *env, float t) {
 
 	float proj[9];
 	mat3_ident(proj);
-	mat3_proj(proj, app->win->size);
+	mat3_proj(proj, (int[]){ surf->size[0], surf->size[1] });
 	sr_present(app->sr, proj);
 
 	app->dirty = false;

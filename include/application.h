@@ -8,7 +8,7 @@
 #include "datetime.h"
 #include "views.h"
 #include "uexpr.h"
-#include "loop.h"
+#include <platform_utils/event_loop.h>
 
 struct calendar_info {
 	uint32_t color;
@@ -149,9 +149,9 @@ struct app {
 
 	struct vec actions; /* vec<struct action> */
 
-	struct mgu_win *win;
+	struct mgu_win_surf *win;
 	struct sr *sr;
-	struct loop *loop;
+	struct event_loop *event_loop;
 	int alarm_timerfd;
 };
 
@@ -186,7 +186,7 @@ bool cal_uexpr_get(void *_env, const char *key, struct uexpr_value *v);
 bool cal_uexpr_set(void *env, const char *key, struct uexpr_value v);
 
 void app_init(struct app *app, struct application_options opts,
-	struct mgu_win *win);
+	struct platform *plat, struct mgu_win_surf *win);
 void app_main(struct app *app);
 void app_finish(struct app *app);
 

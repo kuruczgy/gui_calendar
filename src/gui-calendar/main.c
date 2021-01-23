@@ -2,8 +2,12 @@
 #include "util.h"
 #include "config.h"
 #include <unistd.h>
+#include <platform_utils/main.h>
 
-int main(int argc, char **argv) {
+void platform_main(struct platform *plat) {
+	int argc = plat->argc;
+	char **argv = plat->argv;
+
 	struct application_options opts = {
 		.show_private_events = false,
 		.default_vis = 0,
@@ -29,7 +33,7 @@ int main(int argc, char **argv) {
 		switch (opt) {
 		case 'h':
 			fprintf(stdout, help);
-			exit(0);
+			exit(EXIT_SUCCESS);
 		case 'p':
 			opts.show_private_events = true;
 			break;
@@ -37,7 +41,7 @@ int main(int argc, char **argv) {
 			d = atoi(optarg) - 1;
 			if (d < 0 || d >= 16) {
 				fprintf(stderr, "bad -d option index");
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			opts.default_vis |= (1U << d);
 			break;
@@ -62,21 +66,19 @@ int main(int argc, char **argv) {
 	opts.argv = argv + optind;
 
 	struct mgu_disp disp = { 0 };
-	struct mgu_win win = { 0 };
-	mgu_disp_init(&disp);
-	mgu_win_init(&win, &disp, CONFIG_TITLE);
+	mgu_disp_init(&disp, plat);
+	struct mgu_win_surf *win =
+		mgu_disp_add_surf_default(&disp, CONFIG_TITLE);
+	if (!win) exit(EXIT_FAILURE);
 
 	struct app app;
-	app_init(&app, opts, &win);
+	app_init(&app, opts, plat, win);
 	app_main(&app);
 	app_finish(&app);
 
-	mgu_win_finish(&win);
 	mgu_disp_finish(&disp);
 
 	free(opts.editor);
 	free(opts.terminal);
 	free(opts.config_file);
-
-	return 0;
 }

@@ -106,7 +106,7 @@ static void application_handle_child(struct app *app, int pidfd);
 static void subprocess_pidfd_cb(void *env, struct pollfd pfd) {
 	struct app *app = env;
 	if (pfd.revents & POLLIN) {
-		loop_remove(app->loop, pfd.fd);
+		event_loop_remove_fd(app->event_loop, pfd.fd);
 		application_handle_child(app, pfd.fd);
 	}
 }
@@ -117,8 +117,10 @@ void app_cmd_launch_editor(struct app *app, struct active_comp *ac) {
 		struct str *s = vec_get(&app->editor_args, 0);
 		app->sp = subprocess_new_input(str_cstr(s),
 			args, &print_template_callback, &cl);
-		if (app->sp) loop_add(app->loop, app->sp->pidfd, POLLIN, app,
-			subprocess_pidfd_cb);
+		if (app->sp) {
+			event_loop_add_fd(app->event_loop, app->sp->pidfd,
+				POLLIN, app, subprocess_pidfd_cb);
+		}
 		free(args);
 	}
 }
@@ -128,8 +130,10 @@ static void app_launch_editor_str(struct app *app, const struct str *str) {
 		struct str *s = vec_get(&app->editor_args, 0);
 		app->sp = subprocess_new_input(str_cstr(s),
 			args, &print_str_callback, (void*)str);
-		if (app->sp) loop_add(app->loop, app->sp->pidfd, POLLIN, app,
-			subprocess_pidfd_cb);
+		if (app->sp) {
+			event_loop_add_fd(app->event_loop, app->sp->pidfd,
+				POLLIN, app, subprocess_pidfd_cb);
+		}
 		free(args);
 	}
 }
@@ -147,8 +151,10 @@ void app_cmd_launch_editor_new(struct app *app, enum comp_type t) {
 		const char **args = new_editor_args(app);
 		struct str *s = vec_get(&app->editor_args, 0);
 		app->sp = subprocess_new_input(str_cstr(s), args, cb, app);
-		if (app->sp) loop_add(app->loop, app->sp->pidfd, POLLIN, app,
-			subprocess_pidfd_cb);
+		if (app->sp) {
+			event_loop_add_fd(app->event_loop, app->sp->pidfd,
+				POLLIN, app, subprocess_pidfd_cb);
+		}
 		free(args);
 	}
 }
@@ -589,6 +595,11 @@ void app_use_view(struct app *app, struct ts_ran view) {
 	proj_active_events_process(&app->active_events, view);
 }
 
+static void app_mark_dirty(struct app *app) {
+	app->dirty = true;
+	mgu_win_surf_mark_dirty(app->win);
+}
+
 struct ac_iter_find_code_env {
 	struct app *app;
 	struct active_comp *res;
@@ -605,7 +616,7 @@ static void ac_iter_find_code(void *_env, struct rb_node *x) {
 }
 static void app_mode_select_finish(struct app *app) {
 	app->keystate = KEYSTATE_BASE;
-	app->dirty = true;
+	app_mark_dirty(app);
 	struct active_comp *ac = NULL;
 	if (app->main_view == VIEW_CALENDAR) {
 		struct ac_iter_find_code_env env = { app, NULL };
@@ -660,7 +671,7 @@ static void app_mode_select_finish(struct app *app) {
 
 			if (apply_edit_spec_to_calendar(&es, ac->cal) == 0) {
 				app_invalidate_calendars(app);
-				app->dirty = true;
+				app_mark_dirty(app);
 			} else {
 				fprintf(stderr, "[editor] "
 					"error: could not save edit\n");
@@ -693,7 +704,7 @@ void app_cmd_move_view_discrete(struct app *app, int n) {
 	simple_date_normalize(&sd);
 	app->view.to = simple_date_to_ts(sd, app->zone);
 
-	app->dirty = true;
+	app_mark_dirty(app);
 }
 void app_cmd_editor(struct app *app, FILE *in) {
 	struct str in_s = str_empty;
@@ -738,7 +749,7 @@ void app_cmd_editor(struct app *app, FILE *in) {
 	/* apply edit */
 	if (apply_edit_spec_to_calendar(&es, cal) == 0) {
 		app_invalidate_calendars(app);
-		app->dirty = true;
+		app_mark_dirty(app);
 	} else {
 		fprintf(stderr, "[editor] error: could not save edit\n");
 		app_launch_editor_str(app, &in_s); /* relaunch editor */
@@ -761,13 +772,13 @@ void app_cmd_activate_filter(struct app *app, int n) {
 			app->current_filter = n;
 		}
 		app_invalidate_calendars(app);
-		app->dirty = true;
+		app_mark_dirty(app);
 	}
 }
 void app_cmd_view_today(struct app *app, int n) {
 	app->view.fr = ts_get_day_base(app->now, app->zone, true);
 	app->view.to = app->view.fr + 3600 * 24 * 7;
-	app->dirty = true;
+	app_mark_dirty(app);
 }
 void app_cmd_toggle_show_private(struct app *app, int n) {
 	// TODO
@@ -775,16 +786,16 @@ void app_cmd_toggle_show_private(struct app *app, int n) {
 void app_cmd_switch_view(struct app *app, int n) {
 	if (n == -1) {
 		app->main_view = (app->main_view + 1) % VIEW_N;
-		app->dirty = true;
+		app_mark_dirty(app);
 	} else if (0 <= n && n < VIEW_N) {
 		app->main_view = n;
-		app->dirty = true;
+		app_mark_dirty(app);
 	}
 }
 void app_cmd_select_comp_uexpr(struct app *app, int uexpr_fn) {
 	app_switch_mode_select(app);
 	app->mode_select_uexpr_fn = uexpr_fn;
-	app->dirty = true;
+	app_mark_dirty(app);
 }
 
 static void run_action(struct app *app, struct action *act) {
@@ -813,7 +824,7 @@ static void handle_key(struct app *app, uint32_t key) {
 			app_mode_select_append_sym(app, key_get_sym(key));
 		} else {
 			app->keystate = KEYSTATE_BASE;
-			app->dirty = true;
+			app_mark_dirty(app);
 		}
 		break;
 	case KEYSTATE_BASE:
@@ -867,7 +878,7 @@ static void handle_key(struct app *app, uint32_t key) {
 		}
 		if (update) {
 			// app_update_active_objects(app);
-			app->dirty = true;
+			app_mark_dirty(app);
 		}
 		app->keystate = KEYSTATE_BASE;
 		break;
@@ -886,7 +897,8 @@ static void application_handle_child(struct app *app, int pidfd) {
 	}
 }
 
-static void application_handle_input(void *ud, struct mgu_input_event_args ev) {
+static void application_handle_input(void *ud, struct mgu_win_surf *surf,
+		struct mgu_input_event_args ev) {
 	struct app *app = ud;
 	if (ev.t & MGU_KEYBOARD) {
 		if (ev.t & MGU_DOWN) {
@@ -918,7 +930,7 @@ static void application_handle_input(void *ud, struct mgu_input_event_args ev) {
 			libtouch_surface_up(app->touch_surf, ev.time,
 				ev.touch.id);
 		}
-		app->dirty = true;
+		app_mark_dirty(app);
 	}
 }
 
@@ -928,8 +940,9 @@ static const char * get_comp_color(void *ptr) {
 	return props_get_color(&c->p);
 }
 
-static void touch_end(void *env, struct libtouch_rt rt) {
+static void touch_end(void *env, struct libtouch_gesture_data data) {
 	struct app *app = env;
+	struct libtouch_rt rt = data.rt;
 
 	// TODO: code duplication
 	float g = libtouch_rt_scaling(&rt);
@@ -941,15 +954,8 @@ static void touch_end(void *env, struct libtouch_rt rt) {
 	app->view = view;
 }
 
-static void disp_dispatch(void *env, struct pollfd pfd) {
-	struct app *app = env;
-	if (pfd.revents & POLLIN) {
-		mgu_disp_dispatch(app->win->disp);
-		if (app->win->req_close) loop_stop(app->loop);
-	}
-}
 void app_init(struct app *app, struct application_options opts,
-		struct mgu_win *win) {
+		struct platform *plat, struct mgu_win_surf *win) {
 	struct stopwatch sw = sw_start();
 
 	*app = (struct app){
@@ -1040,39 +1046,42 @@ void app_init(struct app *app, struct application_options opts,
 	app->touch_area = libtouch_surface_add_area(
 		app->touch_surf,
 		app->touch_aabb,
-		LIBTOUCH_TSR,
-		(struct libtouch_area_ops){ .env = app, .end = touch_end }
+		(struct libtouch_area_opts){
+			.g = LIBTOUCH_TSR,
+			.env = app,
+			.end = touch_end
+		}
 	);
 
 	app->slicing = slicing_create(app->zone);
 
 	app->win->disp->seat.cb = (struct mgu_seat_cb){
 		.env = app, .f = application_handle_input };
-	app->win->render_cb = (struct mgu_render_cb){
+	app->win->disp->render_cb = (struct mgu_render_cb){
 		.env = app, .f = render_application };
 
-	app->sr = sr_create_opengl();
+	app->sr = sr_create_opengl(plat);
 
-	app->loop = loop_create();
-	loop_add(app->loop, mgu_disp_get_fd(app->win->disp),
-		POLLIN, app, disp_dispatch);
+	app->event_loop = event_loop_create(plat);
+	mgu_disp_add_to_event_loop(app->win->disp, app->event_loop);
 
 	app->alarm_timerfd = timerfd_create(CLOCK_REALTIME,
 		TFD_NONBLOCK | TFD_CLOEXEC);
-	loop_add(app->loop, app->alarm_timerfd, POLLIN, app, alarm_cb);
+	event_loop_add_fd(app->event_loop, app->alarm_timerfd,
+		POLLIN, app, alarm_cb);
 
-	app->dirty = true;
+	app_mark_dirty(app);
 	sw_end_print(sw, "initialization");
 }
 
 void app_main(struct app *app) {
-	loop_run(app->loop);
+	event_loop_run(app->event_loop);
 }
 
 void app_finish(struct app *app) {
 	close(app->alarm_timerfd);
 
-	loop_destroy(app->loop);
+	event_loop_destroy(app->event_loop);
 
 	sr_destroy(app->sr);
 
