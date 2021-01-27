@@ -19,6 +19,7 @@ struct cal_timezone *cal_timezone_new(const char *location) {
 	asrt(zone->impl, "icaltimezone_get_builtin_timezone failed\n");
 
 	const char *tznames = icaltimezone_get_tznames(zone->impl);
+	if (!tznames) tznames = "?";
 	int l = strlen(location) + strlen(tznames) + 4;
 	char *buf = malloc(l);
 	snprintf(buf, l, "%s (%s)", location, tznames);

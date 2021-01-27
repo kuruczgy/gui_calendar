@@ -136,7 +136,7 @@ static struct uexpr_value fn_add_action(void *_env, struct uexpr *e,
 
 	struct uexpr_ast_node np =
 		*(struct uexpr_ast_node *)vec_get(&e->ast, root);
-	if (np.args.len < 2 && np.args.len > 3) return error_val;
+	if (np.args.len < 2 || np.args.len > 3) return error_val;
 
 	struct action act = { .label = str_new_empty(), .cond.view = VIEW_N };
 

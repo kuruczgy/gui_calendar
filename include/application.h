@@ -152,7 +152,7 @@ struct app {
 	struct mgu_win_surf *win;
 	struct sr *sr;
 	struct event_loop *event_loop;
-	int alarm_timerfd;
+	struct event_loop_timer alarm_timer;
 };
 
 struct application_options {
@@ -162,8 +162,6 @@ struct application_options {
 	char *editor;
 	char *terminal;
 	char *config_file;
-	int argc;
-	char **argv;
 };
 
 void update_actual_fit();

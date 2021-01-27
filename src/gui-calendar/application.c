@@ -1,10 +1,10 @@
+#include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
-#include <unistd.h>
-#include <sys/poll.h>
-#include <sys/timerfd.h>
+#include <platform_utils/log.h>
+#include <platform_utils/assets.h>
 
 #include "application.h"
 #include "core.h"
@@ -13,6 +13,8 @@
 #include "keyboard.h"
 #include "render.h"
 #include "editor.h"
+
+pu_assets_declare(default_uexpr)
 
 /* provides a partial ordering over todos; implements the a < b comparison */
 static bool todo_priority_cmp(
@@ -456,29 +458,21 @@ static void proj_alarm_done(void *_self) {
 		self->next = alc;
 		fprintf(stderr, "next alarm at: %lld [now: %ld], %s\n",
 			n->val, now.tv_sec, props_get_summary(alc->ci->p));
-		struct itimerspec spec = { .it_value = { .tv_sec = n->val } };
-		asrt(timerfd_settime(self->app->alarm_timerfd,
-			TFD_TIMER_ABSTIME, &spec, NULL) == 0,
-			"timerfd_settime");
+		struct timespec ts = { .tv_sec = n->val };
+		event_loop_timer_set_abs(&self->app->alarm_timer, ts);
 	} else {
 		fprintf(stderr, "no next alarm [now: %ld]\n", now.tv_sec);
 	}
 }
-static void alarm_cb(void *env, struct pollfd pfd) {
+static void alarm_cb(void *env) {
 	struct app *app = env;
-	if (pfd.revents & POLLIN) {
-		uint64_t exp;
-		asrt(read(app->alarm_timerfd, &exp, sizeof(exp))
-			== sizeof(exp), "read timerfd");
-		asrt(exp > 0, "");
-		struct alarm_comp *alc = app->alarm_comps.next;
-		asrt(alc, "alarm next");
-		const char *summary = props_get_summary(alc->ci->p);
-		fprintf(stderr, "ALARM for %s\n", summary);
-		const char *argv[] = { "-", summary, NULL };
-		subprocess_shell(app->alarm_comps.shell_cmd, argv);
-		proj_alarm_done(&app->alarm_comps);
-	}
+	struct alarm_comp *alc = app->alarm_comps.next;
+	asrt(alc, "alarm next");
+	const char *summary = props_get_summary(alc->ci->p);
+	fprintf(stderr, "ALARM for %s\n", summary);
+	const char *argv[] = { "-", summary, NULL };
+	subprocess_shell(app->alarm_comps.shell_cmd, argv);
+	proj_alarm_done(&app->alarm_comps);
 }
 static void proj_alarm_clear_alc_iter_free(void *env, struct rb_node *x) {
 	struct rb_integer_node *nx =
@@ -708,7 +702,7 @@ void app_cmd_move_view_discrete(struct app *app, int n) {
 }
 void app_cmd_editor(struct app *app, FILE *in) {
 	struct str in_s = str_empty;
-	char c;
+	int c;
 	while ((c = getc(in)) != EOF) str_append_char(&in_s, c);
 	fclose(in);
 
@@ -734,7 +728,7 @@ void app_cmd_editor(struct app *app, FILE *in) {
 	}
 
 	/* determine calendar */
-	struct calendar *cal;
+	struct calendar *cal = NULL;
 	if (es.calendar_num > 0) {
 		if (es.calendar_num >= 1 && es.calendar_num <= app->cals.len) {
 			cal = vec_get(&app->cals, es.calendar_num - 1);
@@ -996,18 +990,28 @@ void app_init(struct app *app, struct application_options opts,
 	fclose(f);
 	asrt(app->uexpr_builtin_fn != -1, "builtin_expr parsing failed");
 
+	struct cal_uexpr_env env = {
+		.app = app,
+		.kind = CAL_UEXPR_CONFIG,
+	};
+	struct uexpr_ops ops = {
+		.env = &env,
+		.try_get_var = cal_uexpr_get,
+		.try_set_var = cal_uexpr_set
+	};
+	uexpr_ctx_set_ops(app->uexpr_ctx, ops);
 	if (opts.config_file) {
-		struct cal_uexpr_env env = {
-			.app = app,
-			.kind = CAL_UEXPR_CONFIG,
-		};
-		struct uexpr_ops ops = {
-			.env = &env,
-			.try_get_var = cal_uexpr_get,
-			.try_set_var = cal_uexpr_set
-		};
-		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
 		app_add_uexpr_config(app, opts.config_file);
+	} else {
+		struct pu_asset default_uexpr = pu_assets_get(default_uexpr);
+		FILE *f = fmemopen(default_uexpr.data, default_uexpr.size, "r");
+		int root = -1;
+		if (f) {
+			root = uexpr_parse(&app->uexpr, f);
+			fclose(f);
+		}
+		asrt(root != -1, "");
+		uexpr_eval(&app->uexpr, root, app->uexpr_ctx, NULL);
 	}
 
 	// TODO: state.view_days = opts.view_days;
@@ -1031,7 +1035,8 @@ void app_init(struct app *app, struct application_options opts,
 	fprintf(stderr, "editor command: %s, term command: %s\n",
 		editor_buffer, term_buffer);
 
-	app->zone = cal_timezone_new("Europe/Budapest");
+	const char *zone_loc = "UTC"; // "Europe/Budapest"
+	app->zone = cal_timezone_new(zone_loc);
 	app->now = ts_now();
 	app->view.fr = ts_get_day_base(app->now, app->zone, true);
 	app->view.to = app->view.fr + 3600 * 24 * 7;
@@ -1065,10 +1070,8 @@ void app_init(struct app *app, struct application_options opts,
 	app->event_loop = event_loop_create(plat);
 	mgu_disp_add_to_event_loop(app->win->disp, app->event_loop);
 
-	app->alarm_timerfd = timerfd_create(CLOCK_REALTIME,
-		TFD_NONBLOCK | TFD_CLOEXEC);
-	event_loop_add_fd(app->event_loop, app->alarm_timerfd,
-		POLLIN, app, alarm_cb);
+	event_loop_timer_init(&app->alarm_timer, app->event_loop,
+		app, alarm_cb);
 
 	app_mark_dirty(app);
 	sw_end_print(sw, "initialization");
@@ -1079,7 +1082,7 @@ void app_main(struct app *app) {
 }
 
 void app_finish(struct app *app) {
-	close(app->alarm_timerfd);
+	event_loop_timer_finish(&app->alarm_timer);
 
 	event_loop_destroy(app->event_loop);
 

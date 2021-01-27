@@ -7,11 +7,10 @@ project('smuc', 'c', default_options : [
 # Compiler setup
 cc = meson.get_compiler('c')
 add_project_arguments('-Wno-parentheses', language : 'c')
-add_project_arguments('-D_XOPEN_SOURCE=700', language : 'c')
+add_project_arguments('-D_POSIX_C_SOURCE=200809L', language : 'c')
 
 libical = dependency('libical', required: false)
 if not libical.found()
-  add_project_link_arguments([ '-s', 'FORCE_FILESYSTEM=1' ], language : 'c')
   cmake = import('cmake')
   opt_var = cmake.subproject_options()
   opt_var.add_cmake_defines({
@@ -35,8 +34,12 @@ m = cc.find_library('m')
 glesv2 = dependency('glesv2')
 
 pu_proj = subproject('platform_utils')
+pu_assets_dep = pu_proj.get_variable('pu_assets_dep')
+pu_assets_embed_gen = pu_proj.get_variable('pu_assets_embed_gen')
 pu_main_dep = pu_proj.get_variable('pu_main_dep')
+pu_log_dep = pu_proj.get_variable('pu_log_dep')
 pu_event_loop_dep = pu_proj.get_variable('pu_event_loop_dep')
+pu_sys_dep = pu_proj.get_variable('pu_sys_dep')
 
 ds_proj = subproject('ds')
 ds_vec = ds_proj.get_variable('ds_vec_dep')
@@ -98,7 +101,7 @@ lib_common = static_library(
   'common',
   src_common,
   include_directories: incdir,
-  dependencies: [ dep_common, ds_vec ],
+  dependencies: [ dep_common, ds_vec, pu_sys_dep ],
   link_with: [ lib_core ]
 )
 
@@ -120,6 +123,11 @@ executable(
   link_with: lib_uexpr
 )
 
+src_embed = [
+  pu_assets_embed_gen.process(
+    files('contrib/default.uexpr'), extra_args: 'default_uexpr')
+]
+
 src_gui_calendar = [
   'src/gui-calendar/application.c',
   'src/gui-calendar/uexpr_cal.c',
@@ -134,27 +142,19 @@ dep_gui_calendar = [
 ]
 lib_gui_calendar = static_library(
   'gui-calendar',
+  'src/gui-calendar/main.c',
   src_gui_calendar,
+  src_embed,
   include_directories: incdir,
   dependencies: [ dep_gui_calendar, ds_vec, ds_hashmap, ds_tree,
-    pu_event_loop_dep ],
+    pu_event_loop_dep, pu_main_dep, pu_log_dep, pu_assets_dep ],
   link_with: [ lib_core, lib_common, lib_uexpr ]
 )
-executable(
-  'smuc',
-  'src/gui-calendar/main.c',
-  include_directories: incdir,
-  dependencies: [ dep_gui_calendar, pu_main_dep ],
-  link_with: lib_gui_calendar,
-)
+gui_calendar_dep = declare_dependency(link_with: lib_gui_calendar)
 
-executable(
-  'gen',
-  'src/utils/gen.c',
-  include_directories: incdir,
-  dependencies: [ libical, dep_gui_calendar, pu_main_dep ],
-  link_with: lib_gui_calendar
-)
+if not meson.is_subproject()
+  executable('smuc', dependencies: gui_calendar_dep)
+endif
 
 # Tests
 prog_valgrind = find_program('valgrind', required: false)

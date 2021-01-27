@@ -58,7 +58,10 @@ static bool recurrence_init(struct recurrence *recur, icalcomponent *ic) {
 	if (!rrule) return false;
 
 	icalcomponent *root = icalcomponent_get_parent(ic);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 	root = icalcomponent_new_clone(root);
+#pragma GCC diagnostic pop
 	const char *ic_uid = icalcomponent_get_uid(ic);
 	asrt(ic_uid, "ic_uid");
 	icalcomponent *i =

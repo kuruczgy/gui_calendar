@@ -4,26 +4,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
-#include <unistd.h>
-#include <sys/syscall.h>
 #include <sched.h>
+#include <unistd.h>
 #include <signal.h>
-
-typedef unsigned long long int u64;
-_Static_assert(sizeof(u64) == 8, "");
-struct clone_args {
-	u64 flags;
-	u64 pidfd;
-	u64 child_tid;
-	u64 parent_tid;
-	u64 exit_signal;
-	u64 stack;
-	u64 stack_size;
-	u64 tls;
-	u64 set_tid;
-	u64 set_tid_size;
-	u64 cgroup;
-};
+#include <platform_utils/sys.h>
 
 void subprocess_shell(const char *cmd, const char *const argv[]) {
 	if (fork() == 0) {
@@ -52,10 +36,11 @@ struct subprocess_handle* subprocess_new_input(const char *file,
 	cb(ud, f);
 	fclose(f);
 
-	int pidfd;
+	int pidfd = -1;
+#if PU_SYS_HAS_CLONE3
 	struct clone_args cl_args = {
 		.flags = CLONE_PIDFD,
-		.pidfd = (u64)&pidfd,
+		.pidfd = (uint64_t)&pidfd,
 		.child_tid = 0,
 		.parent_tid = 0,
 		.exit_signal = SIGCHLD,
@@ -66,7 +51,10 @@ struct subprocess_handle* subprocess_new_input(const char *file,
 		.set_tid_size = 0,
 		.cgroup = 0,
 	};
-	long pid = syscall(__NR_clone3, &cl_args, sizeof(cl_args));
+	long pid = pu_clone3(cl_args);
+#else
+	long pid = -1;
+#endif
 	if (pid > 0) {
 		// parent
 		fprintf(stderr, "new subprocess pidfd: %d\n", pidfd);

@@ -200,7 +200,7 @@ static token get(st s) {
 static int expr(st s);
 static int term(st s);
 static int list(st s, enum uexpr_op op) {
-	char sep, end;
+	char sep = 0, end = 0;
 	switch (op) {
 	case UEXPR_OP_LIST:
 		sep = ','; end = ']';
@@ -654,7 +654,7 @@ static struct uexpr_value eval(struct uexpr *e, int root,
 
 /* # Debug printing stuff */
 static void dump_ast(FILE *f, struct vec ast, int root) {
-	char start, sep, end;
+	char start = 0, sep = 0, end = 0;
 	int *ni;
 	ast_node *np = vec_get(&ast, root);
 	switch (np->op) {

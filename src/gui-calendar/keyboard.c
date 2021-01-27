@@ -1,6 +1,6 @@
 #include "keyboard.h"
 #include <stddef.h>
-#include <linux/input-event-codes.h>
+#include <mgu/input-event-codes.h>
 
 #include "algo.h"
 
@@ -71,8 +71,13 @@ int key_num(uint32_t code) {
 }
 
 int key_fn(uint32_t code) {
+// TODO: proper feature test macros for key codes
+#ifdef KEY_F1
 	if (code < KEY_F1 || code > KEY_F10) return -1;
 	return code - KEY_F1 + 1;
+#else
+	return -1;
+#endif
 }
 
 static int num_k_perm(int n, int k) {

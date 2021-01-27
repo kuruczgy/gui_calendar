@@ -4,11 +4,10 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/random.h>
 #include <stdio.h>
-#include <wordexp.h>
 #include <ds/vec.h>
 #include <ds/hashmap.h>
+#include <platform_utils/sys.h>
 
 #include "core.h"
 #include "util.h"
@@ -110,8 +109,8 @@ void trim_end(char *s) {
 
 void generate_uid(char buf[64]) {
 	static char rnd[16];
-	int n = getrandom(rnd, 16, 0);
-	asrt(n == 16, "getrandom failed");
+	bool success = pu_getrandom(rnd, 16);
+	asrt(success, "pu_getrandom failed");
 	for (int i = 0; i < 16; ++i)
 		sprintf(buf + 2 * i, "%02x", (unsigned char)rnd[i]);
 	buf[32] = '\0';
@@ -163,6 +162,7 @@ void vec_sort(struct vec *v, sort_lt lt, void *cl) {
 }
 
 struct str str_wordexp(const char *in) {
+#if PU_SYS_HAS_WORDEXP
 	struct str s = str_empty;
 	wordexp_t p;
 	if (wordexp(in, &p, WRDE_NOCMD) == 0) {
@@ -170,4 +170,7 @@ struct str str_wordexp(const char *in) {
 		wordfree(&p);
 	}
 	return s;
+#else
+	return str_new_from_cstr(in);
+#endif
 }

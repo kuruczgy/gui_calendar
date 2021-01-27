@@ -3,10 +3,9 @@
 #include "config.h"
 #include <unistd.h>
 #include <platform_utils/main.h>
+#include <platform_utils/log.h>
 
 void platform_main(struct platform *plat) {
-	int argc = plat->argc;
-	char **argv = plat->argv;
 
 	struct application_options opts = {
 		.show_private_events = false,
@@ -16,8 +15,8 @@ void platform_main(struct platform *plat) {
 		.terminal = NULL,
 		.config_file = NULL
 	};
-	int width = 100, height = 100;
 
+#if PU_MAIN_HAS_ARGS
 	const char *help =
 		"-h: show this help\n"
 		"-p: show private events by default\n"
@@ -26,13 +25,15 @@ void platform_main(struct platform *plat) {
 		"-v N: set the number of visible days to N\n"
 		"-e E: set editor command to E\n"
 		"-t T: set terminal command to T\n"
-		"-s WxH: set output size width to W, and height to H\n"
 		"-c C: provide the path to the config script\n";
+
+	int argc = plat->argc;
+	char **argv = plat->argv;
 	int opt, d;
-	while ((opt = getopt(argc, argv, "hpd:v:e:t:s:o:c:")) != -1) {
+	while ((opt = getopt(argc, argv, "hpd:v:e:t:o:c:")) != -1) {
 		switch (opt) {
 		case 'h':
-			fprintf(stdout, help);
+			pu_log_info("%s", help);
 			exit(EXIT_SUCCESS);
 		case 'p':
 			opts.show_private_events = true;
@@ -54,16 +55,12 @@ void platform_main(struct platform *plat) {
 		case 't':
 			opts.terminal = str_dup(optarg);
 			break;
-		case 's':
-			sscanf(optarg, "%dx%d", &width, &height);
-			break;
 		case 'c':
 			opts.config_file = str_dup(optarg);
 			break;
 		}
 	}
-	opts.argc = argc - optind;
-	opts.argv = argv + optind;
+#endif
 
 	struct mgu_disp disp = { 0 };
 	mgu_disp_init(&disp, plat);
