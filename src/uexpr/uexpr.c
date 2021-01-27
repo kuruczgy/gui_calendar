@@ -163,7 +163,7 @@ static token next_token(FILE *f) {
 			}
 			str_append_char(&s, c);
 		}
-		return (token){ .c = 0, s = s };
+		return (token){ .c = 0, .s = s };
 	}
 	if (is_ident_char(c)) {
 		s = str_new_empty();
