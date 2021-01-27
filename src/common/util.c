@@ -128,11 +128,11 @@ const char * most_frequent(const struct vec *source, const char *(*cb)(void*)) {
 		if (!key) continue;
 		int *k;
 		int **res;
-		if (hashmap_get(&map, key, (void**)&res) != MAP_OK) {
+		if (hashmap_get_cstr(&map, key, (void**)&res) != MAP_OK) {
 			int zero = 0;
 			k = vec_get(&cnt, vec_append(&cnt, &zero));
 			vec_append(&keys, &key);
-			hashmap_put(&map, key, &k);
+			hashmap_put_cstr(&map, key, &k);
 		} else {
 			k = *res;
 		}

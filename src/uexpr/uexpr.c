@@ -384,7 +384,7 @@ static struct uexpr_value get_var(struct uexpr_ctx *ctx, const char *key) {
 	if (ops->try_get_var && ops->try_get_var(ops->env, key, &v)) {
 		return v;
 	}
-	if (hashmap_get(&ctx->vars, key, (void**)&vp) == MAP_OK) {
+	if (hashmap_get_cstr(&ctx->vars, key, (void**)&vp) == MAP_OK) {
 		if (vp->type == UEXPR_TYPE_STRING
 				|| vp->type == UEXPR_TYPE_BOOLEAN
 				|| vp->type == UEXPR_TYPE_NATIVEFN
@@ -402,11 +402,11 @@ void uexpr_set_var(struct uexpr_ctx *ctx, const char *key,
 	}
 
 	struct uexpr_value *vp;
-	if (hashmap_get(&ctx->vars, key, (void**)&vp) == MAP_OK) {
+	if (hashmap_get_cstr(&ctx->vars, key, (void**)&vp) == MAP_OK) {
 		uexpr_value_finish(*vp);
-		hashmap_remove(&ctx->vars, key);
+		hashmap_del_cstr(&ctx->vars, key);
 	}
-	hashmap_put(&ctx->vars, key, &val);
+	hashmap_put_cstr(&ctx->vars, key, &val);
 }
 
 /* ## Builtin functions */
@@ -775,11 +775,6 @@ int uexpr_parse(struct uexpr *e, FILE *f) {
 	e->ast = ps.ast;
 	return root;
 }
-static int iter_finish_ctx_vars(void *_cl, void *item) {
-	struct uexpr_value *vp = item;
-	uexpr_value_finish(*vp);
-	return MAP_OK;
-}
 struct uexpr_ctx *uexpr_ctx_create() {
 	struct uexpr_ctx *ctx = malloc_check(sizeof(struct uexpr_ctx));
 	hashmap_init(&ctx->vars, sizeof(struct uexpr_value));
@@ -789,7 +784,11 @@ void uexpr_ctx_set_ops(struct uexpr_ctx *ctx, struct uexpr_ops ops) {
 	ctx->ops = ops;
 }
 void uexpr_ctx_destroy(struct uexpr_ctx *ctx) {
-	hashmap_iterate(&ctx->vars, &iter_finish_ctx_vars, NULL);
+	struct hashmap_iter iter = hashmap_iter(&ctx->vars);
+	struct uexpr_value *vp;
+	while (hashmap_iter_next(&iter, (void**)&vp)) {
+		uexpr_value_finish(*vp);
+	}
 	hashmap_finish(&ctx->vars);
 	free(ctx);
 }

@@ -98,7 +98,7 @@ static bool calendar_contains(struct calendar *cal, const char *uid) {
 static int calendar_add_comp_unchecked(struct calendar *cal,
 		struct comp c) {
 	int idx = vec_append(&cal->comps_vec, &c);
-	asrt(hashmap_put(&cal->comps_map, str_cstr(&c.uid), &idx)
+	asrt(hashmap_put_cstr(&cal->comps_map, str_cstr(&c.uid), &idx)
 		== MAP_OK, "");
 
 	struct comp_info info = { .deleted = false };
@@ -166,7 +166,7 @@ int calendar_add_comp(struct calendar *cal, struct comp c) {
 }
 int calendar_find_comp(struct calendar *cal, const char *uid) {
 	int *idx;
-	if (hashmap_get(&cal->comps_map, uid, (void**)&idx) != MAP_OK)
+	if (hashmap_get_cstr(&cal->comps_map, uid, (void**)&idx) != MAP_OK)
 		return -1;
 	return *idx;
 }
