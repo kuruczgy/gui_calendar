@@ -150,6 +150,7 @@ struct app {
 	struct vec actions; /* vec<struct action> */
 
 	struct mgu_win_surf *win;
+	struct mgu_out *out;
 	struct sr *sr;
 	struct event_loop *event_loop;
 	struct event_loop_timer alarm_timer;

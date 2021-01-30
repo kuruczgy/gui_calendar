@@ -100,6 +100,8 @@ struct tview_params {
 };
 static void render_tobject(struct app *app,
 		struct tobject *obj, fbox b, struct tview_params p) {
+	int text_px = 1 * app->out->ppmm + .5;
+
 	double x, y, w, h;
 	if (p.dir) {
 		x = round(b.x + p.pad);
@@ -112,7 +114,7 @@ static void render_tobject(struct app *app,
 		w = round(b.w);
 		h = round(b.h - 2 * p.pad);
 	}
-	bool draw_labels = w > 8 && h > 8;
+	bool draw_labels = w >= text_px * 2 && h >= text_px;
 
 	/* calculate color stuff */
 	uint32_t color = 0;
@@ -149,7 +151,7 @@ static void render_tobject(struct app *app,
 			sr_measure(app->sr, s, (struct sr_spec){
 				.t = SR_TEXT,
 				.p = { 0, 0, w, h },
-				.text = { .px = 10, .s = location }
+				.text = { .px = text_px, .s = location }
 			});
 		}
 		int loc_h = location ? mini(h / 2, s[1]) : 0;
@@ -167,7 +169,7 @@ static void render_tobject(struct app *app,
 			.t = SR_TEXT,
 			.p = { x, y, w, h - loc_h },
 			.argb = fg,
-			.text = { .px = 10, .s = text }
+			.text = { .px = text_px, .s = text }
 		});
 		free(text);
 
@@ -176,7 +178,7 @@ static void render_tobject(struct app *app,
 				.t = SR_TEXT,
 				.p = { x, y + h - loc_h, w, loc_h },
 				.argb = light ? 0xFFA0A0A0 : 0xFF606060,
-				.text = { .px = 10, .s = location }
+				.text = { .px = text_px, .s = location }
 			});
 		}
 	}
@@ -195,7 +197,8 @@ static void render_tobject(struct app *app,
 			.t = SR_TEXT,
 			.p = { x, y, w, h },
 			.argb = (color ^ 0x00FFFFFF) | 0xFF000000,
-			.text = {.px = 40, .s = obj->ac->code, .o = SR_CENTER}
+			.text = {.px = text_px * 4, .s = obj->ac->code,
+				.o = SR_CENTER}
 		});
 	}
 }
@@ -398,6 +401,8 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 }
 
 static void render_sidebar(struct app *app, box b) {
+	int text_px = 2 * app->out->ppmm + .5;
+
 	int h = 0;
 	int pad = 6;
 	for (int i = 0; i < app->cals.len; ++i) {
@@ -436,7 +441,7 @@ static void render_sidebar(struct app *app, box b) {
 	}
 
 	vec_clear(&app->tap_areas);
-	int btn_h = 20;
+	int btn_h = 10 * app->out->ppmm;
 
 	for (int i = 0; i < app->filters.len; ++i) {
 		struct filter *f = vec_get(&app->filters, i);
@@ -445,7 +450,7 @@ static void render_sidebar(struct app *app, box b) {
 		sr_measure(app->sr, s, (struct sr_spec){
 			.t = SR_TEXT,
 			.p = { 0, 0, b.w, -1 },
-			.text = { .px = 10, .s = str_cstr(&f->desc) }
+			.text = { .px = text_px, .s = str_cstr(&f->desc) }
 		});
 		int height = maxi(s[1], btn_h);
 
@@ -468,7 +473,7 @@ static void render_sidebar(struct app *app, box b) {
 			.t = SR_TEXT,
 			.p = { b.x, b.y + h, b.w, height + pad },
 			.argb = 0xFF000000,
-			.text = { .px = 10, .s = str_cstr(&f->desc),
+			.text = { .px = text_px, .s = str_cstr(&f->desc),
 					.o = SR_CENTER_V },
 		});
 
@@ -496,7 +501,8 @@ static void render_sidebar(struct app *app, box b) {
 			.t = SR_TEXT,
 			.p = { b.x, b.y + h, b.w, btn_h + pad },
 			.argb = 0xFF000000,
-			.text = { .px = 13, .s = str_cstr(&s), .o = SR_CENTER },
+			.text = { .px = text_px, .s = str_cstr(&s),
+				.o = SR_CENTER },
 		});
 
 		str_free(&s);
@@ -772,7 +778,7 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	int time_strip_w = 30;
-	int sidebar_w = 160;
+	int sidebar_w = 10 * app->out->ppmm;
 	int header_h = 60;
 	int top_h = 50;
 
@@ -870,7 +876,7 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 
 	struct simple_date sd = simple_date_from_ts(app->now, app->zone);
 	char *text = text_format(
-			"%s\rframe %d\r%02d:%02d:%02d\rmode: %s",
+			"%s\nframe %d\n%02d:%02d:%02d\nmode: %s",
 			cal_timezone_get_desc(app->zone),
 			frame_counter,
 			sd.hour, sd.minute, sd.second,
@@ -882,7 +888,7 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 		.t = SR_TEXT,
 		.p = { 0, 0, sidebar_w, header_h },
 		.argb = 0xFF000000,
-		.text = { .px = 10, .s = text }
+		.text = { .px = 1.5 * app->out->ppmm, .s = text }
 	});
 	free(text);
 

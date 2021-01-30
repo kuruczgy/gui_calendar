@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
+#include <errno.h>
 #include <platform_utils/log.h>
 #include <platform_utils/assets.h>
 
@@ -948,6 +949,21 @@ static void touch_end(void *env, struct libtouch_gesture_data data) {
 	app->view = view;
 }
 
+static void app_add_uexpr_config_file(struct app *app, FILE *f) {
+	int root = -1;
+	root = uexpr_parse(&app->uexpr, f);
+	if (root != -1) {
+		uexpr_eval(&app->uexpr, root, app->uexpr_ctx, NULL);
+	} else {
+		fprintf(stderr, "WARNING: could not parse script.\n");
+	}
+}
+void app_add_uexpr_config(struct app *app, const char *path) {
+	FILE *f = fopen(path, "r");
+	app_add_uexpr_config_file(app, f);
+	fclose(f);
+}
+
 void app_init(struct app *app, struct application_options opts,
 		struct platform *plat, struct mgu_win_surf *win) {
 	struct stopwatch sw = sw_start();
@@ -1000,19 +1016,44 @@ void app_init(struct app *app, struct application_options opts,
 		.try_set_var = cal_uexpr_set
 	};
 	uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+
+	// try command line config file
 	if (opts.config_file) {
+		pu_log_info("[config] loading: `%s`\n", opts.config_file);
 		app_add_uexpr_config(app, opts.config_file);
-	} else {
-		struct pu_asset default_uexpr = pu_assets_get(default_uexpr);
-		FILE *f = fmemopen(default_uexpr.data, default_uexpr.size, "r");
-		int root = -1;
-		if (f) {
-			root = uexpr_parse(&app->uexpr, f);
-			fclose(f);
-		}
-		asrt(root != -1, "");
-		uexpr_eval(&app->uexpr, root, app->uexpr_ctx, NULL);
+		goto config_found;
 	}
+
+	// try to find config file in platform specific config dir
+	const char *config_dir = pu_get_config_dir();
+	if (config_dir) {
+		struct str config_path = str_new_from_cstr(config_dir);
+		const char *config_fname = "/config.uexpr";
+		str_append(&config_path, config_fname, strlen(config_fname));
+		FILE *f = fopen(str_cstr(&config_path), "r");
+		if (f) {
+			pu_log_info("[config] loading: `%s`\n",
+				str_cstr(&config_path));
+			app_add_uexpr_config_file(app, f);
+			fclose(f);
+			goto config_found;
+		} else {
+			pu_log_info("[config] not found (%s): `%s`\n",
+				strerror(errno),
+				str_cstr(&config_path));
+		}
+	}
+
+	// load compiled-in default config
+	struct pu_asset default_uexpr = pu_assets_get(default_uexpr);
+	f = fmemopen(default_uexpr.data, default_uexpr.size, "r");
+	if (f) {
+		pu_log_info("[config] loading builtin\n");
+		app_add_uexpr_config_file(app, f);
+		fclose(f);
+		goto config_found;
+	}
+config_found: ;
 
 	// TODO: state.view_days = opts.view_days;
 
@@ -1059,6 +1100,8 @@ void app_init(struct app *app, struct application_options opts,
 	);
 
 	app->slicing = slicing_create(app->zone);
+
+	app->out = mgu_disp_get_default_output(app->win->disp);
 
 	app->win->disp->seat.cb = (struct mgu_seat_cb){
 		.env = app, .f = application_handle_input };
@@ -1144,8 +1187,9 @@ int app_add_cal(struct app *app, const char *path) {
 	calendar_init(&cal);
 	cal.storage = str_wordexp(path);
 
-	fprintf(stderr, "add_cal %s\n", str_cstr(&cal.storage));
 	update_calendar_from_storage(&cal, app->zone);
+	pu_log_info("add_cal %s, comps: %d\n", str_cstr(&cal.storage),
+		cal.comps_vec.len);
 
 	/* calculate most frequent color */
 	const char *fc = most_frequent(&cal.comps_vec, &get_comp_color);
@@ -1167,17 +1211,4 @@ void app_add_uexpr_filter(struct app *app, const char *key,
 }
 void app_add_action(struct app *app, struct action act) {
 	vec_append(&app->actions, &act);
-}
-void app_add_uexpr_config(struct app *app, const char *path) {
-	int root = -1;
-	FILE *f = fopen(path, "r");
-	if (f) {
-		root = uexpr_parse(&app->uexpr, f);
-		fclose(f);
-	}
-	if (root != -1) {
-		uexpr_eval(&app->uexpr, root, app->uexpr_ctx, NULL);
-	} else {
-		fprintf(stderr, "WARNING: could not parse script: %s\n", path);
-	}
 }

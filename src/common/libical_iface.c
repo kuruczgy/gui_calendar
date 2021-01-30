@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <platform_utils/log.h>
 
 #include <libical/ical.h>
 
@@ -511,8 +512,7 @@ static bool comp_init_from_ical(struct comp *c, icalcomponent *ic) {
 	c->p = props_empty;
 	props_init_from_ical(&c->p, ic);
 	if (!props_valid_for_type(&c->p, c->type)) {
-		fprintf(stderr,
-			"WARNING: component `%s` is invalid. skipping\n",
+		pu_log_info("WARNING: component `%s` is invalid. skipping\n",
 			str_cstr(&c->uid));
 		str_free(&c->uid);
 		props_finish(&c->p);
@@ -561,7 +561,7 @@ int libical_parse_ics(FILE *f, struct calendar *cal) {
 			if (c && props_valid_for_type(&cri.p, c->type)) {
 				vec_append(&c->recur_insts, &cri);
 			} else {
-				fprintf(stderr,
+				pu_log_info(
 					"WARNING: component instance for `%s` "
 					"is invalid. skipping\n",
 					uid);
@@ -608,7 +608,7 @@ void update_calendar_from_storage(struct calendar *cal,
 	if (S_ISREG(sb.st_mode)) { // file
 		FILE *f = fopen(path, "rb");
 		if (libical_parse_ics(f, cal) < 0) {
-			fprintf(stderr, "warning: could not parse %s\n", path);
+			pu_log_info("warning: could not parse %s\n", path);
 		}
 		fclose(f);
 	} else {
@@ -650,7 +650,7 @@ void update_calendar_from_storage(struct calendar *cal,
 				str_append(&cal->name, buf, cnt);
 			} else {
 				if (libical_parse_ics(f, cal) < 0) {
-					fprintf(stderr,
+					pu_log_info(
 						"warning: could not parse %s\n",
 						buf);
 				}
