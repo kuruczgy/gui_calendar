@@ -26,6 +26,7 @@ void subprocess_shell(const char *cmd, const char *const argv[]) {
 
 struct subprocess_handle* subprocess_new_input(const char *file,
 		const char *argv[], void (*cb)(void*, FILE*), void *ud) {
+#if PU_SYS_HAS_CLONE3
 	char *name = create_tmpfile_template();
 	int fd = set_cloexec_or_close(mkstemp(name));
 	struct subprocess_handle *res = NULL;
@@ -37,7 +38,6 @@ struct subprocess_handle* subprocess_new_input(const char *file,
 	fclose(f);
 
 	int pidfd = -1;
-#if PU_SYS_HAS_CLONE3
 	struct clone_args cl_args = {
 		.flags = CLONE_PIDFD,
 		.pidfd = (uint64_t)&pidfd,
@@ -52,9 +52,6 @@ struct subprocess_handle* subprocess_new_input(const char *file,
 		.cgroup = 0,
 	};
 	long pid = pu_clone3(cl_args);
-#else
-	long pid = -1;
-#endif
 	if (pid > 0) {
 		// parent
 		fprintf(stderr, "new subprocess pidfd: %d\n", pidfd);
@@ -79,6 +76,9 @@ struct subprocess_handle* subprocess_new_input(const char *file,
 cleanup:
 	free(name);
 	return res;
+#else
+	return NULL;
+#endif
 }
 
 FILE *subprocess_get_result(struct subprocess_handle **handle) {
