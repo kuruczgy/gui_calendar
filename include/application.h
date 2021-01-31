@@ -154,6 +154,7 @@ struct app {
 	struct sr *sr;
 	struct event_loop *event_loop;
 	struct event_loop_timer alarm_timer;
+	struct platform *plat;
 };
 
 struct application_options {

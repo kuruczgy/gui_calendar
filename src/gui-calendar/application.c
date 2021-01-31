@@ -964,6 +964,15 @@ void app_add_uexpr_config(struct app *app, const char *path) {
 	fclose(f);
 }
 
+void context_cb(void *env, bool have_ctx) {
+	struct app *app = env;
+	if (have_ctx) {
+		app->sr = sr_create_opengl(app->plat);
+	} else {
+		sr_destroy(app->sr);
+	}
+}
+
 void app_init(struct app *app, struct application_options opts,
 		struct platform *plat, struct mgu_win_surf *win) {
 	struct stopwatch sw = sw_start();
@@ -983,6 +992,7 @@ void app_init(struct app *app, struct application_options opts,
 		.current_filter = -1,
 		.actions = VEC_EMPTY(sizeof(struct action)),
 		.win = win,
+		.plat = plat,
 	};
 
 	struct proj p;
@@ -1108,7 +1118,8 @@ config_found: ;
 	app->win->disp->render_cb = (struct mgu_render_cb){
 		.env = app, .f = render_application };
 
-	app->sr = sr_create_opengl(plat);
+	mgu_disp_set_context_cb(app->win->disp, (struct mgu_context_cb){
+		.env = app, .f = context_cb });
 
 	app->event_loop = event_loop_create(plat);
 	mgu_disp_add_to_event_loop(app->win->disp, app->event_loop);
@@ -1128,8 +1139,6 @@ void app_finish(struct app *app) {
 	event_loop_timer_finish(&app->alarm_timer);
 
 	event_loop_destroy(app->event_loop);
-
-	sr_destroy(app->sr);
 
 	for (int i = 0; i < app->cals.len; ++i) {
 		struct calendar *cal = vec_get(&app->cals, i);
