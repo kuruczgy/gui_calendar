@@ -12,7 +12,6 @@
 #include "util.h"
 #include "algo.h"
 #include "keyboard.h"
-#include "render.h"
 #include "editor.h"
 
 pu_assets_declare(default_uexpr)
@@ -968,8 +967,12 @@ void context_cb(void *env, bool have_ctx) {
 	struct app *app = env;
 	if (have_ctx) {
 		app->sr = sr_create_opengl(app->plat);
+
+		w_sidebar_init(&app->w_sidebar, app);
 	} else {
 		sr_destroy(app->sr);
+
+		w_sidebar_finish(&app->w_sidebar);
 	}
 }
 
@@ -1109,6 +1112,8 @@ config_found: ;
 		}
 	);
 
+	app->text = mgu_text_create(app->plat);
+
 	app->slicing = slicing_create(app->zone);
 
 	app->out = mgu_disp_get_default_output(app->win->disp);
@@ -1117,6 +1122,8 @@ config_found: ;
 		.env = app, .f = application_handle_input };
 	app->win->disp->render_cb = (struct mgu_render_cb){
 		.env = app, .f = render_application };
+
+	app->init_done = true;
 
 	mgu_disp_set_context_cb(app->win->disp, (struct mgu_context_cb){
 		.env = app, .f = context_cb });
@@ -1139,6 +1146,8 @@ void app_finish(struct app *app) {
 	event_loop_timer_finish(&app->alarm_timer);
 
 	event_loop_destroy(app->event_loop);
+
+	mgu_text_destroy(app->text);
 
 	for (int i = 0; i < app->cals.len; ++i) {
 		struct calendar *cal = vec_get(&app->cals, i);
@@ -1191,6 +1200,7 @@ void app_finish(struct app *app) {
 }
 
 int app_add_cal(struct app *app, const char *path) {
+	asrt(!app->init_done, "");
 	struct calendar cal;
 	struct calendar_info cal_info;
 	calendar_init(&cal);
@@ -1211,6 +1221,7 @@ int app_add_cal(struct app *app, const char *path) {
 }
 void app_add_uexpr_filter(struct app *app, const char *key,
 		int def_cal, int uexpr_fn) {
+	asrt(!app->init_done, "");
 	struct filter f = {
 		.desc = str_new_from_cstr(key),
 		.def_cal = def_cal,
@@ -1219,5 +1230,6 @@ void app_add_uexpr_filter(struct app *app, const char *key,
 	vec_append(&app->filters, &f);
 }
 void app_add_action(struct app *app, struct action act) {
+	asrt(!app->init_done, "");
 	vec_append(&app->actions, &act);
 }

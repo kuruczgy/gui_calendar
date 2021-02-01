@@ -7,6 +7,186 @@
 #include "application.h"
 #include "core.h"
 #include "util.h"
+#include <platform_utils/log.h>
+
+char* text_format(const char *fmt, ...) {
+       va_list args;
+       va_start(args, fmt);
+       // Add one since vsnprintf excludes null terminator.
+       int length = vsnprintf(NULL, 0, fmt, args) + 1;
+       va_end(args);
+
+       char *buf = malloc(length);
+       asrt(buf, "malloc error");
+       va_start(args, fmt);
+       vsnprintf(buf, length, fmt, args);
+       va_end(args);
+
+       return buf;
+}
+
+void w_sidebar_init(struct w_sidebar *w, struct app *app) {
+	w->cal_texts = vec_new_empty(sizeof(struct mgu_texture));
+	w->filter_texts = vec_new_empty(sizeof(struct mgu_texture));
+	w->action_texts = vec_new_empty(sizeof(struct mgu_texture));
+
+	int text_px = 0.2 * app->out->ppvd;
+	w->width = 2 * app->out->ppvd;
+
+	for (int i = 0; i < app->cals.len; ++i) {
+		struct calendar *cal = vec_get(&app->cals, i);
+		char *str = text_format("%i: %s", i + 1, str_cstr(&cal->name));
+		struct mgu_texture tex = mgu_tex_text(app->text,
+				(struct mgu_text_opts){
+			.str = str,
+			.s = { w->width, -1 },
+			.size_px = text_px,
+		});
+		free(str);
+		vec_append(&w->cal_texts, &tex);
+	}
+
+	for (int i = 0; i < app->filters.len; ++i) {
+		struct filter *filter = vec_get(&app->filters, i);
+		struct mgu_texture tex = mgu_tex_text(app->text,
+				(struct mgu_text_opts){
+			.str = str_cstr(&filter->desc),
+			.s = { w->width, -1 },
+			.size_px = text_px,
+		});
+		vec_append(&w->filter_texts, &tex);
+	}
+
+	for (int i = 0; i < app->actions.len; ++i) {
+		struct action *action = vec_get(&app->actions, i);
+
+		struct str s = str_new_empty();
+		str_append_char(&s, '[');
+		str_append_char(&s, action->key_sym);
+		str_append_char(&s, ']');
+		str_append_char(&s, ' ');
+		str_append(&s, str_cstr(&action->label), action->label.v.len);
+
+		struct mgu_texture tex = mgu_tex_text(app->text,
+				(struct mgu_text_opts){
+			.str = str_cstr(&s),
+			.s = { w->width, -1 },
+			.size_px = text_px,
+			.align_center = true
+		});
+		str_free(&s);
+		vec_append(&w->action_texts, &tex);
+	}
+}
+
+void w_sidebar_finish(struct w_sidebar *w) {
+	struct vec *vecs[] = {
+		&w->cal_texts, &w->filter_texts, &w->action_texts };
+	for (int j = 0; j < sizeof(vecs) / sizeof(vecs[0]); ++j) {
+		struct vec *vj = vecs[j];
+		for (int i = 0; i < vj->len; ++i) {
+			struct mgu_texture *tex = vec_get(vj, i);
+			mgu_texture_destroy(tex);
+		}
+		vec_free(vj);
+	}
+}
+
+static void w_sidebar_render(struct w_sidebar *w, struct app *app,
+		struct float4 b) {
+	float h = 0;
+	float pad = 6;
+	for (int i = 0; i < app->cals.len; ++i) {
+		struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
+		struct mgu_texture *tex = vec_get(&w->cal_texts, i);
+		float height = tex->s[1];
+
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_RECT,
+			.p = { b.x, b.y + h, b.w, height + pad },
+			.argb = cal_info->color
+		});
+
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_TEX,
+			.p = { b.x, b.y + h + pad / 2, b.w, height },
+			.argb = 0xFF000000,
+			.tex = *tex
+		});
+
+		h += height + pad + 1;
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_RECT,
+			.p = { b.x, b.y + h - 1, b.w, 1 },
+			.argb = 0xFF000000
+		});
+	}
+
+	vec_clear(&app->tap_areas);
+	float btn_h = 10 * app->out->ppmm;
+	for (int i = 0; i < app->filters.len; ++i) {
+		struct mgu_texture *tex = vec_get(&w->filter_texts, i);
+		float height = tex->s[1];
+
+		if (app->current_filter == i) {
+			sr_put(app->sr, (struct sr_spec){
+				.t = SR_RECT,
+				.p = { b.x, b.y + h, b.w, height + pad },
+				.argb = 0xFF00FF00
+			});
+		}
+
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_TEX,
+			.p = { b.x, b.y + h, b.w, height + pad },
+			.argb = 0xFF000000,
+			.o = SR_CENTER_V,
+			.tex = *tex
+		});
+
+		h += height + pad + 1;
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_RECT,
+			.p = { b.x, b.y + h - 1, b.w, 1 },
+			.argb = 0xFF000000
+		});
+	}
+
+	for (int i = 0; i < app->actions.len; ++i) {
+		struct action *act = vec_get(&app->actions, i);
+		if (!str_any(&act->label)) continue;
+		if (act->cond.view != app->main_view) continue;
+
+		struct mgu_texture *tex = vec_get(&w->action_texts, i);
+
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_TEX,
+			.p = { b.x, b.y + h, b.w, btn_h + pad },
+			.argb = 0xFF000000,
+			.o = SR_CENTER,
+			.tex = *tex
+		});
+
+		struct tap_area ta = {
+			.aabb = { b.x, b.y + h, b.w, btn_h },
+			.action_idx = i
+		};
+		vec_append(&app->tap_areas, &ta);
+
+		h += btn_h + pad + 1;
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_RECT,
+			.p = { b.x, b.y + h - 1, b.w, 1 },
+			.argb = 0xFF000000
+		});
+	}
+
+	sr_put(app->sr, (struct sr_spec){
+		.t = SR_RECT,
+		.p = { b.x + b.w, b.y, 2, b.h },
+		.argb = 0xFF000000
+	});
+}
 
 typedef struct {
 	double x, y, w, h;
@@ -39,22 +219,6 @@ static bool same_day(struct simple_date a, struct simple_date b) {
 		a.year == b.year &&
 		a.month == b.month &&
 		a.day == b.day;
-}
-
-char* text_format(const char *fmt, ...) {
-       va_list args;
-       va_start(args, fmt);
-       // Add one since vsnprintf excludes null terminator.
-       int length = vsnprintf(NULL, 0, fmt, args) + 1;
-       va_end(args);
-
-       char *buf = malloc(length);
-       asrt(buf, "malloc error");
-       va_start(args, fmt);
-       vsnprintf(buf, length, fmt, args);
-       va_end(args);
-
-       return buf;
 }
 
 static char* natural_date_format(struct app *app, ts d) {
@@ -100,7 +264,7 @@ struct tview_params {
 };
 static void render_tobject(struct app *app,
 		struct tobject *obj, fbox b, struct tview_params p) {
-	int text_px = 1 * app->out->ppmm + .5;
+	int text_px = 0.18 * app->out->ppvd;
 
 	double x, y, w, h;
 	if (p.dir) {
@@ -197,8 +361,8 @@ static void render_tobject(struct app *app,
 			.t = SR_TEXT,
 			.p = { x, y, w, h },
 			.argb = (color ^ 0x00FFFFFF) | 0xFF000000,
-			.text = {.px = text_px * 4, .s = obj->ac->code,
-				.o = SR_CENTER}
+			.o = SR_CENTER,
+			.text = { .px = text_px * 4, .s = obj->ac->code },
 		});
 	}
 }
@@ -392,141 +556,13 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 			.t = SR_TEXT,
 			.p = { bhsl.x, bhsl.y, bhsl.w, bhsl.h },
 			.argb = 0xFF000000,
-			.text = { .px = 18, .s = text, .o = SR_CENTER }
+			.o = SR_CENTER,
+			.text = { .px = 18, .s = text }
 		});
 		free(text);
 
 		// cairo_reset_clip(ctx->cr);
 	}
-}
-
-static void render_sidebar(struct app *app, box b) {
-	int text_px = 2 * app->out->ppmm + .5;
-
-	int h = 0;
-	int pad = 6;
-	for (int i = 0; i < app->cals.len; ++i) {
-		struct calendar *cal = vec_get(&app->cals, i);
-		struct calendar_info *cal_info = vec_get(&app->cal_infos, i);
-		const char *name = str_cstr(&cal->name);
-		// if (!app->show_private_events && cal->priv) continue;
-
-		char *text = text_format("%i: %s", i + 1, name);
-		float s[2];
-		sr_measure(app->sr, s, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { 0, 0, b.w, -1 },
-			.text = { .px = 10, .s = text }
-		});
-		int height = s[1];
-
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_RECT,
-			.p = { b.x, b.y + h, b.w, height + pad },
-			.argb = cal_info->color
-		});
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { b.x, b.y + h + pad / 2, b.w, height },
-			.argb = 0xFF000000,
-			.text = { .px = 10, .s = text },
-		});
-
-		h += height + pad + 1;
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_RECT,
-			.p = { b.x, b.y + h - 1, b.w, 1 },
-			.argb = 0xFF000000
-		});
-	}
-
-	vec_clear(&app->tap_areas);
-	int btn_h = 10 * app->out->ppmm;
-
-	for (int i = 0; i < app->filters.len; ++i) {
-		struct filter *f = vec_get(&app->filters, i);
-
-		float s[2];
-		sr_measure(app->sr, s, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { 0, 0, b.w, -1 },
-			.text = { .px = text_px, .s = str_cstr(&f->desc) }
-		});
-		int height = maxi(s[1], btn_h);
-
-		if (app->current_filter == i) {
-			sr_put(app->sr, (struct sr_spec){
-				.t = SR_RECT,
-				.p = { b.x, b.y + h, b.w, height + pad },
-				.argb = 0xFF00FF00
-			});
-		}
-
-		// struct tap_area ta = {
-		// 	.aabb = { b.x, b.y + h, b.w, height + pad },
-		// 	.n = i,
-		// 	.cmd = app_cmd_activate_filter
-		// };
-		// vec_append(&app->tap_areas, &ta);
-
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { b.x, b.y + h, b.w, height + pad },
-			.argb = 0xFF000000,
-			.text = { .px = text_px, .s = str_cstr(&f->desc),
-					.o = SR_CENTER_V },
-		});
-
-		h += height + pad + 1;
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_RECT,
-			.p = { b.x, b.y + h - 1, b.w, 1 },
-			.argb = 0xFF000000
-		});
-	}
-
-	for (int i = 0; i < app->actions.len; ++i) {
-		struct action *act = vec_get(&app->actions, i);
-		if (!str_any(&act->label)) continue;
-		if (act->cond.view != app->main_view) continue;
-
-		struct str s = str_new_empty();
-		str_append_char(&s, '[');
-		str_append_char(&s, act->key_sym);
-		str_append_char(&s, ']');
-		str_append_char(&s, ' ');
-		str_append(&s, str_cstr(&act->label), act->label.v.len);
-
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { b.x, b.y + h, b.w, btn_h + pad },
-			.argb = 0xFF000000,
-			.text = { .px = text_px, .s = str_cstr(&s),
-				.o = SR_CENTER },
-		});
-
-		str_free(&s);
-
-		struct tap_area ta = {
-			.aabb = { b.x, b.y + h, b.w, btn_h },
-			.action_idx = i
-		};
-		vec_append(&app->tap_areas, &ta);
-
-		h += btn_h + pad + 1;
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_RECT,
-			.p = { b.x, b.y + h - 1, b.w, 1 },
-			.argb = 0xFF000000
-		});
-	}
-
-
-	sr_put(app->sr, (struct sr_spec){
-		.t = SR_RECT,
-		.p = { b.x + b.w, b.y, 2, b.h },
-		.argb = 0xFF000000
-	});
 }
 
 /* return height */
@@ -639,7 +675,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.t = SR_TEXT,
 			.p = { b.x + b.w - due_w, b.y, due_w, b.h },
 			.argb = t_col,
-			.text = { .px = 10, .s = text, .o = SR_CENTER },
+			.o = SR_CENTER,
+			.text = { .px = 10, .s = text },
 		});
 		//- text_print_center(cr, app->tr,
 		//-	(box){ b.w - 80, 0, 80, b.h }, text);
@@ -659,7 +696,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.t = SR_TEXT,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
 			.argb = 0xFF000000,
-			.text = { .px = 10, .s = str_cstr(&s), .o = SR_CENTER },
+			.o = SR_CENTER,
+			.text = { .px = 10, .s = str_cstr(&s) },
 		});
 		//- text_print_vert_center(cr, app->tr,
 		//- 	(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h },
@@ -672,7 +710,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.t = SR_TEXT,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
 			.argb = 0xFF000000,
-			.text = { .px = 10, .s = summary, .o = SR_CENTER },
+			.o = SR_CENTER,
+			.text = { .px = 10, .s = summary },
 		});
 		//- text_print_vert_center(cr, app->tr,
 		//- (box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, summary);
@@ -683,7 +722,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.t = SR_TEXT,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
 			.argb = 0xFF000000,
-			.text = { .px = 10, .s = desc, .o = SR_CENTER_V },
+			.o = SR_CENTER_V,
+			.text = { .px = 10, .s = desc },
 		});
 	}
 
@@ -705,7 +745,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.t = SR_TEXT,
 			.p = { b.x, b.y, b.w, b.h },
 			.argb = 0xFFFF00FF,
-			.text = { .px = 40, .s = ac->code, .o = SR_CENTER }
+			.o = SR_CENTER,
+			.text = { .px = 40, .s = ac->code }
 		});
 	}
 
@@ -778,9 +819,9 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	int time_strip_w = 30;
-	int sidebar_w = 10 * app->out->ppmm;
-	int header_h = 60;
-	int top_h = 50;
+	float sidebar_w = app->w_sidebar.width;
+	float header_h = 1 * app->out->ppvd;
+	float top_h = header_h;
 
 	struct libtouch_rt rt = libtouch_area_get_transform(app->touch_area);
 
@@ -872,7 +913,8 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 		asrt(false, "");
 		break;
 	}
-	render_sidebar(app, (box){ 0, header_h, sidebar_w, h-header_h });
+	w_sidebar_render(&app->w_sidebar, app, (struct float4){
+		.a = { 0, header_h, sidebar_w, h-header_h } });
 
 	struct simple_date sd = simple_date_from_ts(app->now, app->zone);
 	char *text = text_format(
@@ -888,7 +930,7 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 		.t = SR_TEXT,
 		.p = { 0, 0, sidebar_w, header_h },
 		.argb = 0xFF000000,
-		.text = { .px = 1.5 * app->out->ppmm, .s = text }
+		.text = { .px = 0.18 * app->out->ppvd, .s = text }
 	});
 	free(text);
 

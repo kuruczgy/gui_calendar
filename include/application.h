@@ -8,7 +8,9 @@
 #include "datetime.h"
 #include "views.h"
 #include "uexpr.h"
+#include "render.h"
 #include <platform_utils/event_loop.h>
+#include <mgu/text.h>
 
 struct calendar_info {
 	uint32_t color;
@@ -155,6 +157,13 @@ struct app {
 	struct event_loop *event_loop;
 	struct event_loop_timer alarm_timer;
 	struct platform *plat;
+
+	struct mgu_text *text;
+
+	bool init_done;
+
+	// widgets
+	struct w_sidebar w_sidebar;
 };
 
 struct application_options {
