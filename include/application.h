@@ -144,6 +144,7 @@ struct app {
 	bool dirty;
 
 	/* config */
+	const char *requested_timezone;
 	struct cal_timezone *zone;
 
 	struct vec editor_args; /* vec<struct str> */

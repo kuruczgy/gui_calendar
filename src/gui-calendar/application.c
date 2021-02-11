@@ -1085,6 +1085,7 @@ void app_init(struct app *app, struct application_options opts,
 		.show_private_events = opts.show_private_events,
 		.tap_areas = VEC_EMPTY(sizeof(struct tap_area)),
 		.window_width = -1, .window_height = -1,
+		.requested_timezone = "UTC",
 		.editor_args = VEC_EMPTY(sizeof(struct str)),
 		.filters = VEC_EMPTY(sizeof(struct filter)),
 		.current_filter = -1,
@@ -1184,8 +1185,8 @@ config_found: ;
 	fprintf(stderr, "editor command: %s, term command: %s\n",
 		editor_buffer, term_buffer);
 
-	const char *zone_loc = "UTC"; // "Europe/Budapest"
-	app->zone = cal_timezone_new(zone_loc);
+	pu_log_info("[init] loading timezone: %s\n", app->requested_timezone);
+	app->zone = cal_timezone_new(app->requested_timezone);
 	app->now = ts_now();
 	app->view.fr = ts_get_day_base(app->now, app->zone, true);
 	app->view.to = app->view.fr + 3600 * 24 * 7;

@@ -203,6 +203,26 @@ static struct uexpr_value fn_set_alarm(void *_env, struct uexpr *e,
 
 	return void_val;
 }
+static struct uexpr_value fn_set_timezone(void *_env, struct uexpr *e,
+		int root, struct uexpr_ctx *ctx) {
+	TRACE();
+	struct cal_uexpr_env *env = _env;
+
+	struct uexpr_ast_node np =
+		*(struct uexpr_ast_node *)vec_get(&e->ast, root);
+	if (np.args.len != 1) return error_val;
+
+	struct uexpr_value va;
+	uexpr_eval(e, *(int *)vec_get(&np.args, 0), ctx, &va);
+	if (va.type != UEXPR_TYPE_STRING) {
+		uexpr_value_finish(va);
+		return error_val;
+	}
+
+	env->app->requested_timezone = va.string_ref;
+
+	return void_val;
+}
 
 static struct fn config_fns[] = {
 	{ "add_cal", fn_add_cal },
@@ -210,6 +230,7 @@ static struct fn config_fns[] = {
 	{ "add_action", fn_add_action },
 	{ "include", fn_include },
 	{ "set_alarm", fn_set_alarm },
+	{ "set_timezone", fn_set_timezone },
 	{ NULL, NULL },
 };
 
