@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -165,17 +166,6 @@ struct ac_iter_assign_code_env {
 	struct app *app;
 	struct vec *acs; /* vec<struct active_comp*> */
 };
-static void ac_iter_assign_code(void *_env, struct rb_node *x) {
-	struct interval_node *nx = container_of(x, struct interval_node, node);
-	struct active_comp *ac = container_of(nx, struct active_comp, node);
-	struct ac_iter_assign_code_env *env = _env;
-
-	if (ts_ran_overlap(ac->ci->time, env->app->view)) {
-		vec_append(env->acs, &ac);
-	} else {
-		ac->code[0] = '\0';
-	}
-}
 static void app_switch_mode_select(struct app *app) {
 	if (app->keystate == KEYSTATE_SELECT) return;
 	app->mode_select_code_n = 0;
@@ -184,9 +174,23 @@ static void app_switch_mode_select(struct app *app) {
 
 	if (app->main_view == VIEW_CALENDAR) {
 		struct vec acs = vec_new_empty(sizeof(struct active_comp *));
-		struct ac_iter_assign_code_env env = { app, &acs };
-		rb_iter(&app->active_events.processed_visible, &env,
-			ac_iter_assign_code);
+
+		struct rb_iter iter = rb_iter(
+			&app->active_events.processed_not_hidden,
+			RB_ITER_ORDER_IN);
+		struct rb_node *x;
+		while (rb_iter_next(&iter, &x)) {
+			struct interval_node *nx =
+				container_of(x, struct interval_node, node);
+			struct active_comp *ac =
+				container_of(nx, struct active_comp, node);
+
+			if (ts_ran_overlap(ac->ci->time, app->view)) {
+				vec_append(&acs, &ac);
+			} else {
+				ac->code[0] = '\0';
+			}
+		}
 
 		struct key_gen g;
 		key_gen_init(acs.len, &g);
@@ -317,29 +321,39 @@ static void proj_active_events_add(void *_self, struct proj_item pi) {
 		.cal_index = pi.cal_index,
 		.fade = false, .hide = false, .vis = true,
 		.cal = pi.cal,
-		.node = pi.ci->node, /* this is just to copy the interval */
+
+		/* this is just to copy the interval */
+		.node = pi.ci->node,
+		.node_by_view = pi.ci->node,
 	};
 
 	rb_insert(&self->unprocessed, &ac->node.node);
 }
-static void proj_active_events_clear_ac_iter_free(void *env,
-		struct rb_node *x) {
-	struct interval_node *nx = container_of(x, struct interval_node, node);
-	struct active_comp *ac = container_of(nx, struct active_comp, node);
-	free(ac);
-}
 static void proj_active_events_clear(void *_self) {
 	struct proj_active_events *self = _self;
-	rb_iter_post(&self->unprocessed, NULL,
-		proj_active_events_clear_ac_iter_free);
+
+	struct rb_iter iter = rb_iter(&self->unprocessed, RB_ITER_ORDER_POST);
+	struct rb_node *x;
+	while (rb_iter_next(&iter, &x)) {
+		struct interval_node *nx = container_of(x,
+			struct interval_node, node);
+		struct active_comp *ac = container_of(nx,
+			struct active_comp, node);
+		free(ac);
+	}
+
 	for (int i = 0; i < self->processed.len; ++i) {
 		struct active_comp *ac =
 			*(struct active_comp**)vec_get(&self->processed, i);
+		mgu_texture_destroy(&ac->tex);
+		mgu_texture_destroy(&ac->loc_tex);
 		free(ac);
 	}
 	vec_clear(&self->processed);
 	rb_tree_init(&self->unprocessed, &interval_ops);
-	rb_tree_init(&self->processed_visible, &interval_ops);
+	rb_tree_init(&self->processed_not_hidden, &interval_ops);
+	rb_tree_init(&self->in_view, &interval_ops);
+	rb_tree_init(&self->not_in_view, &interval_ops);
 }
 static bool proj_active_events_type(void *_self, enum comp_type t) {
 	return t == COMP_TYPE_EVENT;
@@ -347,9 +361,11 @@ static bool proj_active_events_type(void *_self, enum comp_type t) {
 static struct proj proj_active_events_init(struct proj_active_events *self,
 		struct app *app) {
 	self->app = app;
-	rb_tree_init(&self->unprocessed,  &interval_ops);
 	self->processed = vec_new_empty(sizeof(struct active_comp *));
-	rb_tree_init(&self->processed_visible, &interval_ops);
+	rb_tree_init(&self->unprocessed,  &interval_ops);
+	rb_tree_init(&self->processed_not_hidden, &interval_ops);
+	rb_tree_init(&self->in_view, &interval_ops);
+	rb_tree_init(&self->not_in_view, &interval_ops);
 	return (struct proj){
 		.self = self,
 		.add = proj_active_events_add,
@@ -358,28 +374,104 @@ static struct proj proj_active_events_init(struct proj_active_events *self,
 		.type = proj_active_events_type,
 	};
 }
-static void proj_active_events_process_iter_interval(void *_env,
-		struct interval_node *x) {
-	struct proj_active_events *self = _env;
-	struct active_comp *ac = container_of(x, struct active_comp, node);
-	execute_filters(self->app, ac);
-	vec_append(&self->processed, &ac);
+static void in_view_changed(struct app *app, struct active_comp *ac,
+		bool in_view) {
+	if (!in_view) {
+		mgu_texture_destroy(&ac->tex);
+		mgu_texture_destroy(&ac->loc_tex);
+	} else {
+		asrt(!ac->tex.tex && ! ac->loc_tex.tex, "ac tex");
+	}
+}
+static void in_view_destroy_texs(struct app *app) {
+	struct rb_iter iter =
+		rb_iter(&app->active_events.in_view, RB_ITER_ORDER_IN);
+	struct rb_node *x;
+	while (rb_iter_next(&iter, &x)) {
+		struct interval_node *nx =
+			container_of(x, struct interval_node, node);
+		struct active_comp *ac =
+			container_of(nx, struct active_comp, node_by_view);
+		mgu_texture_destroy(&ac->tex);
+		mgu_texture_destroy(&ac->loc_tex);
+	}
 }
 static void proj_active_events_process(struct proj_active_events *self,
 		struct ts_ran ran) {
+	struct interval_iter i_iter;
+	struct interval_node *nx;
+
+	/* first of all, fix up in_view and not_in_view for this new ran */
+	long long int ran_left[] = { LLONG_MIN, ran.fr };
+	long long int ran_in[] = { ran.fr, ran.to };
+	long long int ran_right[] = { ran.to, LLONG_MAX };
+	struct vec move = vec_new_empty(sizeof(struct rb_node *));
+	i_iter = interval_iter(&self->not_in_view, ran_in);
+	while (interval_iter_next(&i_iter, &nx)) {
+		struct rb_node *x = &nx->node;
+		vec_append(&move, &x);
+	}
+	for (int i = 0; i < move.len; ++i) {
+		struct rb_node *x = *(struct rb_node **)vec_get(&move, i);
+		struct interval_node *nx =
+			container_of(x, struct interval_node, node);
+		struct active_comp *ac =
+			container_of(nx, struct active_comp, node_by_view);
+		in_view_changed(self->app, ac, true);
+		rb_delete(&self->not_in_view, x);
+		rb_insert(&self->in_view, x);
+	}
+	vec_clear(&move);
+	// TODO: there is no "not in range" query, so this is the best we can do
+	i_iter = interval_iter(&self->in_view, ran_left);
+	while (interval_iter_next(&i_iter, &nx)) {
+		struct rb_node *x = &nx->node;
+		if (!interval_overlap(nx->ran, ran_in)) {
+			vec_append(&move, &x);
+		}
+	}
+	i_iter = interval_iter(&self->in_view, ran_right);
+	while (interval_iter_next(&i_iter, &nx)) {
+		struct rb_node *x = &nx->node;
+		if (!interval_overlap(nx->ran, ran_in)
+				&& !interval_overlap(nx->ran, ran_left)) {
+			vec_append(&move, &x);
+		}
+	}
+	for (int i = 0; i < move.len; ++i) {
+		struct rb_node *x = *(struct rb_node **)vec_get(&move, i);
+		struct interval_node *nx =
+			container_of(x, struct interval_node, node);
+		struct active_comp *ac =
+			container_of(nx, struct active_comp, node_by_view);
+		in_view_changed(self->app, ac, false);
+		rb_delete(&self->in_view, x);
+		rb_insert(&self->not_in_view, x);
+	}
+	vec_free(&move);
+
 	int from = self->processed.len;
-	interval_query(
-		&self->unprocessed,
-		(long long int[]){ ran.fr, ran.to },
-		self,
-		proj_active_events_process_iter_interval
-	);
+	i_iter = interval_iter(&self->unprocessed, ran_in);
+	while (interval_iter_next(&i_iter, &nx)) {
+		struct active_comp *ac =
+			container_of(nx, struct active_comp, node);
+		execute_filters(self->app, ac);
+		vec_append(&self->processed, &ac);
+	}
 	for (int i = from; i < self->processed.len; ++i) {
 		struct active_comp *ac =
 			*(struct active_comp**)vec_get(&self->processed, i);
 		rb_delete(&self->unprocessed, &ac->node.node);
 		if (ac->vis) {
-			rb_insert(&self->processed_visible, &ac->node.node);
+			rb_insert(&self->processed_not_hidden, &ac->node.node);
+			if (interval_overlap(ran_in, ac->node.ran)) {
+				in_view_changed(self->app, ac, true);
+				rb_insert(&self->in_view,
+					&ac->node_by_view.node);
+			} else {
+				rb_insert(&self->not_in_view,
+					&ac->node_by_view.node);
+			}
 		}
 	}
 }
@@ -474,15 +566,19 @@ static void alarm_cb(void *env) {
 	subprocess_shell(app->alarm_comps.shell_cmd, argv);
 	proj_alarm_done(&app->alarm_comps);
 }
-static void proj_alarm_clear_alc_iter_free(void *env, struct rb_node *x) {
-	struct rb_integer_node *nx =
-		container_of(x, struct rb_integer_node, node);
-	struct alarm_comp *alc = container_of(nx, struct alarm_comp, node);
-	free(alc);
-}
 static void proj_alarm_clear(void *_self) {
 	struct proj_alarm *self = _self;
-	rb_iter_post(&self->tree, NULL, proj_alarm_clear_alc_iter_free);
+
+	struct rb_iter iter = rb_iter(&self->tree, RB_ITER_ORDER_POST);
+	struct rb_node *x;
+	while (rb_iter_next(&iter, &x)) {
+		struct rb_integer_node *nx =
+			container_of(x, struct rb_integer_node, node);
+		struct alarm_comp *alc =
+			container_of(nx, struct alarm_comp, node);
+		free(alc);
+	}
+
 	rb_tree_init(&self->tree, &rb_integer_ops);
 }
 static struct proj proj_alarm_init(struct proj_alarm *self, struct app *app) {
@@ -498,27 +594,6 @@ static struct proj proj_alarm_init(struct proj_alarm *self, struct app *app) {
 	};
 }
 
-struct app_project_cis_tree_iter_env {
-	struct app *app;
-	enum comp_type type;
-	int cal_index;
-	struct calendar *cal;
-	struct vec *remove;
-};
-static void app_project_cis_tree_iter(void *_env, struct rb_node *x) {
-	struct app_project_cis_tree_iter_env *env = _env;
-	struct interval_node *nx = container_of(x, struct interval_node, node);
-	struct comp_inst *ci = container_of(nx, struct comp_inst, node);
-	for (int i = 0; i < env->app->projs.len; ++i) {
-		struct proj *p = vec_get(&env->app->projs, i);
-		if (p->type && !p->type(p->self, env->type))
-			continue;
-		if (p->add) p->add(p->self, (struct proj_item){
-			.ci = ci, .cal_index = env->cal_index, .cal = env->cal
-		});
-	}
-	vec_append(env->remove, &nx);
-}
 void app_update_projections(struct app *app) {
 	app_expand(app, COMP_TYPE_EVENT, app->expand_to);
 	app_expand(app, COMP_TYPE_TODO, app->expand_to);
@@ -530,15 +605,31 @@ void app_update_projections(struct app *app) {
 		for (int j = 0; j < app->cals.len; ++j) {
 			struct calendar *cal = vec_get(&app->cals, j);
 			enum comp_type type = t;
-			struct app_project_cis_tree_iter_env env = {
-				.app = app,
-				.type = type,
-				.cal_index = j,
-				.cal = cal,
-				.remove = &remove
-			};
-			rb_iter(&cal->cis[type], &env,
-				app_project_cis_tree_iter);
+
+			struct rb_iter iter =
+				rb_iter(&cal->cis[type], RB_ITER_ORDER_IN);
+			struct rb_node *x;
+			while (rb_iter_next(&iter, &x)) {
+				struct interval_node *nx = container_of(x,
+					struct interval_node, node);
+				struct comp_inst *ci = container_of(nx,
+					struct comp_inst, node);
+				for (int i = 0; i < app->projs.len; ++i) {
+					struct proj *p =
+						vec_get(&app->projs, i);
+					if (p->type && !p->type(p->self, type))
+						continue;
+					if (p->add) p->add(p->self,
+							(struct proj_item){
+						.ci = ci,
+						.cal_index = j,
+						.cal = cal
+					});
+				}
+				vec_append(&remove, &nx);
+
+			}
+
 			if (remove.len > 0) any = true;
 			for (int k = 0; k < remove.len; ++k) {
 				struct interval_node **ni = vec_get(&remove, k);
@@ -594,32 +685,34 @@ static void app_mark_dirty(struct app *app) {
 	mgu_win_surf_mark_dirty(app->win);
 }
 
-struct ac_iter_find_code_env {
-	struct app *app;
-	struct active_comp *res;
-};
-static void ac_iter_find_code(void *_env, struct rb_node *x) {
-	struct interval_node *nx = container_of(x, struct interval_node, node);
-	struct active_comp *ac = container_of(nx, struct active_comp, node);
-	struct ac_iter_find_code_env *env = _env;
-
-	if (strncmp(ac->code, env->app->mode_select_code,
-			env->app->mode_select_code_n) == 0) {
-		env->res = ac;
-	}
-}
 static void app_mode_select_finish(struct app *app) {
 	app->keystate = KEYSTATE_BASE;
 	app_mark_dirty(app);
 	struct active_comp *ac = NULL;
 	if (app->main_view == VIEW_CALENDAR) {
-		struct ac_iter_find_code_env env = { app, NULL };
-		rb_iter(&app->active_events.processed_visible,
-			&env, ac_iter_find_code);
-		if (env.res) {
+		struct active_comp *res = NULL;
+
+		struct rb_iter iter = rb_iter(
+			&app->active_events.processed_not_hidden,
+			RB_ITER_ORDER_IN);
+		struct rb_node *x;
+		while (rb_iter_next(&iter, &x)) {
+			struct interval_node *nx =
+				container_of(x, struct interval_node, node);
+			struct active_comp *ac =
+				container_of(nx, struct active_comp, node);
+
+			if (strncmp(ac->code, app->mode_select_code,
+					app->mode_select_code_n) == 0) {
+				res = ac;
+				break;
+			}
+		}
+
+		if (res) {
 			fprintf(stderr, "selected comp: %s\n",
-				props_get_summary(env.res->ci->p));
-			ac = env.res;
+				props_get_summary(res->ci->p));
+			ac = res;
 		}
 	} else if (app->main_view == VIEW_TODO) {
 		for (int i = 0; i < app->active_todos.v.len; ++i) {
@@ -946,6 +1039,8 @@ static void touch_end(void *env, struct libtouch_gesture_data data) {
 	a -= tx, b -= tx;
 	struct ts_ran view = { a, b };
 	app->view = view;
+
+	in_view_destroy_texs(app);
 }
 
 static void app_add_uexpr_config_file(struct app *app, FILE *f) {
@@ -971,7 +1066,7 @@ void context_cb(void *env, bool have_ctx) {
 		w_sidebar_init(&app->w_sidebar, app);
 	} else {
 		sr_destroy(app->sr);
-
+		in_view_destroy_texs(app);
 		w_sidebar_finish(&app->w_sidebar);
 	}
 }

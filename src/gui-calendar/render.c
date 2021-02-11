@@ -309,42 +309,53 @@ static void render_tobject(struct app *app,
 
 	/* draw various labels */
 	if (draw_labels && obj->type == TOBJECT_EVENT && !obj->ac->hide) {
-		const char *location = props_get_location(obj->ac->ci->p);
-		float s[2] = { 0, 0 };
+		float loc_h = 0;
+		const char *location =
+			props_get_location(obj->ac->ci->p);
 		if (location) {
-			sr_measure(app->sr, s, (struct sr_spec){
-				.t = SR_TEXT,
-				.p = { 0, 0, w, h },
-				.text = { .px = text_px, .s = location }
-			});
-		}
-		int loc_h = location ? mini(h / 2, s[1]) : 0;
-
-		const char *summary = props_get_summary(obj->ac->ci->p);
-		struct simple_date local_start =
-			simple_date_from_ts(obj->ac->ci->time.fr, app->zone);
-		struct simple_date local_end =
-			simple_date_from_ts(obj->ac->ci->time.to, app->zone);
-		char *text = text_format("%02d:%02d-%02d:%02d %s",
-				local_start.hour, local_start.minute,
-				local_end.hour, local_end.minute,
-				summary);
-		sr_put(app->sr, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { x, y, w, h - loc_h },
-			.argb = fg,
-			.text = { .px = text_px, .s = text }
-		});
-		free(text);
-
-		if (location) {
+			struct mgu_texture *loc_tex = &obj->ac->loc_tex;
+			if (!loc_tex->tex) {
+				*loc_tex = mgu_tex_text(app->text,
+						(struct mgu_text_opts){
+					.str = location,
+					.s = { w, -1 },
+					.size_px = text_px,
+				});
+			}
+			loc_h = mini(h / 2, loc_tex->s[1]);
 			sr_put(app->sr, (struct sr_spec){
-				.t = SR_TEXT,
+				.t = SR_TEX,
 				.p = { x, y + h - loc_h, w, loc_h },
 				.argb = light ? 0xFFA0A0A0 : 0xFF606060,
-				.text = { .px = text_px, .s = location }
+				.tex = *loc_tex
 			});
 		}
+
+		if (!obj->ac->tex.tex) {
+			const char *summary = props_get_summary(obj->ac->ci->p);
+			struct simple_date local_start = simple_date_from_ts(
+				obj->ac->ci->time.fr, app->zone);
+			struct simple_date local_end = simple_date_from_ts(
+				obj->ac->ci->time.to, app->zone);
+			char *str = text_format("%02d:%02d-%02d:%02d %s",
+					local_start.hour, local_start.minute,
+					local_end.hour, local_end.minute,
+					summary);
+			obj->ac->tex = mgu_tex_text(app->text,
+					(struct mgu_text_opts){
+				.str = str,
+				.s = { w, -1 },
+				.size_px = text_px,
+			});
+			free(str);
+		}
+		sr_put(app->sr, (struct sr_spec){
+			.t = SR_TEX,
+			.p = { x, y, w, h - loc_h },
+			.argb = fg,
+			.tex = obj->ac->tex
+		});
+
 	}
 	// if (draw_labels && obj->type == TOBJECT_TODO) {
 	// 	cairo_set_source_argb(cr, fg);
@@ -378,34 +389,19 @@ struct ctx {
 	struct ts_ran len_clip;
 	struct vec *tobjs;
 	bool now_shading;
+	uint32_t viewport[2];
 };
-static void iter_ac(void *env, struct interval_node *x) {
-	struct ctx *ctx = env;
-	struct active_comp *ac = container_of(x, struct active_comp, node);
-	struct tobject obj = {
-		.time = ac->ci->time,
-		.type = TOBJECT_EVENT,
-		.ac = ac,
-	};
-
-	ts len = obj.time.to - obj.time.fr;
-	if (ctx->len_clip.fr != -1 && ctx->len_clip.fr > len) return;
-	if (ctx->len_clip.to != -1 && ctx->len_clip.to <= len) return;
-
-	vec_append(ctx->tobjs, &obj);
-}
 static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 	struct ctx *ctx = env;
 	struct app *app = ctx->app;
-	// fbox btop = ctx->btop;
+	fbox btop = ctx->btop;
 	fbox bmain = ctx->bmain, bhead = ctx->bhead;
 	fbox bsl = fbox_slice(bmain, ctx->dir, ctx->view, ran);
 	fbox bhsl = fbox_slice(bhead, ctx->dir, ctx->view, ran);
 
 	if (ctx->now_shading && ts_ran_in(ran, ctx->app->now)) {
-		// cairo_reset_clip(ctx->cr);
-		// cairo_rectangle(ctx->cr, btop.x, btop.y, btop.w, btop.h);
-		// cairo_clip(ctx->cr);
+		sr_clip_push(app->sr,
+			(float[]){ btop.x, btop.y, btop.w, btop.h });
 
 		uint32_t l = (64 + ctx->level * 128) & 0xFF;
 		uint32_t bg = 0xFFFF0000 | (l << 8) | l;
@@ -421,11 +417,9 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 				.argb = bg
 			});
 		}
-		//- cairo_set_source_argb(ctx->cr, bg);
-		//- cairo_rectangle(ctx->cr, bsl.x, bsl.y, bsl.w, bsl.h);
-		//- if (ctx->level == 1) cairo_rectangle(
-		//-	ctx->cr, bhsl.x, bhsl.y, bhsl.w, bhsl.h);
-		//- cairo_fill(ctx->cr);
+
+		sr_present(app->sr, ctx->viewport);
+		sr_clip_pop(app->sr);
 	}
 
 	if (ctx->level > 0) {
@@ -442,20 +436,33 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		}
 	}
 
-	// cairo_reset_clip(ctx->cr);
-	// cairo_rectangle(ctx->cr, btop.x, btop.y, btop.w, btop.h);
-	// cairo_clip(ctx->cr);
+	sr_clip_push(app->sr, (float[]){ btop.x, btop.y, btop.w, btop.h });
 
 	if ((ctx->level == 0 && ctx->st < SLICING_HOUR)
 			|| ctx->st == SLICING_DAY) {
 		/* draw overlapping objects */
 		vec_clear(ctx->tobjs);
-		interval_query(
-			&ctx->app->active_events.processed_visible,
-			(long long int[]){ ran.fr, ran.to },
-			ctx,
-			iter_ac
-		);
+		struct interval_iter i_iter = interval_iter(
+			&ctx->app->active_events.in_view,
+			(long long int[]){ ran.fr, ran.to });
+		struct interval_node *nx;
+		while (interval_iter_next(&i_iter, &nx)) {
+			struct active_comp *ac = container_of(nx,
+				struct active_comp, node_by_view);
+			struct tobject obj = {
+				.time = ac->ci->time,
+				.type = TOBJECT_EVENT,
+				.ac = ac,
+			};
+
+			ts len = obj.time.to - obj.time.fr;
+			if (ctx->len_clip.fr != -1
+					&& ctx->len_clip.fr > len) continue;
+			if (ctx->len_clip.to != -1
+					&& ctx->len_clip.to <= len) continue;
+
+			vec_append(ctx->tobjs, &obj);
+		}
 		tobject_layout(ctx->tobjs, NULL);
 		double len = ran.to - ran.fr;
 		for (int i = 0; i < ctx->tobjs->len; ++i) {
@@ -505,11 +512,6 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 				.p = { nb.x, nb.y, nb.w, nb.h },
 				.argb = 0xFFFF0000
 			});
-			//- cairo_set_line_width(ctx->cr, 2);
-			//- cairo_move_to(ctx->cr, nb.x, nb.y);
-			//- cairo_line_to(ctx->cr, nb.x + nb.w, nb.y + nb.h);
-			//- cairo_set_source_rgba(ctx->cr, 255, 0, 0, 255);
-			//- cairo_stroke(ctx->cr);
 		}
 	}
 
@@ -529,10 +531,12 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		});
 	}
 
+	sr_present(app->sr, ctx->viewport);
+	sr_clip_pop(app->sr);
+
 	if (ctx->level == 1) {
-		// cairo_reset_clip(ctx->cr);
-		// cairo_rectangle(ctx->cr, bhead.x, bhead.y, bhead.w, bhead.h);
-		// cairo_clip(ctx->cr);
+		sr_clip_push(app->sr,
+			(float[]){ bhead.x, bhead.y, bhead.w, bhead.h });
 
 		/* draw header */
 		sr_put(app->sr, (struct sr_spec){
@@ -540,11 +544,6 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 			.p = { bhsl.x, bhsl.y, ctx->p.sep_line, bhsl.h },
 			.argb = 0xFF000000
 		});
-		//- cairo_set_source_argb(ctx->cr, 0xFF000000);
-		//- cairo_set_line_width(ctx->cr, ctx->p.sep_line);
-		//- cairo_move_to(ctx->cr, bhsl.x, bhsl.y);
-		//- cairo_line_to(ctx->cr, bhsl.x, bhsl.y + bhsl.h);
-		//- cairo_stroke(ctx->cr);
 
 		char *text;
 		if (label.t[1] == 0) text = text_format("%d", label.t[0]);
@@ -561,12 +560,15 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		});
 		free(text);
 
-		// cairo_reset_clip(ctx->cr);
+		sr_present(app->sr, ctx->viewport);
+		sr_clip_pop(app->sr);
 	}
 }
 
 /* return height */
 static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
+	int text_px = 0.18 * app->out->ppvd;
+
 	/* prepare all the info we need */
 	ts due, start;
 	enum prop_status status;
@@ -592,28 +594,25 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 	int n = 1;
 	if (desc) n += 1;
 	if (has_cats) n += 1;
-	float s[2];
+
+	struct mgu_texture tex_summary = { 0 }, tex_desc = { 0 };
 
 	/* calculate height */
 	if (summary) {
-		sr_measure(app->sr, s, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { 0, 0, w/n - 2*hpad, -1 },
-			.text = { .px = 10, .s = summary },
+		tex_summary = mgu_tex_text(app->text, (struct mgu_text_opts){
+			.str = summary,
+			.s = { w/n - 2*hpad, -1 },
+			.size_px = text_px,
 		});
-		//- app->tr->p.width = w/n - 2*hpad; app->tr->p.height = -1;
-		//- text_get_size(cr, app->tr, summary);
-		b.h = maxi(b.h, s[1]);
+		b.h = maxi(b.h, tex_summary.s[1]);
 	}
 	if (desc) {
-		sr_measure(app->sr, s, (struct sr_spec){
-			.t = SR_TEXT,
-			.p = { 0, 0, w/n - 2*hpad, -1 },
-			.text = { .px = 10, .s = desc },
+		tex_desc = mgu_tex_text(app->text, (struct mgu_text_opts){
+			.str = desc,
+			.s = { w/n - 2*hpad, -1 },
+			.size_px = text_px,
 		});
-		//- app->tr->p.width = w/n - 2*hpad; app->tr->p.height = -1;
-		//- text_get_size(cr, app->tr, desc);
-		b.h = maxi(b.h, s[1]);
+		b.h = maxi(b.h, tex_desc.s[1]);
 	}
 
 	if (overdue) {
@@ -622,9 +621,6 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.p = { b.x + b.w - due_w, b.y, due_w, b.h },
 			.argb = 0xFFD05050
 		});
-		//- cairo_set_source_argb(cr, 0xFFD05050);
-		//- cairo_rectangle(cr, b.w - 80, 0, 80, b.h);
-		//- cairo_fill(cr);
 	}
 	if (inprocess) {
 		double w = b.w - 80;
@@ -634,9 +630,6 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.p = { b.x, b.y, w, b.h },
 			.argb = 0xFF88FF88
 		});
-		//- cairo_set_source_argb(cr, 0xFF88FF88);
-		//- cairo_rectangle(cr, 0, 0, w, b.h);
-		//- cairo_fill(cr);
 	} else if (has_perc_c) {
 		double w = (b.w - 80) * perc;
 		sr_put(app->sr, (struct sr_spec){
@@ -644,9 +637,6 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.p = { b.x, b.y, w, b.h },
 			.argb = 0xFF8888FF
 		});
-		//- cairo_set_source_argb(cr, 0xFF8888FF);
-		//- cairo_rectangle(cr, 0, 0, w, b.h);
-		//- cairo_fill(cr);
 	}
 
 	uint32_t t_col = not_started ? 0xFF888888 : 0xFF000000;
@@ -676,10 +666,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.p = { b.x + b.w - due_w, b.y, due_w, b.h },
 			.argb = t_col,
 			.o = SR_CENTER,
-			.text = { .px = 10, .s = text },
+			.text = { .px = text_px, .s = text },
 		});
-		//- text_print_center(cr, app->tr,
-		//-	(box){ b.w - 80, 0, 80, b.h }, text);
 		free(text);
 	}
 	if (has_cats) {
@@ -697,33 +685,28 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
 			.argb = 0xFF000000,
 			.o = SR_CENTER,
-			.text = { .px = 10, .s = str_cstr(&s) },
+			.text = { .px = text_px, .s = str_cstr(&s) },
 		});
-		//- text_print_vert_center(cr, app->tr,
-		//- 	(box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h },
-		//-	str_cstr(&s));
 		str_free(&s);
 	}
 	if (summary) {
 		int i = 0 + (has_cats ? 1 : 0);
 		sr_put(app->sr, (struct sr_spec){
-			.t = SR_TEXT,
+			.t = SR_TEX,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
 			.argb = 0xFF000000,
-			.o = SR_CENTER,
-			.text = { .px = 10, .s = summary },
+			.o = SR_CENTER | SR_TEX_PASS_OWNERSHIP,
+			.tex = tex_summary,
 		});
-		//- text_print_vert_center(cr, app->tr,
-		//- (box){ w*i/n + hpad, 0, w/n - 2*hpad, b.h }, summary);
 	}
 	if (desc) {
 		int i = 1 + (has_cats ? 1 : 0);
 		sr_put(app->sr, (struct sr_spec){
-			.t = SR_TEXT,
+			.t = SR_TEX,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
 			.argb = 0xFF000000,
-			.o = SR_CENTER_V,
-			.text = { .px = 10, .s = desc },
+			.o = SR_CENTER_V | SR_TEX_PASS_OWNERSHIP,
+			.tex = tex_desc,
 		});
 	}
 
@@ -734,9 +717,6 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.p = { b.x + w*i/n, b.y, 1, b.h },
 			.argb = 0xFF000000
 		});
-		//- cairo_move_to(cr, w*i/n +.5, 0);
-		//- cairo_line_to(cr, w*i/n +.5, b.h);
-		//- cairo_stroke(cr);
 	}
 
 	/* draw keycode tags */
@@ -855,15 +835,15 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 		a -= tx, b -= tx;
 		struct ts_ran view = { a, b };
 		app_update_projections(app);
-		app_use_view(app, view);
-		// fprintf(stderr, "g: %f, t1: %f, view: [%lld, %lld]\n", g,
-		// rt.t1, view.fr, view.to);
 
 		enum slicing_type st = SLICING_DAY;
 		ts top_th = 3600 * 24;
 		ts len = view.to - view.fr;
 		if (len > 3600 * 24 * 365) st = SLICING_YEAR, top_th *= 365;
 		else if (len > 3600 * 24 * 31) st = SLICING_MONTH, top_th *= 31;
+
+		struct ts_ran bounds = slicing_get_bounds(s, st, view);
+		app_use_view(app, bounds);
 
 		struct vec tobjs = vec_new_empty(sizeof(struct tobject));
 		struct tview_params params = {
@@ -883,7 +863,8 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 			.p = params,
 			.view = view,
 			.tobjs = &tobjs,
-			.now_shading = true
+			.now_shading = true,
+			.viewport = { surf->size[0], surf->size[1] },
 		};
 
 		ctx.len_clip = (struct ts_ran){ -1, top_th };
@@ -898,8 +879,6 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 		render_ran(&ctx, view, (struct simple_date){ });
 
 		vec_free(&tobjs);
-
-		// cairo_reset_clip(cr);
 
 		view_name = "calendar";
 		break;
@@ -934,10 +913,7 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 	});
 	free(text);
 
-	float proj[9];
-	mat3_ident(proj);
-	mat3_proj(proj, (int[]){ surf->size[0], surf->size[1] });
-	sr_present(app->sr, proj);
+	sr_present(app->sr, surf->size);
 
 	app->dirty = false;
 	// sw_end_print(sw, "render_application");

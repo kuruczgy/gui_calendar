@@ -15,6 +15,8 @@ void slicing_destroy(struct slicing *s);
 void slicing_iter_items(struct slicing *s, void *env,
 	void (*f)(void *env, struct ts_ran ran, struct simple_date label),
 	enum slicing_type type, struct ts_ran ran);
+struct ts_ran slicing_get_bounds(struct slicing *s, enum slicing_type type,
+	struct ts_ran ran);
 
 struct active_comp;
 

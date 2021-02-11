@@ -125,10 +125,16 @@ void calendar_init(struct calendar *cal) {
 	cal->priv = false;
 	cal->loaded.tv_sec = 0; // should work...
 }
-static void cis_tree_iter_free(void *env, struct rb_node *x) {
-	struct interval_node *nx = container_of(x, struct interval_node, node);
-	struct comp_inst *ci = container_of(nx, struct comp_inst, node);
-	free(ci);
+static void cis_tree_free(struct rb_tree *T) {
+	struct rb_iter iter = rb_iter(T, RB_ITER_ORDER_POST);
+	struct rb_node *x;
+	while (rb_iter_next(&iter, &x)) {
+		struct interval_node *nx = container_of(x,
+			struct interval_node, node);
+		struct comp_inst *ci = container_of(nx,
+			struct comp_inst, node);
+		free(ci);
+	}
 }
 void calendar_finish(struct calendar *cal) {
 	for (int i = 0; i < cal->comps_vec.len; ++i) {
@@ -140,7 +146,7 @@ void calendar_finish(struct calendar *cal) {
 	vec_free(&cal->comp_infos);
 
 	for (int i = 0; i < COMP_TYPE_N; ++i) {
-		rb_iter_post(&cal->cis[i], NULL, cis_tree_iter_free);
+		cis_tree_free(&cal->cis[i]);
 	}
 	free(cal->cis);
 
@@ -203,7 +209,7 @@ void calendar_expand_instances_to(struct calendar *cal, enum comp_type type,
 	if (cal->cis_dirty[type]) {
 
 		/* this clears the tree */
-		rb_iter_post(&cal->cis[type], NULL, cis_tree_iter_free);
+		cis_tree_free(&cal->cis[type]);
 		rb_tree_init(&cal->cis[type], &interval_ops);
 		cal->cis_n[type] = 0;
 

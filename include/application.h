@@ -24,8 +24,10 @@ struct active_comp {
 	bool fade, hide, vis;
 	struct calendar *cal;
 	char code[33];
+	struct mgu_texture tex, loc_tex;
 
 	struct interval_node node;
+	struct interval_node node_by_view;
 };
 struct alarm_comp {
 	struct comp_inst *ci;
@@ -74,9 +76,13 @@ struct proj {
 };
 struct proj_active_events {
 	struct app *app;
-	struct rb_tree unprocessed; /* items: struct active_comp */
 	struct vec processed; /* vec<struct active_comp *> */
-	struct rb_tree processed_visible; /* items: struct active_comp */
+
+	/* items: struct active_comp::node */
+	struct rb_tree unprocessed, processed_not_hidden;
+
+	/* items: struct active_comp::node_by_view */
+	struct rb_tree in_view, not_in_view;
 };
 struct proj_active_todos {
 	struct app *app;

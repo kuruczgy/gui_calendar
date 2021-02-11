@@ -164,6 +164,31 @@ void slicing_iter_items(struct slicing *s, void *env,
 		iter_items(s, &iter, YEAR, id);
 	}
 }
+struct ts_ran slicing_get_bounds(struct slicing *s, enum slicing_type type,
+		struct ts_ran ran) {
+	struct ts_ran bounds;
+	struct simple_date sd;
+
+	sd = simple_date_from_ts(ran.fr, s->zone);
+	switch (type) { /* all of these FALLTHROUGH */
+	case SLICING_YEAR: sd.month = 1;
+	case SLICING_MONTH: sd.day = 1;
+	case SLICING_DAY: sd.hour = 0;
+	case SLICING_HOUR: sd.minute = sd.second = 0;
+	}
+	bounds.fr = simple_date_to_ts(sd, s->zone);
+
+	sd = simple_date_from_ts(ran.to, s->zone);
+	switch (type) { /* all of these FALLTHROUGH */
+	case SLICING_YEAR: sd.month = 12;
+	case SLICING_MONTH: sd.day = simple_date_days_in_month(sd);
+	case SLICING_DAY: sd.hour = 24; /* this... is probably fine? */
+	case SLICING_HOUR: sd.minute = sd.second = 0;
+	}
+	bounds.to = simple_date_to_ts(sd, s->zone);
+
+	return bounds;
+}
 
 int slicing_test_get_total_len(struct slicing *s) {
 	int n = 0;
