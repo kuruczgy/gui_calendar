@@ -1,79 +1,6 @@
 /*
-=== Grammar ===
-(* basic definitions *)
-char = ? any character ? ;
-
-(* string literal *)
-str = ? [a-zA-Z0-9-_] ? ;
-str = "\"", { char - "\"" }, "\"" ;
-
-expr = str ; (* literal *)
-expr = "(", expr, ")" ; (* parenthesized expression *)
-
-expr = "[", expr, { ",", expr }, "]" | "[", "]" ; (* list *)
-expr = "{", expr, { ";", expr }, "}" | "{", "}"; (* block of expressions *)
-expr = str, "(", expr, { ",", expr }, ")" | str, "(", ")" ; (* function call *)
-
-expr = "$", str ; (* variable *)
-
-unary-op = "~" ;
-binary-op = "&", "|", "=", "%" ;
-expr = unary-op, expr ;
-expr = expr, binary-op, expr ;
-
-grammar = expr
-
-=== Semantics ===
-
-# Types
-Every expression has a type: string, boolean, list, or void. Literal `str` has
-type string. Additionally, variable expressions are special in some cases.
-
-## string
-Any Unicode string, excluding null characters.
-
-## boolean
-Has the values True and False.
-
-## list
-An ordered list of heterogenous values.
-
-## void
-Has the only value Void.
-
-# Operators
-- "=" operator: String equality. Both operands must have type string. Result is
-  boolean.
-- "&", "|" operators: Logical and and or, respectively. First operand must have
-  type boolean. Result is boolean, or the second argument. (Short circuiting.)
-- "%" operator: Operands must be string and list. Tests set membership. Result
-  is boolean.
-- "~" operator: Logical negation. Operand must be boolean. Result is boolean.
-
-# Expression block
-- Every expression is evaluated in sequence.
-- Result is the last expression's result.
-
-# Functions
-
-## Function "let", 2 arguments.
-- The first argument must be a variable. The variable's value and type will be
-  set to that of the evaluated second operand. Only strings and booleans can be
-  stored.
-
-## Function "apply", 2 arguments.
-- The first argument is a list. Evaluates the second expression for each
-  element (with setting the variable $i to the current element), and returns the
-  resulting list.
-
-## Function "print"
-- The string arguments are printed as-is, others in a canonical form to the
-  standard output, line-by-line.
-
-## Function "startsw", 2 arguments.
-- Tests whether the first argument starts with the second. (Both must be type
-  string.)
-*/
+ * See uexpr.md for specification.
+ */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -733,6 +660,9 @@ static void print_value(FILE *f, struct uexpr_value v) {
 	case UEXPR_TYPE_STRING:
 		fprintf(f, "\"%s\"", v.string_ref);
 		break;
+	case UEXPR_TYPE_BOOLEAN:
+		fprintf(f, "%s", v.boolean ? "True" : "False");
+		break;
 	case UEXPR_TYPE_LIST:
 		fprintf(f, "[");
 		for (int i = 0; i < v.list.len; ++i) {
@@ -741,9 +671,6 @@ static void print_value(FILE *f, struct uexpr_value v) {
 			if (i < v.list.len - 1) fprintf(f, ", ");
 		}
 		fprintf(f, "]");
-		break;
-	case UEXPR_TYPE_BOOLEAN:
-		fprintf(f, "%s", v.boolean ? "True" : "False");
 		break;
 	case UEXPR_TYPE_VOID:
 		fprintf(f, "Void");

@@ -188,6 +188,8 @@ if prog_markdown.found()
     'README.md',
     'Documentation/interface.md',
     'Documentation/bugs.md',
+    'Documentation/uexpr.md',
+    'Documentation/uexpr_cal.md',
   ]
     basename = md.split('.')[-2].split('/')[-1]
     output = basename + '.html'
