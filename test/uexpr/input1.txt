@@ -1,0 +1,23 @@
+{
+    "init variables";
+    let($t, a=a); let($f, a=b);
+
+    "test built-in operators and some functions";
+    (t % apply([
+        (a = a),
+        ~(a = b),
+        ($t & a) = a,
+        ($f | a) = a,
+        ~($f & a),
+        ($t | a),
+        b % [a,b,c],
+        ~(d % [a,b,c]),
+        { let($v, asd); $v = asd },
+        t % apply([as, be, asd], startsw($i, asd) & t)
+    ], $i & t)) & print("expr tests ok");
+
+    let_fn($fn_1, { print("fn_1 called"); ret_test });
+    let_fn($fn_2, { print("fn_2 called"); fn_1() });
+    (fn_2() = ret_test) & print("ret val ok")
+}
+

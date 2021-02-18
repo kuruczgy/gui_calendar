@@ -259,6 +259,8 @@ void uexpr_value_finish(struct uexpr_value v) {
 	switch (v.type) {
 	case UEXPR_TYPE_STRING:
 		break;
+	case UEXPR_TYPE_BOOLEAN:
+		break;
 	case UEXPR_TYPE_LIST:
 		for (int i = 0; i < v.list.len; ++i) {
 			struct uexpr_value *vp = vec_get(&v.list, i);
@@ -266,12 +268,15 @@ void uexpr_value_finish(struct uexpr_value v) {
 		}
 		vec_free(&v.list);
 		break;
+	case UEXPR_TYPE_VOID:
+		break;
 	case UEXPR_TYPE_NATIVEOBJ:
 		v.nativeobj.ref(v.nativeobj.self, -1);
 		break;
-	case UEXPR_TYPE_BOOLEAN:
-	case UEXPR_TYPE_VOID:
+	case UEXPR_TYPE_FN:
+		break;
 	case UEXPR_TYPE_NATIVEFN:
+		break;
 	case UEXPR_TYPE_ERROR:
 		break;
 	}
@@ -279,6 +284,10 @@ void uexpr_value_finish(struct uexpr_value v) {
 struct uexpr_value uexpr_value_copy(const struct uexpr_value *v) {
 	struct uexpr_value res;
 	switch (v->type) {
+	case UEXPR_TYPE_STRING:
+		return *v;
+	case UEXPR_TYPE_BOOLEAN:
+		return *v;
 	case UEXPR_TYPE_LIST:
 		res.type = UEXPR_TYPE_LIST;
 		res.list = vec_new_empty(sizeof(struct uexpr_value));
@@ -288,12 +297,15 @@ struct uexpr_value uexpr_value_copy(const struct uexpr_value *v) {
 			vec_append(&res.list, &resi);
 		}
 		return res;
+	case UEXPR_TYPE_VOID:
+		return *v;
 	case UEXPR_TYPE_NATIVEOBJ:
 		v->nativeobj.ref(v->nativeobj.self, 1);
-	case UEXPR_TYPE_STRING:
-	case UEXPR_TYPE_BOOLEAN:
-	case UEXPR_TYPE_VOID:
+		return *v;
+	case UEXPR_TYPE_FN:
+		return *v;
 	case UEXPR_TYPE_NATIVEFN:
+		return *v;
 	case UEXPR_TYPE_ERROR:
 		return *v;
 	}
@@ -314,6 +326,7 @@ static struct uexpr_value get_var(struct uexpr_ctx *ctx, const char *key) {
 	if (hashmap_get_cstr(&ctx->vars, key, (void**)&vp) == MAP_OK) {
 		if (vp->type == UEXPR_TYPE_STRING
 				|| vp->type == UEXPR_TYPE_BOOLEAN
+				|| vp->type == UEXPR_TYPE_FN
 				|| vp->type == UEXPR_TYPE_NATIVEFN
 				|| vp->type == UEXPR_TYPE_NATIVEOBJ) {
 			return uexpr_value_copy(vp);
@@ -350,6 +363,21 @@ static struct uexpr_value fn_let(struct uexpr *e, int root,
 		uexpr_value_finish(vb);
 		return error_val;
 	}
+	uexpr_set_var(ctx, key, vb);
+	return void_val;
+}
+static struct uexpr_value fn_let_fn(struct uexpr *e, int root,
+		struct uexpr_ctx *ctx) {
+	ast_node np = *(ast_node *)vec_get(&e->ast, root);
+	if (np.args.len != 2) return error_val;
+	ast_node na =
+		*(ast_node *)vec_get(&e->ast, *(int*)vec_get(&np.args, 0));
+	if (na.op != UEXPR_OP_VAR) return error_val;
+	const char *key = str_cstr(&na.str);
+	struct uexpr_value vb = {
+		.type = UEXPR_TYPE_FN,
+		.fn = *(int*)vec_get(&np.args, 1)
+	};
 	uexpr_set_var(ctx, key, vb);
 	return void_val;
 }
@@ -418,6 +446,7 @@ struct builtin_fn {
 };
 static struct builtin_fn builtin_fns[] = {
 	{ "let", &fn_let },
+	{ "let_fn", &fn_let_fn },
 	{ "apply", &fn_apply },
 	{ "print", &fn_print },
 	{ "startsw", &fn_startsw },
@@ -464,7 +493,9 @@ static struct uexpr_value eval(struct uexpr *e, int root,
 
 		/* try calling the variable with the same name */
 		struct uexpr_value v = get_var(ctx, str_cstr(&np.str));
-		if (v.type == UEXPR_TYPE_NATIVEFN) {
+		if (v.type == UEXPR_TYPE_FN) {
+			return eval(e, v.fn, ctx);
+		} else if (v.type == UEXPR_TYPE_NATIVEFN) {
 			return v.nativefn.f(v.nativefn.env, e, root, ctx);
 		}
 
@@ -678,6 +709,9 @@ static void print_value(FILE *f, struct uexpr_value v) {
 	case UEXPR_TYPE_NATIVEOBJ:
 		fprintf(f, "Native(%p, %p)\n",
 			v.nativeobj.self, v.nativeobj.ref);
+		break;
+	case UEXPR_TYPE_FN:
+		fprintf(f, "Fn(%d)\n", v.fn);
 		break;
 	case UEXPR_TYPE_NATIVEFN:
 		fprintf(f, "NativeFn(%p, %p)\n", v.nativefn.f, v.nativefn.env);

@@ -61,8 +61,11 @@ An ordered list of heterogenous values.
 Has the only value `Void`.
 ### `nativeobj`
 Represents an opaque, implementation defined object.
-### `nativefn`
-Represents an opaque, implementation defined object.
+### `fn`, `nativefn`
+Represents a function (either a `uexpr`, or a native one, respectively). For
+how to call such a function, see the description for the function call
+expression. For how to obtain a value of type `fn`, see the built-in function
+`let_fn`.
 ### `error`
 Has the only value `Error`.
 
@@ -101,13 +104,15 @@ If the name of the function matches a built-in function, evaluation proceeds in
 a manner defined for that built-in function.
 
 If the name of the function matches the name of a variable, and the variable
-contains a value of type `nativefn`, the implementation defined function
-associated with this value is called. It's entirely up to the function as to
-what to do with the arguments.
+contains a value of type `fn` or `nativefn`, the function associated with this
+value is called. The arguments of an `fn` are reserved for future use, it's not
+defined as of now what will happen to them. It's recommended that you call it
+with no arguments. In case of a `nativefn`, it's entirely up to the function as
+to what to do with the arguments.
 
 If neiter of the above rules match, the expression evaluetes to `Error`.
 
-It's important to note, that in both of the cases above, the arguments of the
+It's important to note, that in all of the cases above, the arguments of the
 function are NOT evaluated by default. It's up to the function to evaluate it's
 arguments, if it so desires.
 
@@ -138,24 +143,49 @@ Each built-in function returns `Error` if the number of arguments is not
 exactly as specified.
 
 ## Function "let", 2 arguments.
-- The first argument must be a variable expression. The second argument is
-  evaluated. If it does not evaluate to a value of type `string` or `boolean`,
-  then `Error` is returned. Otherwise, the variable is *set* to the value.
+The first argument must be a variable expression. The second argument is
+evaluated. If it does not evaluate to a value of type `string` or `boolean`,
+then `Error` is returned. Otherwise, the variable is *set* to the value.
+
+Usage example:
+
+`let($a, hello_world)`
+
+## Function "let_fn", 2 arguments.
+The first argument must be a variable expression. It is *set* to a value of
+type `fn`. The second argument serves as the body of the function being
+defined, and will be evaluated when the function is called, and the function
+call expression will evaluate exactly to what it evaluated to.
+
+Usage example:
+
+`{ let_fn($a, print("hello world")); a() }`
 
 ## Function "apply", 2 arguments.
-- The first argument is evaluated. If it does not evaluate to a value of type
-  `list`, `Error` is returned. Otherwise, it evaluates the second expression
-  for each element (along with *setting* the variable $i to the current element
-  before each evaluation). Returns a value of type `list`, with it's elements
-  being the results of the evaluations.
+The first argument is evaluated. If it does not evaluate to a value of type
+`list`, `Error` is returned. Otherwise, it evaluates the second expression for
+each element (along with *setting* the variable $i to the current element
+before each evaluation). Returns a value of type `list`, with it's elements
+being the results of the evaluations.
+
+Usage example:
+
+`apply([ a, b, c ], print($i))`
 
 ## Function "print", any number of arguments.
-- Each argument is evaluated, the value immediately printed to an
-  implementation defined output stream. Values of type `string` are printed
-  as-is. The printed representation for other values is implementation defined.
-  Returns `Void`.
+Each argument is evaluated, the value immediately printed to an implementation
+defined output stream. Values of type `string` are printed as-is. The printed
+representation for other values is implementation defined.  Returns `Void`.
+
+Usage example:
+
+`print("hello world")`
 
 ## Function "startsw", 2 arguments.
-- Both arguments are evaluated. If both evaluate to a value with type `string`,
-  a value of type `boolean` is returned representing whether the first string
-  starts with the second one. Otherwise, `Error` is returned.
+Both arguments are evaluated. If both evaluate to a value with type `string`, a
+value of type `boolean` is returned representing whether the first string
+starts with the second one. Otherwise, `Error` is returned.
+
+Usage example:
+
+`startsw($a, h) & print("$a starts with the letter h")`

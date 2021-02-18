@@ -1,0 +1,4 @@
+expr tests ok
+fn_2 called
+fn_1 called
+ret val ok

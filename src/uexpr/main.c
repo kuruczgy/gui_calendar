@@ -1,6 +1,6 @@
-
 #include <string.h>
-
+#include <stdio.h>
+#include <stdlib.h>
 #include "uexpr.h"
 
 struct uexpr_value fn_test(void *env, struct uexpr *e,
@@ -31,8 +31,18 @@ static bool try_set_var(void *env, const char *key, struct uexpr_value v) {
 	return false;
 }
 int main(int argc, char **argv) {
-	struct uexpr e;
-	int root = uexpr_parse(&e, stdin);
+	FILE *f = stdin;
+	if (argc > 1) {
+		f = fopen(argv[1], "r");
+		if (!f) {
+			fprintf(stderr, "failed to open file\n");
+			return EXIT_FAILURE;
+		}
+	}
+
+	struct uexpr e = { 0 };
+	uexpr_init(&e);
+	int root = uexpr_parse(&e, f);
 	struct uexpr_ctx *ctx = uexpr_ctx_create();
 	uexpr_ctx_set_ops(ctx, (struct uexpr_ops){
 		.env = NULL,
@@ -46,4 +56,5 @@ int main(int argc, char **argv) {
 	}
 	uexpr_ctx_destroy(ctx);
 	uexpr_finish(&e);
+	return EXIT_SUCCESS;
 }

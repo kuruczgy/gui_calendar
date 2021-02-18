@@ -32,6 +32,7 @@ enum uexpr_type {
 	UEXPR_TYPE_LIST,
 	UEXPR_TYPE_VOID,
 	UEXPR_TYPE_NATIVEOBJ,
+	UEXPR_TYPE_FN,
 	UEXPR_TYPE_NATIVEFN,
 	UEXPR_TYPE_ERROR
 };
@@ -44,6 +45,7 @@ struct uexpr_value {
 		bool boolean;
 		struct vec list; /* vec<struct uexpr_value> */
 		struct { void *self; void (*ref)(void *, int); } nativeobj;
+		int fn;
 		struct { uexpr_nativefn f; void *env; } nativefn;
 	};
 };

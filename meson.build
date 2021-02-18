@@ -115,7 +115,7 @@ lib_uexpr = static_library(
   dependencies: [ ds_vec, ds_hashmap ],
   link_with: [ lib_core ]
 )
-executable(
+exe_uexpr = executable(
   'uexpr',
   'src/uexpr/main.c',
   dependencies : [ ds_vec ],
@@ -181,6 +181,14 @@ test(
   files('scripts/lint.sh'),
   workdir: meson.project_source_root(),
 )
+
+test(
+  'test uexpr',
+  files('scripts/test_uexpr.sh'),
+  args: [ exe_uexpr ],
+  workdir: meson.project_source_root(),
+)
+
 
 prog_markdown = find_program('md2html', required: false)
 if prog_markdown.found()
