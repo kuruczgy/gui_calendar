@@ -283,13 +283,6 @@ static void execute_filters(struct app *app, struct active_comp *ac) {
 		.try_set_var = cal_uexpr_set
 	};
 
-	/* apply builtin filter */
-	if (app->uexpr_builtin_fn != -1 && ac->ci->c->type == COMP_TYPE_EVENT) {
-		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
-		uexpr_eval(&app->uexpr, app->uexpr_builtin_fn,
-			app->uexpr_ctx, NULL);
-	}
-
 	/* apply current filter */
 	if (app->current_filter != -1) {
 		struct filter *f = vec_get(&app->filters, app->current_filter);
@@ -485,15 +478,17 @@ static void proj_active_todos_add(void *_self, struct proj_item pi) {
 	enum prop_class class;
 	props_get_class(pi.ci->p, &class);
 
-	if (has_status && (status == PROP_STATUS_COMPLETED
-			|| status == PROP_STATUS_CANCELLED)) return;
-
 	struct active_comp ac = {
 		.ci = pi.ci,
 		.cal_index = pi.cal_index,
 		.fade = false, .hide = false, .vis = true,
 		.cal = pi.cal,
 	};
+
+	if (has_status && (status == PROP_STATUS_COMPLETED
+			|| status == PROP_STATUS_CANCELLED)) {
+		ac.vis = false;
+	}
 
 	/* execute filter expressions */
 	execute_filters(self->app, &ac);
@@ -1115,15 +1110,6 @@ void app_init(struct app *app, struct application_options opts,
 	uexpr_init(&app->uexpr);
 	app->uexpr_ctx = uexpr_ctx_create();
 
-	const char *builtin_expr = "{"
-			"($st % [ tentative, cancelled ]) & let($fade, a=a);"
-			"let($hide, ($clas = private) & ~$show_priv)"
-		"}";
-	FILE *f = fmemopen((void*)builtin_expr, strlen(builtin_expr), "r");
-	app->uexpr_builtin_fn = uexpr_parse(&app->uexpr, f);
-	fclose(f);
-	asrt(app->uexpr_builtin_fn != -1, "builtin_expr parsing failed");
-
 	struct cal_uexpr_env env = {
 		.app = app,
 		.kind = CAL_UEXPR_CONFIG,
@@ -1164,7 +1150,7 @@ void app_init(struct app *app, struct application_options opts,
 
 	// load compiled-in default config
 	struct pu_asset default_uexpr = pu_assets_get(default_uexpr);
-	f = fmemopen(default_uexpr.data, default_uexpr.size, "r");
+	FILE *f = fmemopen(default_uexpr.data, default_uexpr.size, "r");
 	if (f) {
 		pu_log_info("[config] loading builtin\n");
 		app_add_uexpr_config_file(app, f);

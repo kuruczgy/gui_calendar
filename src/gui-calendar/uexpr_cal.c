@@ -440,6 +440,25 @@ static bool get_ac(struct cal_uexpr_env *env, const char *key,
 		return true;
 	}
 
+	if (strcmp(key, "vis") == 0) return *v = UEXPR_BOOLEAN(ac->vis), true;
+	if (strcmp(key, "hide") == 0) return *v = UEXPR_BOOLEAN(ac->hide), true;
+	if (strcmp(key, "fade") == 0) return *v = UEXPR_BOOLEAN(ac->fade), true;
+
+	if (strcmp(key, "last_mod_today") == 0) {
+		ts last_modified;
+		bool has = props_get_last_modified(ac->ci->p, &last_modified);
+		bool in_today = false;
+		if (has) {
+			ts now = env->app->now;
+			struct ts_ran today = slicing_get_bounds(
+				env->app->slicing,
+				SLICING_DAY, (struct ts_ran){ now, now });
+			in_today = ts_ran_in(today, last_modified);
+		}
+		*v = UEXPR_BOOLEAN(in_today);
+		return true;
+	}
+
 	return false;
 }
 bool cal_uexpr_get(void *_env, const char *key, struct uexpr_value *v) {

@@ -79,8 +79,10 @@ component.
 - `$clas`: A `string` representing the class property of the component.
 - `$cats`: A `list` representing the categories property of the component.
 - `$cal`: A `nativeobj` representing the calendar that contains the component.
+- `$last_mod_today`: A `boolean` representing whether the component was last
+  modified on the current day.
 
-## Variables available for *setting*
+## Variables available for *getting* and *setting*
 - `$fade`: A `boolean` representing whether to display this component with
   reduced opacity to the user.
 - `$hide`: A `boolean` representing whether to hide any text information on

@@ -582,8 +582,9 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 	const char *summary = props_get_summary(ac->ci->p);
 	const struct vec *cats = props_get_categories(ac->ci->p);
 
-	bool overdue = has_due && due < app->now;
+	bool completed = has_status && status == PROP_STATUS_COMPLETED;
 	bool inprocess = has_status && status == PROP_STATUS_INPROCESS;
+	bool overdue = !completed && has_due && due < app->now;
 	bool not_started = has_start && start > app->now;
 	bool has_cats = cats && cats->len > 0;
 	double perc = has_perc_c ? perc_c / 100.0 : 0.0;
@@ -622,13 +623,13 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 			.argb = 0xFFD05050
 		});
 	}
-	if (inprocess) {
+	if (completed || inprocess) {
 		double w = b.w - 80;
 		if (perc > 0) w *= perc;
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x, b.y, w, b.h },
-			.argb = 0xFF88FF88
+			.argb = completed ? 0xFFAAAAAA : 0xFF88FF88
 		});
 	} else if (has_perc_c) {
 		double w = (b.w - 80) * perc;
@@ -742,7 +743,7 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 	//- cairo_line_to(cr, b.w, b.h);
 	//- cairo_stroke(cr);
 
-	return b.h;
+	return b.h + 2;
 }
 
 static void render_todo_list(struct app *app, box b) {

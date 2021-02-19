@@ -151,7 +151,6 @@ struct app {
 
 	struct uexpr uexpr;
 	struct uexpr_ctx *uexpr_ctx;
-	int uexpr_builtin_fn;
 
 	struct vec filters; /* vec<struct filter> */
 	int current_filter;
