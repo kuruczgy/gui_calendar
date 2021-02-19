@@ -32,11 +32,17 @@ struct prop_related_to {
 
 struct props;
 
+/* Search for these comments in the code to get an idea of places you probably
+ * want to also add a new property to:
+ * DEP: new prop
+ */
+
 /* m(type, name, capname) */
 #define PROPS_LIST_BY_VAL(m) \
 	m(ts, start, START) \
 	m(ts, end, END) \
 	m(ts, due, DUE) \
+	m(ts, last_modified, LAST_MODIFIED) \
 	m(enum prop_status, status, STATUS) \
 	m(enum prop_class, class, CLASS) \
 	m(int, estimated_duration, ESTIMATED_DURATION) \
@@ -124,16 +130,23 @@ struct props_mask {
 };
 void props_mask_add(struct props_mask *pm, enum prop pr);
 void props_mask_remove(struct props_mask *pm, enum prop pr);
-bool props_mask_get(struct props_mask *pm, enum prop pr);
+bool props_mask_get(const struct props_mask *pm, enum prop pr);
+bool props_mask_any(const struct props_mask *pm);
 
 /* struct props other methods */
+
+/* Deletes all properties from p that are not present in the mask. */
 void props_apply_mask(struct props *p, const struct props_mask *pm);
+
+/* Returns a mask representing the properties set in p. */
+struct props_mask props_get_mask(const struct props *p);
 
 void props_union(struct props *p, const struct props *rhs);
 void props_finish(struct props *p);
 
-/* exact equality, mainly used for debugging */
-bool props_equal(const struct props *a, const struct props *b);
+/* exact equality on the set of properties pm */
+bool props_equal(const struct props *a, const struct props *b,
+	const struct props_mask *pm);
 
 /* calculated values */
 uint32_t props_get_color_val(struct props *p);

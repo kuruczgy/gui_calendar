@@ -51,6 +51,7 @@ struct edit_spec {
 /* edit spec object */
 void edit_spec_init(struct edit_spec *es);
 void edit_spec_finish(struct edit_spec *es);
+bool edit_spec_is_identity(struct edit_spec *es, struct calendar *cal);
 
 /* editor stuff */
 void print_template(FILE *f, struct comp_inst *ci,

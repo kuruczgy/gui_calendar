@@ -833,6 +833,15 @@ void app_cmd_editor(struct app *app, FILE *in) {
 		goto cleanup_es;
 	}
 
+	/* check if there are actually any changes */
+	if (edit_spec_is_identity(&es, cal)) {
+		fprintf(stderr, "[editor] aborting edit, no changes\n");
+		goto cleanup_es;
+	}
+
+	/* set LAST-MODIFIED */
+	props_set_last_modified(&es.p, ts_now());
+
 	/* apply edit */
 	if (apply_edit_spec_to_calendar(&es, cal) == 0) {
 		app_invalidate_calendars(app);

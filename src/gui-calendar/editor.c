@@ -160,8 +160,6 @@ void print_template(FILE *f, struct comp_inst *ci,
 }
 
 void print_new_event_template(FILE *f, struct cal_timezone *zone, int cal) {
-	// DEP: struct event
-
 	fprintf(f,
 		"create event\n"
 		"summary\n"
@@ -181,8 +179,6 @@ void print_new_event_template(FILE *f, struct cal_timezone *zone, int cal) {
 	);
 }
 void print_new_todo_template(FILE *f, struct cal_timezone *zone, int cal) {
-	// DEP: struct todo
-
 	fprintf(f,
 		"create todo\n"
 		"summary\n"
@@ -215,6 +211,32 @@ void edit_spec_finish(struct edit_spec *es) {
 	props_finish(&es->p);
 	str_free(&es->uid);
 	str_free(&es->calendar_uid);
+}
+bool edit_spec_is_identity(struct edit_spec *es, struct calendar *cal) {
+	if (es->method != EDIT_METHOD_UPDATE) return false;
+
+	int idx = calendar_find_comp(cal, str_cstr(&es->uid));
+	struct comp *c = calendar_get_comp(cal, idx);
+	asrt(c, "calendar_get_comp failed");
+
+	struct props_mask pm_edit = props_get_mask(&es->p);
+	struct props_mask pm_p = props_get_mask(&c->p);
+
+	/* are we removing any existing properties? */
+	if (es->rem._mask & pm_p._mask) return false;
+
+	struct props_mask pm_edit_eff = pm_edit;
+	pm_edit_eff._mask &= ~es->rem._mask;
+
+	/* are we addiny any properties? */
+	if (pm_edit_eff._mask & (~pm_p._mask)) return false;
+
+	pm_edit_eff._mask &= pm_p._mask;
+
+	/* are we changing any properties? */
+	if (!props_equal(&c->p, &es->p, &pm_edit_eff)) return false;
+
+	return true;
 }
 
 static void assign_props(struct props *p, const struct props *rhs,

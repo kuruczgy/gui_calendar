@@ -87,7 +87,10 @@ struct props * comp_recur_expand(struct comp *c, ts to,
 bool comp_equal(const struct comp *a, const struct comp *b) {
 	if (strcmp(str_cstr(&a->uid), str_cstr(&b->uid)) != 0) return false;
 	if (a->type != b->type) return false;
-	if (!props_equal(&a->p, &b->p)) return false;
+
+	struct props_mask pm_full = props_mask_empty;
+	pm_full._mask = ~pm_full._mask;
+	if (!props_equal(&a->p, &b->p, &pm_full)) return false;
 	return true;
 }
 

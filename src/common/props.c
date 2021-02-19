@@ -146,8 +146,11 @@ void props_mask_add(struct props_mask *pm, enum prop pr) {
 void props_mask_remove(struct props_mask *pm, enum prop pr) {
 	pm->_mask &= ~(1U << pr);
 }
-bool props_mask_get(struct props_mask *pm, enum prop pr) {
+bool props_mask_get(const struct props_mask *pm, enum prop pr) {
 	return pm->_mask & (1U << pr);
+}
+bool props_mask_any(const struct props_mask *pm) {
+	return pm->_mask;
 }
 
 #define APPLY_MASK_VAL(type, name, capname) \
@@ -170,6 +173,20 @@ void props_apply_mask(struct props *p, const struct props_mask *pm) {
 #undef APPLY_MASK_VAL
 #undef APPLY_MASK_VEC
 #undef APPLY_MASK_STR
+
+#define GET_MASK_VAL(type, name, capname) \
+	if (p->has_##name) pm._mask |= (1U << PROP_##capname);
+#define GET_MASK_VEC(type, name, capname) \
+	if (p->name.len) pm._mask |= (1U << PROP_##capname);
+#define GET_MASK_STR(type, name, capname) \
+	if (str_any(&p->name)) pm._mask |= (1U << PROP_##capname);
+struct props_mask props_get_mask(const struct props *p) {
+	struct props_mask pm = props_mask_empty;
+	PROPS_LIST_BY_VAL(GET_MASK_VAL)
+	PROPS_LIST_VEC(GET_MASK_VEC)
+	PROPS_LIST_STR(GET_MASK_STR)
+	return pm;
+}
 
 #define UNION_VAL(type, name, capname) \
 	if (rhs->has_##name) { \
@@ -209,13 +226,19 @@ void props_finish(struct props *p) {
 #undef FINISH_STR
 
 #define EQUAL_VAL(type, name, capname) \
-	if (a->has_##name != b->has_##name) return false; \
-	if (a->has_##name && (a->name != b->name)) return false;
+	if (props_mask_get(pm, PROP_##capname)) { \
+		if (a->has_##name != b->has_##name) return false; \
+		if (a->has_##name && (a->name != b->name)) return false; \
+	}
 #define EQUAL_VEC(type, name, capname) \
-	if (!EQ_VEC(type, &a->name, &b->name)) return false;
+	if (props_mask_get(pm, PROP_##capname)) \
+		if (!EQ_VEC(type, &a->name, &b->name)) return false;
 #define EQUAL_STR(type, name, capname) \
-	if (strcmp(str_cstr(&a->name), str_cstr(&b->name)) != 0) return false;
-bool props_equal(const struct props *a, const struct props *b) {
+	if (props_mask_get(pm, PROP_##capname)) \
+		if (strcmp(str_cstr(&a->name), str_cstr(&b->name)) != 0) \
+			return false;
+bool props_equal(const struct props *a, const struct props *b,
+		const struct props_mask *pm) {
 	PROPS_LIST_BY_VAL(EQUAL_VAL)
 	PROPS_LIST_VEC(EQUAL_VEC)
 	PROPS_LIST_STR(EQUAL_STR)

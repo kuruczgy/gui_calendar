@@ -358,6 +358,7 @@ static void comp_assign_related_to(icalcomponent *ic,
 }
 static void apply_edit_spec_to_icalcomponent(struct edit_spec *es,
 		icalcomponent *ic) {
+	// DEP: new prop
 	comp_assign_text(ic, ICAL_COLOR_PROPERTY, props_get_color(&es->p),
 		props_mask_get(&es->rem, PROP_COLOR));
 	comp_assign_text(ic, ICAL_SUMMARY_PROPERTY, props_get_summary(&es->p),
@@ -383,6 +384,9 @@ static void apply_edit_spec_to_icalcomponent(struct edit_spec *es,
 	has = props_get_due(&es->p, &ts_src);
 	comp_assign_ts(ic, ICAL_DUE_PROPERTY, has, ts_src,
 		props_mask_get(&es->rem, PROP_DUE));
+	has = props_get_last_modified(&es->p, &ts_src);
+	comp_assign_ts(ic, ICAL_LASTMODIFIED_PROPERTY, has, ts_src,
+		props_mask_get(&es->rem, PROP_LAST_MODIFIED));
 
 	enum prop_status status;
 	has = props_get_status(&es->p, &status);
@@ -412,7 +416,7 @@ static icalcomponent* libical_component_from_file(FILE *f) {
 
 /* struct comp */
 static void props_init_from_ical(struct props *p, icalcomponent *ic) {
-	// DEP: struct props
+	// DEP: new prop
 	struct icaltimetype
 		dtstart = icalcomponent_get_dtstart(ic),
 		dtend = icalcomponent_get_dtend(ic),
@@ -436,8 +440,18 @@ static void props_init_from_ical(struct props *p, icalcomponent *ic) {
 		props_set_class(p, class);
 	}
 
-	icalproperty *ip = icalcomponent_get_first_property(ic,
-			ICAL_ESTIMATEDDURATION_PROPERTY);
+	icalproperty *ip;
+
+	ip = icalcomponent_get_first_property(ic,
+		ICAL_LASTMODIFIED_PROPERTY);
+	if (ip) {
+		struct icaltimetype last_modified =
+			icalproperty_get_lastmodified(ip);
+		props_set_last_modified(p, ts_from_icaltime(last_modified));
+	}
+
+	ip = icalcomponent_get_first_property(ic,
+		ICAL_ESTIMATEDDURATION_PROPERTY);
 	if (ip) {
 		struct icaldurationtype v =
 			icalproperty_get_estimatedduration(ip);
