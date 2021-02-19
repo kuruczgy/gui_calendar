@@ -12,12 +12,52 @@ static const struct uexpr_value void_val = { .type = UEXPR_TYPE_VOID };
 
 struct fn { const char *key; uexpr_nativefn fn; };
 
-static enum app_view view_from_cstr(const char *str) {
+enum obj_type {
+	OBJ_TYPE_CAL_REF,
+};
+struct obj {
+	enum obj_type type;
+	int ref;
+};
+struct obj_cal_ref {
+	struct obj obj;
+	int cal_idx;
+};
+void obj_ref(void *self, int ref) {
+	struct obj *obj = self;
+	asrt(obj->ref > 0, "");
+	obj->ref += ref;
+	asrt(obj->ref >= 0, "");
+	if (obj->ref == 0) {
+		if (obj->type == OBJ_TYPE_CAL_REF) {
+			struct obj_cal_ref *cal_ref =
+				container_of(obj, struct obj_cal_ref, obj);
+			free(cal_ref);
+		}
+	}
+}
+struct uexpr_value obj_init(struct obj *obj) {
+	obj->ref += 1;
+	return (struct uexpr_value){
+		.type = UEXPR_TYPE_NATIVEOBJ,
+		.nativeobj = { .self = obj, .ref = obj_ref }
+	};
+}
+struct uexpr_value obj_cal_ref_create(int cal_idx) {
+	struct obj_cal_ref *obj = malloc_check(sizeof(struct obj_cal_ref));
+	*obj = (struct obj_cal_ref){
+		.obj = { .type = OBJ_TYPE_CAL_REF },
+		.cal_idx = cal_idx,
+	};
+	return obj_init(&obj->obj);
+}
+
+static enum app_view parse_enum_view(const char *str) {
 	if (strcmp(str, "cal") == 0) return VIEW_CALENDAR;
 	if (strcmp(str, "todo") == 0) return VIEW_TODO;
 	return VIEW_N;
 }
-static enum comp_type comp_type_from_cstr(const char *str) {
+static enum comp_type parse_enum_comp_type(const char *str) {
 	if (strcmp(str, "event") == 0) return COMP_TYPE_EVENT;
 	if (strcmp(str, "todo") == 0) return COMP_TYPE_TODO;
 	return COMP_TYPE_N;
@@ -47,28 +87,6 @@ static struct uexpr_value fn_include(void *_env, struct uexpr *e,
 
 	return void_val;
 }
-struct cal_obj {
-	int ref;
-	int cal_idx;
-};
-void cal_obj_ref(void *_self, int ref) {
-	struct cal_obj *self = _self;
-	asrt(self->ref > 0, "");
-	self->ref += ref;
-	asrt(self->ref >= 0, "");
-	if (self->ref == 0) {
-		free(self);
-	}
-}
-struct uexpr_value cal_obj_create(int cal_idx) {
-	struct cal_obj *obj = malloc_check(sizeof(struct cal_obj));
-	*obj = (struct cal_obj){
-		.ref = 1,
-		.cal_idx = cal_idx,
-	};
-	return (struct uexpr_value){ .type = UEXPR_TYPE_NATIVEOBJ,
-		.nativeobj = { .self = obj, .ref = cal_obj_ref } };
-}
 static struct uexpr_value fn_add_cal(void *_env, struct uexpr *e,
 		int root, struct uexpr_ctx *ctx) {
 	TRACE();
@@ -90,7 +108,7 @@ static struct uexpr_value fn_add_cal(void *_env, struct uexpr *e,
 	}
 
 	int cal_idx = app_add_cal(env->app, vb.string_ref);
-	struct uexpr_value res = cal_obj_create(cal_idx);
+	struct uexpr_value res = obj_cal_ref_create(cal_idx);
 	((struct calendar_info *)vec_get(&env->app->cal_infos, cal_idx))
 		->uexpr_tag = uexpr_value_copy(&res);
 
@@ -117,15 +135,16 @@ static struct uexpr_value fn_add_filter(void *_env, struct uexpr *e,
 	struct uexpr_value vb;
 	uexpr_eval(e, *(int *)vec_get(&np.args, 1), ctx, &vb);
 	if (vb.type != UEXPR_TYPE_NATIVEOBJ
-			|| vb.nativeobj.ref != cal_obj_ref) {
+			|| vb.nativeobj.ref != obj_ref) {
 		uexpr_value_finish(vb);
 		return error_val;
 	}
-	struct cal_obj *cal_obj = vb.nativeobj.self;
+	struct obj_cal_ref *obj_cal =
+		container_of(vb.nativeobj.self, struct obj_cal_ref, obj);
 
 	int root_c = *(int*)vec_get(&np.args, 2);
 
-	app_add_uexpr_filter(env->app, va.string_ref, cal_obj->cal_idx, root_c);
+	app_add_uexpr_filter(env->app, va.string_ref, obj_cal->cal_idx, root_c);
 
 	return void_val;
 }
@@ -171,7 +190,7 @@ static struct uexpr_value fn_add_action(void *_env, struct uexpr *e,
 		struct uexpr_value vc;
 		uexpr_eval(e, *(int*)vec_get(&np.args, 2), ctx, &vc);
 		if (vc.type == UEXPR_TYPE_STRING) {
-			act.cond.view = view_from_cstr(vc.string_ref);
+			act.cond.view = parse_enum_view(vc.string_ref);
 		}
 		uexpr_value_finish(vc);
 	}
@@ -258,7 +277,7 @@ static struct uexpr_value fn_switch_view(void *_env, struct uexpr *e,
 	const char *str = get_single_arg_str(e, root, ctx);
 	if (!str) return error_val;
 
-	app_cmd_switch_view(env->app, view_from_cstr(str));
+	app_cmd_switch_view(env->app, parse_enum_view(str));
 
 	return void_val;
 }
@@ -310,7 +329,7 @@ static struct uexpr_value fn_launch_editor(void *_env, struct uexpr *e,
 		}
 
 		app_cmd_launch_editor_new(env->app,
-			comp_type_from_cstr(va.string_ref));
+			parse_enum_comp_type(va.string_ref));
 	} else {
 		return error_val;
 	}
@@ -343,7 +362,7 @@ static struct uexpr_value fn_select_comp(void *_env, struct uexpr *e,
 	int root_c = *(int*)vec_get(&np.args, 2);
 
 	// TODO: use these
-	// enum comp_type type = comp_type_from_cstr(va.string_ref);
+	// enum comp_type type = parse_enum_comp_type(va.string_ref);
 	// const char *msg = vb.string_ref;
 
 	app_cmd_select_comp_uexpr(env->app, root_c);
