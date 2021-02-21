@@ -680,6 +680,29 @@ static void app_mark_dirty(struct app *app) {
 	mgu_win_surf_mark_dirty(app->win);
 }
 
+static bool apply_edit_spec_with_mod_time(struct app *app,
+		struct edit_spec *es, struct calendar *cal) {
+	/* check if there are actually any changes */
+	if (edit_spec_is_identity(es, cal)) {
+		fprintf(stderr, "[editor] identity edit, no changes\n");
+		return true;
+	}
+
+	/* set LAST-MODIFIED */
+	props_set_last_modified(&es->p, ts_now());
+
+	/* apply edit */
+	if (apply_edit_spec_to_calendar(es, cal) == 0) {
+		app_invalidate_calendars(app);
+		app_mark_dirty(app);
+	} else {
+		fprintf(stderr, "[editor] error: could not save edit\n");
+		return false;
+	}
+
+	return true;
+}
+
 static void app_mode_select_finish(struct app *app) {
 	app->keystate = KEYSTATE_BASE;
 	app_mark_dirty(app);
@@ -750,14 +773,7 @@ static void app_mode_select_finish(struct app *app) {
 			es.p = env.set_props;
 			es.type = ac->ci->c->type;
 
-
-			if (apply_edit_spec_to_calendar(&es, ac->cal) == 0) {
-				app_invalidate_calendars(app);
-				app_mark_dirty(app);
-			} else {
-				fprintf(stderr, "[editor] "
-					"error: could not save edit\n");
-			}
+			apply_edit_spec_with_mod_time(app, &es, ac->cal);
 
 			edit_spec_finish(&es);
 		}
@@ -828,23 +844,8 @@ void app_cmd_editor(struct app *app, FILE *in) {
 		goto cleanup_es;
 	}
 
-	/* check if there are actually any changes */
-	if (edit_spec_is_identity(&es, cal)) {
-		fprintf(stderr, "[editor] aborting edit, no changes\n");
-		goto cleanup_es;
-	}
-
-	/* set LAST-MODIFIED */
-	props_set_last_modified(&es.p, ts_now());
-
-	/* apply edit */
-	if (apply_edit_spec_to_calendar(&es, cal) == 0) {
-		app_invalidate_calendars(app);
-		app_mark_dirty(app);
-	} else {
-		fprintf(stderr, "[editor] error: could not save edit\n");
+	if (!apply_edit_spec_with_mod_time(app, &es, cal)) {
 		app_launch_editor_str(app, &in_s); /* relaunch editor */
-		goto cleanup_es;
 	}
 
 cleanup_es:
