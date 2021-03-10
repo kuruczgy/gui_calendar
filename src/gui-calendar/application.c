@@ -64,13 +64,13 @@ static bool todo_priority_cmp(
 	return false;
 }
 
-struct print_template_cl {
+struct print_template_env {
 	struct app *app;
-	struct active_comp *ac;
+	struct proj_item *pi;
 };
-static void print_template_callback(void *_cl, FILE *f) {
-	struct print_template_cl *cl = _cl;
-	print_template(f, cl->ac->ci, cl->app->zone, cl->ac->cal_index + 1);
+static void print_template_callback(void *_env, FILE *f) {
+	struct print_template_env *env = _env;
+	print_template(f, env->pi->ci, env->app->zone, env->pi->cal_index + 1);
 }
 static int get_default_cal_index(struct app *app) {
 	asrt(app->cals.len > 0, "no calendars");
@@ -113,13 +113,16 @@ static void subprocess_pidfd_cb(void *env, struct pollfd pfd) {
 		application_handle_child(app, pfd.fd);
 	}
 }
-void app_cmd_launch_editor(struct app *app, struct active_comp *ac) {
+void app_cmd_launch_editor(struct app *app, struct proj_item *pi) {
 	if (!app->sp) {
-		struct print_template_cl cl = { .app = app, .ac = ac };
+		struct print_template_env env = {
+			.app = app,
+			.pi = pi,
+		};
 		const char **args = new_editor_args(app);
 		struct str *s = vec_get(&app->editor_args, 0);
 		app->sp = subprocess_new_input(str_cstr(s),
-			args, &print_template_callback, &cl);
+			args, &print_template_callback, &env);
 		if (app->sp) {
 			event_loop_add_fd(app->event_loop, app->sp->pidfd,
 				POLLIN, app, subprocess_pidfd_cb);
@@ -269,11 +272,13 @@ static void app_switch_mode_select(struct app *app) {
 //	 free(G);
 // }
 
-static void execute_filters(struct app *app, struct active_comp *ac) {
+static void execute_filter(struct app *app, int fn, struct proj_item *pi,
+		struct comp_display_settings *settings) {
 	struct cal_uexpr_env env = {
 		.app = app,
 		.kind = CAL_UEXPR_FILTER,
-		.ac = ac,
+		.pi = pi,
+		.settings = settings,
 		.set_props = props_empty,
 		.set_edit = false
 	};
@@ -283,11 +288,16 @@ static void execute_filters(struct app *app, struct active_comp *ac) {
 		.try_set_var = cal_uexpr_set
 	};
 
-	/* apply current filter */
+	if (fn != -1) {
+		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
+		uexpr_eval(&app->uexpr, fn, app->uexpr_ctx, NULL);
+	}
+}
+static void execute_current_filter(struct app *app, struct proj_item *pi,
+		struct comp_display_settings *settings) {
 	if (app->current_filter != -1) {
 		struct filter *f = vec_get(&app->filters, app->current_filter);
-		uexpr_ctx_set_ops(app->uexpr_ctx, ops);
-		uexpr_eval(&app->uexpr, f->uexpr_fn, app->uexpr_ctx, NULL);
+		execute_filter(app, f->uexpr_fn, pi, settings);
 	}
 }
 
@@ -312,8 +322,8 @@ static void proj_active_events_add(void *_self, struct proj_item pi) {
 	*ac = (struct active_comp){
 		.ci = pi.ci,
 		.cal_index = pi.cal_index,
-		.fade = false, .hide = false, .vis = true,
 		.cal = pi.cal,
+		.settings = { .fade = false, .hide = false, .vis = true },
 
 		/* this is just to copy the interval */
 		.node = pi.ci->node,
@@ -448,14 +458,19 @@ static void proj_active_events_process(struct proj_active_events *self,
 	while (interval_iter_next(&i_iter, &nx)) {
 		struct active_comp *ac =
 			container_of(nx, struct active_comp, node);
-		execute_filters(self->app, ac);
+		struct proj_item pi = {
+			.ci = ac->ci,
+			.cal_index = ac->cal_index,
+			.cal = ac->cal,
+		};
+		execute_current_filter(self->app, &pi, &ac->settings);
 		vec_append(&self->processed, &ac);
 	}
 	for (int i = from; i < self->processed.len; ++i) {
 		struct active_comp *ac =
 			*(struct active_comp**)vec_get(&self->processed, i);
 		rb_delete(&self->unprocessed, &ac->node.node);
-		if (ac->vis) {
+		if (ac->settings.vis) {
 			rb_insert(&self->processed_not_hidden, &ac->node.node);
 			if (interval_overlap(ran_in, ac->node.ran)) {
 				in_view_changed(self->app, ac, true);
@@ -481,18 +496,18 @@ static void proj_active_todos_add(void *_self, struct proj_item pi) {
 	struct active_comp ac = {
 		.ci = pi.ci,
 		.cal_index = pi.cal_index,
-		.fade = false, .hide = false, .vis = true,
 		.cal = pi.cal,
+		.settings = { .fade = false, .hide = false, .vis = true },
 	};
 
 	if (has_status && (status == PROP_STATUS_COMPLETED
 			|| status == PROP_STATUS_CANCELLED)) {
-		ac.vis = false;
+		ac.settings.vis = false;
 	}
 
 	/* execute filter expressions */
-	execute_filters(self->app, &ac);
-	if (!ac.vis) return;
+	execute_current_filter(self->app, &pi, &ac.settings);
+	if (!ac.settings.vis) return;
 
 	vec_append(&self->v, &ac);
 }
@@ -526,10 +541,17 @@ static void proj_alarm_add(void *_self, struct proj_item pi) {
 	bool has_due = props_get_due(pi.ci->p, &due);
 	bool has_start = props_get_start(pi.ci->p, &start);
 	(void)has_start;
-	struct alarm_comp *alc = malloc_check(sizeof(struct alarm_comp));
-	*alc = (struct alarm_comp){ .ci = pi.ci,
-		.node.val = has_due ? due : start };
-	rb_insert(&self->tree, &alc->node.node);
+	struct alarm_comp alc = {
+		.pi = pi,
+		.node.val = has_due ? due : start
+	};
+	execute_filter(self->app, self->uexpr_filter, &alc.pi, &alc.settings);
+	if (alc.settings.vis) {
+		struct alarm_comp *alc_p =
+			malloc_check(sizeof(struct alarm_comp));
+		*alc_p = alc;
+		rb_insert(&self->tree, &alc_p->node.node);
+	}
 }
 static void proj_alarm_done(void *_self) {
 	struct proj_alarm *self = _self;
@@ -538,25 +560,26 @@ static void proj_alarm_done(void *_self) {
 	asrt(clock_gettime(CLOCK_REALTIME, &now) == 0, "");
 	struct rb_integer_node *n =
 		rb_integer_min_greater(&self->tree, now.tv_sec);
+
 	self->next = NULL;
 	if (n) {
 		struct alarm_comp *alc =
 			container_of(n, struct alarm_comp, node);
 		self->next = alc;
-		fprintf(stderr, "next alarm at: %lld [now: %ld], %s\n",
-			n->val, now.tv_sec, props_get_summary(alc->ci->p));
+		pu_log_info("[alarm] next at: %lld [now: %ld], %s\n",
+			n->val, now.tv_sec, props_get_summary(alc->pi.ci->p));
 		struct timespec ts = { .tv_sec = n->val };
 		event_loop_timer_set_abs(&self->app->alarm_timer, ts);
 	} else {
-		fprintf(stderr, "no next alarm [now: %ld]\n", now.tv_sec);
+		pu_log_info("[alarm] no next [now: %ld]\n", now.tv_sec);
 	}
 }
 static void alarm_cb(void *env) {
 	struct app *app = env;
 	struct alarm_comp *alc = app->alarm_comps.next;
 	asrt(alc, "alarm next");
-	const char *summary = props_get_summary(alc->ci->p);
-	fprintf(stderr, "ALARM for %s\n", summary);
+	const char *summary = props_get_summary(alc->pi.ci->p);
+	pu_log_info("[alarm] ALARM for %s\n", summary);
 	const char *argv[] = { "-", summary, NULL };
 	subprocess_shell(app->alarm_comps.shell_cmd, argv);
 	proj_alarm_done(&app->alarm_comps);
@@ -580,6 +603,7 @@ static struct proj proj_alarm_init(struct proj_alarm *self, struct app *app) {
 	self->app = app;
 	self->next = NULL;
 	rb_tree_init(&self->tree, &rb_integer_ops);
+	self->uexpr_filter = -1;
 	return (struct proj){
 		.self = self,
 		.add = proj_alarm_add,
@@ -749,10 +773,15 @@ static void app_mode_select_finish(struct app *app) {
 	}
 
 	if (app->mode_select_uexpr_fn != -1) {
+		struct proj_item pi = {
+			.ci = ac->ci,
+			.cal_index = ac->cal_index,
+			.cal = ac->cal,
+		};
 		struct cal_uexpr_env env = {
 			.app = app,
 			.kind = CAL_UEXPR_FILTER | CAL_UEXPR_ACTION,
-			.ac = ac,
+			.pi = &pi,
 			.set_props = props_empty,
 			.set_edit = false
 		};

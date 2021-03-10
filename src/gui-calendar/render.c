@@ -285,7 +285,7 @@ static void render_tobject(struct app *app,
 	if (obj->type == TOBJECT_EVENT) {
 		color = props_get_color_val(obj->ac->ci->p);
 		if (!color) color = 0xFF20D0D0;
-		if (obj->ac->fade) {
+		if (obj->ac->settings.fade) {
 			color = (color & 0x00FFFFFF) | 0x30000000;
 		}
 	} else if (obj->type == TOBJECT_TODO) {
@@ -308,7 +308,8 @@ static void render_tobject(struct app *app,
 	//- cairo_fill(cr);
 
 	/* draw various labels */
-	if (draw_labels && obj->type == TOBJECT_EVENT && !obj->ac->hide) {
+	if (draw_labels && obj->type == TOBJECT_EVENT
+			&& !obj->ac->settings.hide) {
 		float loc_h = 0;
 		const char *location =
 			props_get_location(obj->ac->ci->p);
@@ -762,7 +763,7 @@ static void render_todo_list(struct app *app, box b) {
 	int y = 0;
 	for (int i = 0; i < app->active_todos.v.len; ++i) {
 		struct active_comp *ac = vec_get(&app->active_todos.v, i);
-		if (!ac->vis) continue;
+		if (!ac->settings.vis) continue;
 		y += render_todo_item(app, ac, (box){ b.x, b.y + y, b.w, 40 });
 		if (y > b.h) break;
 	}

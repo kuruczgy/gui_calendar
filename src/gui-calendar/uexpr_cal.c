@@ -318,7 +318,7 @@ static struct uexpr_value fn_launch_editor(void *_env, struct uexpr *e,
 
 	if (np.args.len == 0) {
 		if (env->kind & CAL_UEXPR_FILTER) {
-			app_cmd_launch_editor(env->app, env->ac);
+			app_cmd_launch_editor(env->app, env->pi);
 		}
 	} else if (np.args.len == 1) {
 		struct uexpr_value va;
@@ -396,27 +396,28 @@ static bool get_fns(struct cal_uexpr_env *env, struct fn *fns,
 
 static bool get_ac(struct cal_uexpr_env *env, const char *key,
 		struct uexpr_value *v) {
-	struct active_comp *ac = env->ac;
+	struct proj_item *pi = env->pi;
+	struct comp_inst *ci = pi->ci;
 	if (strcmp(key, "ev") == 0)
-		return *v = UEXPR_BOOLEAN(ac->ci->c->type == COMP_TYPE_EVENT),
+		return *v = UEXPR_BOOLEAN(ci->c->type == COMP_TYPE_EVENT),
 			true;
 	if (strcmp(key, "sum") == 0)
-		return *v = UEXPR_STRING(props_get_summary(ac->ci->p)), true;
+		return *v = UEXPR_STRING(props_get_summary(ci->p)), true;
 	if (strcmp(key, "color") == 0)
-		return *v = UEXPR_STRING(props_get_color(ac->ci->p)), true;
+		return *v = UEXPR_STRING(props_get_color(ci->p)), true;
 	if (strcmp(key, "loc") == 0)
-		return *v = UEXPR_STRING(props_get_location(ac->ci->p)), true;
+		return *v = UEXPR_STRING(props_get_location(ci->p)), true;
 	if (strcmp(key, "desc") == 0)
-		return *v = UEXPR_STRING(props_get_desc(ac->ci->p)), true;
+		return *v = UEXPR_STRING(props_get_desc(ci->p)), true;
 	if (strcmp(key, "st") == 0) {
 		enum prop_status status;
-		bool has_status = props_get_status(ac->ci->p, &status);
+		bool has_status = props_get_status(ci->p, &status);
 		*v = UEXPR_STRING(has_status ? cal_status_str(status) : "");
 		return true;
 	}
 	if (strcmp(key, "clas") == 0) {
 		enum prop_class class;
-		bool has_class = props_get_class(ac->ci->p, &class);
+		bool has_class = props_get_class(ci->p, &class);
 		*v = UEXPR_STRING(has_class ? cal_class_str(class) : "");
 		return true;
 	}
@@ -425,7 +426,7 @@ static bool get_ac(struct cal_uexpr_env *env, const char *key,
 			.type = UEXPR_TYPE_LIST,
 			.list = vec_new_empty(sizeof(struct uexpr_value))
 		};
-		const struct vec *cats = props_get_categories(ac->ci->p);
+		const struct vec *cats = props_get_categories(ci->p);
 		for (int i = 0; i < cats->len; ++i) {
 			const struct str *s = vec_get_c(cats, i);
 			struct uexpr_value vi = UEXPR_STRING(str_cstr(s));
@@ -436,17 +437,20 @@ static bool get_ac(struct cal_uexpr_env *env, const char *key,
 
 	if (strcmp(key, "cal") == 0) {
 		*v = uexpr_value_copy(&((struct calendar_info *)vec_get(
-			&env->app->cal_infos, ac->cal_index))->uexpr_tag);
+			&env->app->cal_infos, pi->cal_index))->uexpr_tag);
 		return true;
 	}
 
-	if (strcmp(key, "vis") == 0) return *v = UEXPR_BOOLEAN(ac->vis), true;
-	if (strcmp(key, "hide") == 0) return *v = UEXPR_BOOLEAN(ac->hide), true;
-	if (strcmp(key, "fade") == 0) return *v = UEXPR_BOOLEAN(ac->fade), true;
+	if (strcmp(key, "vis") == 0)
+		return *v = UEXPR_BOOLEAN(env->settings->vis), true;
+	if (strcmp(key, "hide") == 0)
+		return *v = UEXPR_BOOLEAN(env->settings->hide), true;
+	if (strcmp(key, "fade") == 0)
+		return *v = UEXPR_BOOLEAN(env->settings->fade), true;
 
 	if (strcmp(key, "last_mod_today") == 0) {
 		ts last_modified;
-		bool has = props_get_last_modified(ac->ci->p, &last_modified);
+		bool has = props_get_last_modified(ci->p, &last_modified);
 		bool in_today = false;
 		if (has) {
 			ts now = env->app->now;
@@ -479,13 +483,16 @@ bool cal_uexpr_set(void *_env, const char *key, struct uexpr_value v) {
 	struct cal_uexpr_env *env = _env;
 
 	if (env->kind & CAL_UEXPR_FILTER) {
-		struct active_comp *ac = env->ac;
 		if (v.type == UEXPR_TYPE_BOOLEAN) {
 			bool b = v.boolean;
-			if (strcmp(key, "fade") == 0) ac->fade = b;
-			else if (strcmp(key, "hide") == 0) ac->hide = b;
-			else if (strcmp(key, "vis") == 0) ac->vis = b;
-			else return false;
+			if (strcmp(key, "fade") == 0)
+				env->settings->fade = b;
+			else if (strcmp(key, "hide") == 0)
+				env->settings->hide = b;
+			else if (strcmp(key, "vis") == 0)
+				env->settings->vis = b;
+			else
+				return false;
 
 			uexpr_value_finish(v);
 			return true;

@@ -60,14 +60,14 @@ executed as a top-level config expression.
 ## `set_alarm`
 Expects 2 arguments. The first argument must evaluate to `string`, and
 represents an implementation defined command to execute when an alarm is
-triggered. The second argument is reserved for future use.
+triggered. The second argument is evaluated (in filter context) for each
+component to determine whether they should trigger an alarm.
 ## `set_timezone`
 Expects one argument. It must evaluate to a `string` that represents a timezone
 in an implementation defined manner.
 
 # Filter context
-Each evaluation in a filter context is associated with an active calendar
-component.
+Each evaluation in a filter context is associated with a calendar component.
 
 ## Variables available for *getting*
 - `$ev`: A `boolean` specifying whether the component is an event.

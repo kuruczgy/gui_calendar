@@ -18,11 +18,19 @@ struct calendar_info {
 };
 
 /* contains a struct comp_inst, and some other data we use during viewing */
+struct comp_display_settings {
+	bool fade, hide, vis;
+};
+struct proj_item {
+	struct comp_inst *ci;
+	int cal_index;
+	struct calendar *cal;
+};
 struct active_comp {
 	struct comp_inst *ci;
 	int cal_index;
-	bool fade, hide, vis;
 	struct calendar *cal;
+	struct comp_display_settings settings;
 	char code[33];
 	struct mgu_texture tex, loc_tex;
 
@@ -30,7 +38,8 @@ struct active_comp {
 	struct interval_node node_by_view;
 };
 struct alarm_comp {
-	struct comp_inst *ci;
+	struct proj_item pi;
+	struct comp_display_settings settings;
 	struct rb_integer_node node;
 };
 
@@ -62,11 +71,6 @@ struct action {
 	int uexpr_fn;
 };
 
-struct proj_item {
-	struct comp_inst *ci;
-	int cal_index;
-	struct calendar *cal;
-};
 struct proj {
 	void *self;
 	void (*add)(void *self, struct proj_item pi);
@@ -90,7 +94,8 @@ struct proj_active_todos {
 };
 struct proj_alarm {
 	struct app *app;
-	struct rb_tree tree; /* items: struct alarm_comp */
+	/* items: struct alarm_comp::node */
+	struct rb_tree tree;
 	struct alarm_comp *next;
 	const char *shell_cmd;
 	int uexpr_filter;
@@ -188,12 +193,15 @@ enum cal_uexpr_kind {
 	CAL_UEXPR_CONFIG = (1 << 0),
 	CAL_UEXPR_FILTER = (1 << 1),
 	CAL_UEXPR_ACTION = (1 << 2),
-	CAL_UEXPR_SELECT_COMP = (1 << 3),
 };
 struct cal_uexpr_env {
-	struct app *app;
 	enum cal_uexpr_kind kind;
-	struct active_comp *ac;
+
+	struct app *app;
+
+	/* filter context */
+	struct proj_item *pi;
+	struct comp_display_settings *settings;
 	struct props set_props;
 	bool set_edit;
 };
@@ -213,7 +221,7 @@ void app_get_editor_template(struct app *app, struct comp_inst *ci, FILE *out);
 /* commands directly accessible for the user */
 void app_cmd_select_comp_uexpr(struct app *app, int uexpr_fn);
 void app_cmd_launch_editor_new(struct app *app, enum comp_type t);
-void app_cmd_launch_editor(struct app *app, struct active_comp *ac);
+void app_cmd_launch_editor(struct app *app, struct proj_item *pi);
 void app_cmd_editor(struct app *app, FILE *in);
 void app_cmd_reload(struct app *app);
 void app_cmd_activate_filter(struct app *app, int n);
