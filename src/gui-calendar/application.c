@@ -1068,6 +1068,9 @@ void context_cb(void *env, bool have_ctx) {
 	if (have_ctx) {
 		app->sr = sr_create_opengl(app->plat);
 
+		app->out = mgu_disp_get_default_output(app->win->disp);
+		asrt(app->out, "app->out NULL");
+
 		w_sidebar_init(&app->w_sidebar, app);
 	} else {
 		sr_destroy(app->sr);
@@ -1207,8 +1210,6 @@ config_found: ;
 	app->text = mgu_text_create(app->plat);
 
 	app->slicing = slicing_create(app->zone);
-
-	app->out = mgu_disp_get_default_output(app->win->disp);
 
 	app->win->disp->seat.cb = (struct mgu_seat_cb){
 		.env = app, .f = application_handle_input };

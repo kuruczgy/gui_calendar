@@ -786,6 +786,9 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 	}
 	if (!app->dirty) return false;
 
+	app->out = mgu_win_surf_get_output(surf);
+	asrt(app->out, "app->out NULL");
+
 	// struct stopwatch sw = sw_start();
 	static int frame_counter = 0;
 	++frame_counter;
