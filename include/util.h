@@ -18,6 +18,7 @@ void generate_uid(char buf[64]);
 const char * most_frequent(const struct vec *source, const char *(*cb)(void*));
 void vec_sort(struct vec *v, sort_lt lt, void *cl);
 struct str str_wordexp(const char *in);
+uint32_t hex2uint(const char *hex);
 
 /* subprocess stuff */
 void subprocess_shell(const char *cmd, const char *const argv[]);

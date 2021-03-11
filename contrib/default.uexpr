@@ -18,9 +18,5 @@
 	add_action([ c, "complete todo" ], select_comp(todo, "complete", let($st, completed)), todo);
 	add_action([ i, "inprocess todo" ], select_comp(todo, "inprocess", let($st, inprocess)), todo);
 
-	"## Misc";
-	let($show_priv, a=b);
-	add_action([ p, "show priv" ], let($show_priv, ~$show_priv));
-
 	{}
 }

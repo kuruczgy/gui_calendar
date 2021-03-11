@@ -918,6 +918,11 @@ void app_cmd_select_comp_uexpr(struct app *app, int uexpr_fn) {
 	app->mode_select_uexpr_fn = uexpr_fn;
 	app_mark_dirty(app);
 }
+void app_cmd_set_color_scheme(struct app *app,
+		struct color_scheme_configurable col_c) {
+	app->theme.col_c = col_c;
+	app_mark_dirty(app);
+}
 
 static void run_action(struct app *app, struct action *act) {
 	struct cal_uexpr_env env = {
@@ -952,7 +957,7 @@ static void handle_key(struct app *app, uint32_t key) {
 		for (int i = 0; i < app->actions.len; ++i) {
 			struct action *act = vec_get(&app->actions, i);
 			if (sym == act->key_sym) {
-				if (act->cond.view == app->main_view) {
+				if (app_action_eval_cond(app, act)) {
 					run_action(app, act);
 					return;
 				}
@@ -1129,6 +1134,22 @@ void app_init(struct app *app, struct application_options opts,
 		.actions = VEC_EMPTY(sizeof(struct action)),
 		.win = win,
 		.plat = plat,
+		.theme = {
+			.col_c = {
+				.background = 0xFFFFFFFF,
+				.separator = 0xFF000000,
+				.accent = 0xFF00FF00,
+				.highlight = 0xFFFF0000,
+				.foreground = 0xFF000000,
+				.tobject_def = 0xFF20D0D0,
+			},
+
+			.todo_progress = 0xFF8888FF,
+			.todo_completed = 0xFFAAAAAA,
+			.todo_inprocess = 0xFF88FF88,
+
+			.user_color_fade_factor = 0.6f,
+		}
 	};
 
 	struct proj p;
@@ -1354,4 +1375,10 @@ void app_add_uexpr_filter(struct app *app, const char *key,
 void app_add_action(struct app *app, struct action act) {
 	asrt(!app->init_done, "");
 	vec_append(&app->actions, &act);
+}
+
+bool app_action_eval_cond(struct app *app, const struct action *act) {
+	if (act->cond.view == VIEW_N || act->cond.view == app->main_view)
+		return true;
+	return false;
 }

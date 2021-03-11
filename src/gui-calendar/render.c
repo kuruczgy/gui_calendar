@@ -9,6 +9,32 @@
 #include "util.h"
 #include <platform_utils/log.h>
 
+// TODO: code duplication with mgu sr.c
+static void argb_color(float col[static 4], uint32_t c) {
+	for (int i = 0; i < 4; ++i) {
+		col[(i + 3) % 4] = ((c >> ((3 - i) * 8)) & 0xFF) / 255.0f;
+	}
+}
+
+static uint32_t color_rgba_float_to_uint(const float col[static 4]) {
+	uint32_t res = 0;
+	for (int i = 0; i < 4; ++i) {
+		res |= ((uint32_t)(col[i] * 255.0f) & 0xFF)
+			<< ((6 - i) % 4) * 8;
+	}
+	return res;
+}
+
+static uint32_t fade_to_bg(const struct visual_theme *theme, uint32_t col,
+		float factor) {
+	float c[4], bg[4], r[4];
+	argb_color(c, col);
+	argb_color(bg, theme->col_c.background);
+	for (int i = 0; i < 3; ++i) r[i] = c[i] * (1 - factor) + bg[i] * factor;
+	r[3] = 1.0f;
+	return color_rgba_float_to_uint(r);
+}
+
 char* text_format(const char *fmt, ...) {
        va_list args;
        va_start(args, fmt);
@@ -104,13 +130,14 @@ static void w_sidebar_render(struct w_sidebar *w, struct app *app,
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x, b.y + h, b.w, height + pad },
-			.argb = cal_info->color
+			.argb = fade_to_bg(&app->theme, cal_info->color,
+				app->theme.user_color_fade_factor)
 		});
 
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEX,
 			.p = { b.x, b.y + h + pad / 2, b.w, height },
-			.argb = 0xFF000000,
+			.argb = app->theme.col_c.foreground,
 			.tex = *tex
 		});
 
@@ -118,7 +145,7 @@ static void w_sidebar_render(struct w_sidebar *w, struct app *app,
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x, b.y + h - 1, b.w, 1 },
-			.argb = 0xFF000000
+			.argb = app->theme.col_c.separator
 		});
 	}
 
@@ -132,14 +159,14 @@ static void w_sidebar_render(struct w_sidebar *w, struct app *app,
 			sr_put(app->sr, (struct sr_spec){
 				.t = SR_RECT,
 				.p = { b.x, b.y + h, b.w, height + pad },
-				.argb = 0xFF00FF00
+				.argb = app->theme.col_c.accent
 			});
 		}
 
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEX,
 			.p = { b.x, b.y + h, b.w, height + pad },
-			.argb = 0xFF000000,
+			.argb = app->theme.col_c.foreground,
 			.o = SR_CENTER_V,
 			.tex = *tex
 		});
@@ -148,21 +175,21 @@ static void w_sidebar_render(struct w_sidebar *w, struct app *app,
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x, b.y + h - 1, b.w, 1 },
-			.argb = 0xFF000000
+			.argb = app->theme.col_c.separator
 		});
 	}
 
 	for (int i = 0; i < app->actions.len; ++i) {
 		struct action *act = vec_get(&app->actions, i);
 		if (!str_any(&act->label)) continue;
-		if (act->cond.view != app->main_view) continue;
+		if (!app_action_eval_cond(app, act)) continue;
 
 		struct mgu_texture *tex = vec_get(&w->action_texts, i);
 
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEX,
 			.p = { b.x, b.y + h, b.w, btn_h + pad },
-			.argb = 0xFF000000,
+			.argb = app->theme.col_c.foreground,
 			.o = SR_CENTER,
 			.tex = *tex
 		});
@@ -177,14 +204,14 @@ static void w_sidebar_render(struct w_sidebar *w, struct app *app,
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x, b.y + h - 1, b.w, 1 },
-			.argb = 0xFF000000
+			.argb = app->theme.col_c.separator
 		});
 	}
 
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
 		.p = { b.x + b.w, b.y, 2, b.h },
-		.argb = 0xFF000000
+		.argb = app->theme.col_c.separator
 	});
 }
 
@@ -265,18 +292,19 @@ struct tview_params {
 static void render_tobject(struct app *app,
 		struct tobject *obj, fbox b, struct tview_params p) {
 	int text_px = 0.18 * app->out->ppvd;
+	int text_px_small = 0.16 * app->out->ppvd;
 
 	double x, y, w, h;
 	if (p.dir) {
-		x = round(b.x + p.pad);
-		y = round(b.y);
-		w = round(b.w - 2 * p.pad);
-		h = round(b.h);
-	} else {
 		x = round(b.x);
 		y = round(b.y + p.pad);
 		w = round(b.w);
 		h = round(b.h - 2 * p.pad);
+	} else {
+		x = round(b.x + p.pad);
+		y = round(b.y);
+		w = round(b.w - 2 * p.pad);
+		h = round(b.h);
 	}
 	bool draw_labels = w >= text_px * 2 && h >= text_px;
 
@@ -284,18 +312,13 @@ static void render_tobject(struct app *app,
 	uint32_t color = 0;
 	if (obj->type == TOBJECT_EVENT) {
 		color = props_get_color_val(obj->ac->ci->p);
-		if (!color) color = 0xFF20D0D0;
-		if (obj->ac->settings.fade) {
-			color = (color & 0x00FFFFFF) | 0x30000000;
-		}
+		if (!color) color = app->theme.col_c.tobject_def;
+		float fade_factor = obj->ac->settings.fade
+			? .95f : app->theme.user_color_fade_factor;
+		color = fade_to_bg(&app->theme, color, fade_factor);
 	} else if (obj->type == TOBJECT_TODO) {
 		color = 0xAA00AA00;
 	} else asrt(false, "");
-	double lightness = (color & 0xFF) + ((color >> 8) & 0xFF)
-		+ ((color >> 16) & 0xFF);
-	lightness /= 255.0;
-	bool light = lightness < 0.9 ? true : false;
-	uint32_t fg = light ? 0xFFFFFFFF : 0xFF000000;
 
 	/* fill base rect */
 	sr_put(app->sr, (struct sr_spec){
@@ -303,9 +326,6 @@ static void render_tobject(struct app *app,
 		.p = { x, y, w, h },
 		.argb = color
 	});
-	//- cairo_set_source_argb(cr, color);
-	//- cairo_rectangle(cr, x, y, w, h);
-	//- cairo_fill(cr);
 
 	/* draw various labels */
 	if (draw_labels && obj->type == TOBJECT_EVENT
@@ -320,14 +340,14 @@ static void render_tobject(struct app *app,
 						(struct mgu_text_opts){
 					.str = location,
 					.s = { w, -1 },
-					.size_px = text_px,
+					.size_px = text_px_small,
 				});
 			}
 			loc_h = mini(h / 2, loc_tex->s[1]);
 			sr_put(app->sr, (struct sr_spec){
 				.t = SR_TEX,
 				.p = { x, y + h - loc_h, w, loc_h },
-				.argb = light ? 0xFFA0A0A0 : 0xFF606060,
+				.argb = app->theme.col_c.foreground,
 				.tex = *loc_tex
 			});
 		}
@@ -353,7 +373,7 @@ static void render_tobject(struct app *app,
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEX,
 			.p = { x, y, w, h - loc_h },
-			.argb = fg,
+			.argb = app->theme.col_c.foreground,
 			.tex = obj->ac->tex
 		});
 
@@ -404,8 +424,8 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		sr_clip_push(app->sr,
 			(float[]){ btop.x, btop.y, btop.w, btop.h });
 
-		uint32_t l = (64 + ctx->level * 128) & 0xFF;
-		uint32_t bg = 0xFFFF0000 | (l << 8) | l;
+		uint32_t bg = fade_to_bg(&app->theme,
+			app->theme.col_c.highlight, ctx->level * 0.6f);
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { bsl.x, bsl.y, bsl.w, bsl.h },
@@ -511,7 +531,7 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 			sr_put(app->sr, (struct sr_spec){
 				.t = SR_RECT,
 				.p = { nb.x, nb.y, nb.w, nb.h },
-				.argb = 0xFFFF0000
+				.argb = app->theme.col_c.highlight
 			});
 		}
 	}
@@ -522,13 +542,13 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { bsl.x - lw/2, bsl.y, lw, bsl.h },
-			.argb = 0xFF000000
+			.argb = app->theme.col_c.separator
 		});
 	} else {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { bsl.x, bsl.y - lw/2, bsl.w, lw },
-			.argb = 0xFF000000
+			.argb = app->theme.col_c.separator
 		});
 	}
 
@@ -543,7 +563,7 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { bhsl.x, bhsl.y, ctx->p.sep_line, bhsl.h },
-			.argb = 0xFF000000
+			.argb = app->theme.col_c.separator
 		});
 
 		char *text;
@@ -555,7 +575,7 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEXT,
 			.p = { bhsl.x, bhsl.y, bhsl.w, bhsl.h },
-			.argb = 0xFF000000,
+			.argb = app->theme.col_c.foreground,
 			.o = SR_CENTER,
 			.text = { .px = 18, .s = text }
 		});
@@ -591,7 +611,7 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 	double perc = has_perc_c ? perc_c / 100.0 : 0.0;
 	int hpad = 5;
 
-	const int due_w = 80;
+	const int due_w = 2 * app->out->ppvd;
 	int w = b.w - due_w;
 	int n = 1;
 	if (desc) n += 1;
@@ -621,27 +641,33 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x + b.w - due_w, b.y, due_w, b.h },
-			.argb = 0xFFD05050
+			.argb = app->theme.col_c.highlight
 		});
 	}
+	uint32_t b_col = app->theme.todo_progress;
+	if (completed) b_col = app->theme.todo_completed;
+	else if (inprocess) b_col = app->theme.todo_inprocess;
+	b_col = fade_to_bg(&app->theme, b_col, .6f);
 	if (completed || inprocess) {
-		double w = b.w - 80;
+		double w = b.w - due_w;
 		if (perc > 0) w *= perc;
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x, b.y, w, b.h },
-			.argb = completed ? 0xFFAAAAAA : 0xFF88FF88
+			.argb = b_col
 		});
 	} else if (has_perc_c) {
-		double w = (b.w - 80) * perc;
+		double w = (b.w - due_w) * perc;
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x, b.y, w, b.h },
-			.argb = 0xFF8888FF
+			.argb = b_col
 		});
 	}
 
-	uint32_t t_col = not_started ? 0xFF888888 : 0xFF000000;
+	float fade_factor = not_started ? .6f : .0f;
+	uint32_t t_col = fade_to_bg(&app->theme,
+		app->theme.col_c.foreground, fade_factor);
 
 	/* draw text in the slots */
 	char *text = NULL;
@@ -685,7 +711,7 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEXT,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
-			.argb = 0xFF000000,
+			.argb = t_col,
 			.o = SR_CENTER,
 			.text = { .px = text_px, .s = str_cstr(&s) },
 		});
@@ -696,7 +722,7 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEX,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
-			.argb = 0xFF000000,
+			.argb = t_col,
 			.o = SR_CENTER | SR_TEX_PASS_OWNERSHIP,
 			.tex = tex_summary,
 		});
@@ -706,7 +732,7 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_TEX,
 			.p = { b.x + w*i/n + hpad, b.y, w/n - 2*hpad, b.h },
-			.argb = 0xFF000000,
+			.argb = t_col,
 			.o = SR_CENTER_V | SR_TEX_PASS_OWNERSHIP,
 			.tex = tex_desc,
 		});
@@ -717,7 +743,7 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 		sr_put(app->sr, (struct sr_spec){
 			.t = SR_RECT,
 			.p = { b.x + w*i/n, b.y, 1, b.h },
-			.argb = 0xFF000000
+			.argb = app->theme.col_c.separator
 		});
 	}
 
@@ -736,13 +762,8 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
 		.p = { b.x, b.y + b.h, b.w, 2 },
-		.argb = 0xFF000000
+		.argb = app->theme.col_c.separator
 	});
-	//- cairo_set_source_argb(cr, 0xFF000000);
-	//- cairo_set_line_width(cr, 2);
-	//- cairo_move_to(cr, 0, b.h);
-	//- cairo_line_to(cr, b.w, b.h);
-	//- cairo_stroke(cr);
 
 	return b.h + 2;
 }
@@ -752,13 +773,8 @@ static void render_todo_list(struct app *app, box b) {
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_RECT,
 		.p = { b.x, b.y, b.w, 2 },
-		.argb = 0xFF000000
+		.argb = app->theme.col_c.separator
 	});
-	//- cairo_set_source_argb(cr, 0xFF000000);
-	//- cairo_set_line_width(cr, 2);
-	//- cairo_move_to(cr, 0, 0);
-	//- cairo_line_to(cr, b.w, 0);
-	//- cairo_stroke(cr);
 
 	int y = 0;
 	for (int i = 0; i < app->active_todos.v.len; ++i) {
@@ -800,7 +816,9 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-	glClearColor(1.0, 1.0, 1.0, 1.0);
+	float color_bg[4];
+	argb_color(color_bg, app->theme.col_c.background);
+	glClearColor(color_bg[0], color_bg[1], color_bg[2], color_bg[3]);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	int time_strip_w = 30;
@@ -907,13 +925,10 @@ bool render_application(void *env, struct mgu_win_surf *surf, uint64_t t) {
 			frame_counter,
 			sd.hour, sd.minute, sd.second,
 			view_name);
-	// app->tr->p.width = -1 /* sidebar_w */; app->tr->p.height = header_h;
-	// app->tr->p.scale = 0.9;
-	// app->tr->p.scale = 1.0;
 	sr_put(app->sr, (struct sr_spec){
 		.t = SR_TEXT,
 		.p = { 0, 0, sidebar_w, header_h },
-		.argb = 0xFF000000,
+		.argb = app->theme.col_c.foreground,
 		.text = { .px = 0.18 * app->out->ppvd, .s = text }
 	});
 	free(text);

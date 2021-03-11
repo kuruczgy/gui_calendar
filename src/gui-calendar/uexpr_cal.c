@@ -63,7 +63,11 @@ static enum comp_type parse_enum_comp_type(const char *str) {
 	return COMP_TYPE_N;
 }
 
-#define TRACE() fprintf(stderr, "[cal_uexpr] %s\n", __func__)
+#if 0
+#define TRACE() pu_log_info("[cal_uexpr] %s\n", __func__)
+#else
+#define TRACE()
+#endif
 
 static struct uexpr_value fn_include(void *_env, struct uexpr *e,
 		int root, struct uexpr_ctx *ctx) {
@@ -242,6 +246,33 @@ static struct uexpr_value fn_set_timezone(void *_env, struct uexpr *e,
 
 	return void_val;
 }
+static struct uexpr_value fn_set_colors(void *_env, struct uexpr *e,
+		int root, struct uexpr_ctx *ctx) {
+	TRACE();
+	struct cal_uexpr_env *env = _env;
+
+	struct uexpr_ast_node np =
+		*(struct uexpr_ast_node *)vec_get(&e->ast, root);
+	if (np.args.len != 6) return error_val;
+
+	struct color_scheme_configurable col_c;
+	for (int i = 0; i < np.args.len; ++i) {
+		struct uexpr_value va;
+		uexpr_eval(e, *(int *)vec_get(&np.args, i), ctx, &va);
+		if (va.type != UEXPR_TYPE_STRING) {
+			uexpr_value_finish(va);
+			return error_val;
+		}
+
+		uint32_t c = lookup_color(va.string_ref, strlen(va.string_ref));
+		if (!c) c = hex2uint(va.string_ref);
+		if (c) col_c.c[i] = c;
+	}
+
+	app_cmd_set_color_scheme(env->app, col_c);
+
+	return void_val;
+}
 
 static struct fn config_fns[] = {
 	{ "add_cal", fn_add_cal },
@@ -250,6 +281,11 @@ static struct fn config_fns[] = {
 	{ "include", fn_include },
 	{ "set_alarm", fn_set_alarm },
 	{ "set_timezone", fn_set_timezone },
+	{ NULL, NULL },
+};
+
+static struct fn action_and_config_fns[] = {
+	{ "set_colors", fn_set_colors },
 	{ NULL, NULL },
 };
 
@@ -469,12 +505,14 @@ bool cal_uexpr_get(void *_env, const char *key, struct uexpr_value *v) {
 	struct cal_uexpr_env *env = _env;
 	if (env->kind & CAL_UEXPR_CONFIG) {
 		if (get_fns(env, config_fns, key, v)) return true;
+		if (get_fns(env, action_and_config_fns, key, v)) return true;
 	}
 	if (env->kind & CAL_UEXPR_FILTER) {
 		if (get_ac(env, key, v)) return true;
 	}
 	if (env->kind & CAL_UEXPR_ACTION) {
 		if (get_fns(env, action_fns, key, v)) return true;
+		if (get_fns(env, action_and_config_fns, key, v)) return true;
 	}
 	return false;
 }

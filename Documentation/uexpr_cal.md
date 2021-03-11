@@ -65,6 +65,18 @@ component to determine whether they should trigger an alarm.
 ## `set_timezone`
 Expects one argument. It must evaluate to a `string` that represents a timezone
 in an implementation defined manner.
+## `set_colors`
+Expects 6 `string` arguments. Each of them must be a
+`W3C.REC-css3-color-20110607` extended color keyword, or a sequence of 8
+hexadecimal digits specifying a color in ARGB order.
+
+The meaning of the arguments in order:
+- `background`: background color
+- `separator`: color used for separator lines
+- `accent`: color used for various indicators
+- `highlight`: color used for various highlights
+- `foreground`: color used for text
+- `tobject_def`: default color for calendar events
 
 # Filter context
 Each evaluation in a filter context is associated with a calendar component.
@@ -126,3 +138,6 @@ may be displayed to the user as part of the selection request.
 
 The third argument will be evaluated (in both an action and filter context) if,
 and when the user has selected a component.
+## `set_colors`
+This is the same function as the one in the config context. See that section
+for details.

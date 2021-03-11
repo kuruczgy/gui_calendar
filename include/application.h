@@ -101,6 +101,29 @@ struct proj_alarm {
 	int uexpr_filter;
 };
 
+struct color_scheme_configurable {
+	union {
+		uint32_t c[6];
+		struct {
+			uint32_t background;
+			uint32_t separator;
+			uint32_t accent;
+			uint32_t highlight;
+			uint32_t foreground;
+			uint32_t tobject_def;
+		};
+	};
+};
+struct visual_theme {
+	struct color_scheme_configurable col_c;
+
+	uint32_t todo_progress;
+	uint32_t todo_completed;
+	uint32_t todo_inprocess;
+
+	float user_color_fade_factor;
+};
+
 struct app {
 	/* calendars */
 	struct vec cals; /* vec<struct calendar> */
@@ -175,6 +198,8 @@ struct app {
 
 	// widgets
 	struct w_sidebar w_sidebar;
+
+	struct visual_theme theme;
 };
 
 struct application_options {
@@ -229,11 +254,15 @@ void app_cmd_view_today(struct app *app, int n);
 void app_cmd_toggle_show_private(struct app *app, int n);
 void app_cmd_switch_view(struct app *app, int n);
 void app_cmd_move_view_discrete(struct app *app, int n);
+void app_cmd_set_color_scheme(struct app *app,
+	struct color_scheme_configurable col_c);
 
 int app_add_cal(struct app *app, const char *path);
 void app_add_uexpr_filter(struct app *app, const char *key,
 	int def_cal, int uexpr_fn);
 void app_add_action(struct app *app, struct action act);
 void app_add_uexpr_config(struct app *app, const char *path);
+
+bool app_action_eval_cond(struct app *app, const struct action *act);
 
 #endif
