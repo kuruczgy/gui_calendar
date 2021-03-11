@@ -355,9 +355,9 @@ static void render_tobject(struct app *app,
 		if (!obj->ac->tex.tex) {
 			const char *summary = props_get_summary(obj->ac->ci->p);
 			struct simple_date local_start = simple_date_from_ts(
-				obj->ac->ci->time.fr, app->zone);
+				obj->ac->ci->rdp.start, app->zone);
 			struct simple_date local_end = simple_date_from_ts(
-				obj->ac->ci->time.to, app->zone);
+				obj->ac->ci->rdp.end, app->zone);
 			char *str = text_format("%02d:%02d-%02d:%02d %s",
 					local_start.hour, local_start.minute,
 					local_end.hour, local_end.minute,
@@ -471,7 +471,7 @@ static void render_ran(void *env, struct ts_ran ran, struct simple_date label) {
 			struct active_comp *ac = container_of(nx,
 				struct active_comp, node_by_view);
 			struct tobject obj = {
-				.time = ac->ci->time,
+				.time = ac->ci->rdp.se_ran,
 				.type = TOBJECT_EVENT,
 				.ac = ac,
 			};
@@ -591,11 +591,11 @@ static int render_todo_item(struct app *app, struct active_comp *ac, box b) {
 	int text_px = 0.18 * app->out->ppvd;
 
 	/* prepare all the info we need */
-	ts due, start;
+	ts start = ac->ci->rdp.start, due = ac->ci->rdp.due;
 	enum prop_status status;
 	int perc_c, est;
-	bool has_due = props_get_due(ac->ci->p, &due);
-	bool has_start = props_get_start(ac->ci->p, &start);
+	bool has_start = start != -1;
+	bool has_due = due != -1;
 	bool has_status = props_get_status(ac->ci->p, &status);
 	bool has_perc_c = props_get_percent_complete(ac->ci->p, &perc_c);
 	bool has_est = props_get_estimated_duration(ac->ci->p, &est);

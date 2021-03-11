@@ -18,7 +18,7 @@ struct edit_spec {
 
 	/* these together specify the component */
 	struct str uid;
-	time_t recurrence_id; /* valid if greater than 0 */
+	ts recurrence_id; /* valid if greater than 0 */
 
 	/* this specifies the action
 	 * CREATE:

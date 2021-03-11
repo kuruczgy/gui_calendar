@@ -71,12 +71,9 @@ void print_template(FILE *f, struct comp_inst *ci,
 		struct cal_timezone *zone, int cal) {
 	bool is_event = ci->c->type == COMP_TYPE_EVENT;
 	bool is_todo = ci->c->type == COMP_TYPE_TODO;
-	struct props *p = &ci->c->p;
+	struct props *p = ci->p;
 
-	ts start, end, due;
-	bool has_start = props_get_start(p, &start);
-	bool has_end = props_get_end(p, &end);
-	bool has_due = props_get_due(p, &due);
+	struct recur_dep_props rdp = ci->rdp;
 
 	enum prop_class class;
 	bool has_class = props_get_class(p, &class);
@@ -97,20 +94,20 @@ void print_template(FILE *f, struct comp_inst *ci,
 	print_literal(f, "summary", props_get_summary(p));
 
 	char buf[32];
-	if (has_due) {
-		struct simple_date sd = simple_date_from_ts(due, zone);
-		format_simple_date(buf, 32, sd);
-		fprintf(f, "due %s\n", buf);
-	}
-	if (has_start) {
-		struct simple_date sd = simple_date_from_ts(start, zone);
+	if (rdp.start != -1) {
+		struct simple_date sd = simple_date_from_ts(rdp.start, zone);
 		format_simple_date(buf, 32, sd);
 		fprintf(f, "start %s\n", buf);
 	}
-	if (has_end) {
-		struct simple_date sd = simple_date_from_ts(end, zone);
+	if (rdp.end != -1) {
+		struct simple_date sd = simple_date_from_ts(rdp.end, zone);
 		format_simple_date(buf, 32, sd);
 		fprintf(f, "end %s\n", buf);
+	}
+	if (rdp.due != -1) {
+		struct simple_date sd = simple_date_from_ts(rdp.due, zone);
+		format_simple_date(buf, 32, sd);
+		fprintf(f, "due %s\n", buf);
 	}
 
 	if (has_est) {
@@ -147,10 +144,9 @@ void print_template(FILE *f, struct comp_inst *ci,
 	if (has_class) fprintf(f, "class %s\n", cal_class_str(class));
 	if (has_status) fprintf(f, "status %s\n", cal_status_str(status));
 
-	// TODO: recurrence id
-	// if (recurrence_id != -1) {
-	//	 fprintf(f, "#instance: `%ld`\n", recurrence_id);
-	// }
+	if (ci->recurrence_id != -1) {
+		fprintf(f, "instance `%lld`\n", ci->recurrence_id);
+	}
 	if (str_any(&ci->c->uid)) {
 		fprintf(f, "uid `%s`\n", str_cstr(&ci->c->uid));
 	}
@@ -219,24 +215,53 @@ bool edit_spec_is_identity(struct edit_spec *es, struct calendar *cal) {
 	struct comp *c = calendar_get_comp(cal, idx);
 	asrt(c, "calendar_get_comp failed");
 
+	struct props p = props_empty;
+	if (es->recurrence_id != -1) {
+		struct recur_dep_props rdp;
+		struct props *pp = NULL;
+		comp_get_recur_point(c, es->recurrence_id, &rdp, &pp);
+		if (pp) {
+			// recurrence instance already exists
+			props_union(&p, pp);
+		} else {
+			props_union(&p, &c->p);
+			recur_dep_props_set_props(&p, &rdp);
+		}
+	} else {
+		props_union(&p, &c->p);
+	}
+
+	bool res = true;
+
 	struct props_mask pm_edit = props_get_mask(&es->p);
-	struct props_mask pm_p = props_get_mask(&c->p);
+	struct props_mask pm_p = props_get_mask(&p);
 
 	/* are we removing any existing properties? */
-	if (es->rem._mask & pm_p._mask) return false;
+	if (es->rem._mask & pm_p._mask) {
+		res = false;
+		goto ret;
+	}
 
 	struct props_mask pm_edit_eff = pm_edit;
 	pm_edit_eff._mask &= ~es->rem._mask;
 
-	/* are we addiny any properties? */
-	if (pm_edit_eff._mask & (~pm_p._mask)) return false;
+	/* are we adding any properties? */
+	if (pm_edit_eff._mask & (~pm_p._mask)) {
+		res = false;
+		goto ret;
+	}
 
 	pm_edit_eff._mask &= pm_p._mask;
 
 	/* are we changing any properties? */
-	if (!props_equal(&c->p, &es->p, &pm_edit_eff)) return false;
+	if (!props_equal(&p, &es->p, &pm_edit_eff)) {
+		res = false;
+		goto ret;
+	}
 
-	return true;
+ret:
+	props_finish(&p);
+	return res;
 }
 
 static void assign_props(struct props *p, const struct props *rhs,
@@ -284,7 +309,12 @@ static void apply_to_memory(struct edit_spec *es, struct calendar *cal) {
 		idx = calendar_find_comp(cal, str_cstr(&es->uid));
 		c = calendar_get_comp(cal, idx);
 		asrt(c, "calendar_get_comp failed");
-		assign_props(&c->p, &es->p, &es->rem);
+		struct props *p = &c->p;
+		if (es->recurrence_id != -1) {
+			p = comp_get_or_create_recur_inst(c, es->recurrence_id);
+			asrt(p, "comp_get_or_create_recur_inst failed");
+		}
+		assign_props(p, &es->p, &es->rem);
 		fprintf(stderr, "[editor memory] updated comp %s\n",
 				str_cstr(&es->uid));
 		break;

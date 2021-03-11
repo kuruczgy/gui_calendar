@@ -17,17 +17,15 @@
 
 pu_assets_declare(default_uexpr)
 
-/* provides a partial ordering over todos; implements the a < b comparison */
+/* provides a total ordering over todos; implements the a < b comparison */
 static bool todo_priority_cmp(
 		struct app *app,
 		const struct comp_inst *a,
 		const struct comp_inst *b,
 		bool consider_started
 	) {
-	ts start;
-	bool a_started = true, b_started = true;
-	if (props_get_start(a->p, &start)) a_started = start <= app->now;
-	if (props_get_start(b->p, &start)) b_started = start <= app->now;
+	bool a_started = a->rdp.start == -1 || a->rdp.start <= app->now;
+	bool b_started = b->rdp.start == -1 || b->rdp.start <= app->now;
 
 	enum prop_status status;
 	bool a_inprocess = false, b_inprocess = false;
@@ -42,10 +40,10 @@ static bool todo_priority_cmp(
 	if (props_get_estimated_duration(a->p, &ed)) a_short = ed <= sh;
 	if (props_get_estimated_duration(b->p, &ed)) b_short = ed <= sh;
 
-	ts a_due, b_due;
-	bool a_has_due, b_has_due;
-	a_has_due = props_get_due(a->p, &a_due);
-	b_has_due = props_get_due(b->p, &b_due);
+	ts a_due = a->rdp.due;
+	ts b_due = b->rdp.due;
+	bool a_has_due = a_due != -1;
+	bool b_has_due = b_due != -1;
 
 	if (a_inprocess != b_inprocess) {
 		if (a_inprocess) return true;
@@ -188,7 +186,7 @@ static void app_switch_mode_select(struct app *app) {
 			struct active_comp *ac =
 				container_of(nx, struct active_comp, node);
 
-			if (ts_ran_overlap(ac->ci->time, app->view)) {
+			if (ts_ran_overlap(ac->ci->rdp.se_ran, app->view)) {
 				vec_append(&acs, &ac);
 			} else {
 				ac->code[0] = '\0';
@@ -801,6 +799,7 @@ static void app_mode_select_finish(struct app *app) {
 			es.uid = str_copy(&ac->ci->c->uid);
 			es.p = env.set_props;
 			es.type = ac->ci->c->type;
+			es.recurrence_id = ac->ci->recurrence_id;
 
 			apply_edit_spec_with_mod_time(app, &es, ac->cal);
 

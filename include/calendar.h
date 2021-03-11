@@ -19,6 +19,16 @@ enum comp_type {
 	COMP_TYPE_TODO = 1,
 	COMP_TYPE_N
 };
+struct recur_dep_props {
+	union {
+		struct { ts start, end; };
+		struct ts_ran se_ran;
+	};
+	ts due;
+};
+void recur_dep_props_set_props(struct props *p,
+	const struct recur_dep_props *rdp);
+
 struct comp_recur_inst {
 	ts recurrence_id;
 	struct props p;
@@ -29,22 +39,30 @@ struct comp {
 	struct props p;
 	struct vec recur_insts; /* vec<struct comp_recur_inst> */
 	struct recurrence *recur;
+	struct vec recur_cache; /* vec<struct recur_dep_props> */
 	bool all_expanded;
 };
 void comp_init(struct comp *c, struct str uid, enum comp_type type);
 int comp_init_from_ics(struct comp *c, FILE *f);
 void comp_finish(struct comp *c);
 bool comp_equal(const struct comp *a, const struct comp *b);
+bool comp_get_recur_point(struct comp *c, ts recurrence_id,
+		struct recur_dep_props *rdp_out, struct props **p_out);
+struct props *comp_get_or_create_recur_inst(struct comp *c, ts recurrence_id);
 
-typedef void (*comp_recur_cb)(void *cl, struct ts_ran time, struct props *p);
-struct props * comp_recur_expand(struct comp *c, ts to,
-		comp_recur_cb cb, void *cl);
+typedef void (*comp_recur_cb)(void *env, ts recurrence_id,
+	struct recur_dep_props rdp, struct props *p);
+struct props *comp_recur_expand(struct comp *c, ts to, comp_recur_cb cb,
+	void *env);
 
 struct comp_inst {
 	struct comp *c;
 	int comp_idx;
 	struct props *p;
-	struct ts_ran time;
+	struct recur_dep_props rdp;
+
+	/* valid if this is actually a recurrence instance, -1 otherwise */
+	ts recurrence_id;
 
 	struct interval_node node;
 };

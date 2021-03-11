@@ -20,6 +20,13 @@ static ts ts_from_icaltime(icaltimetype tt) {
 	return (ts)t;
 }
 
+static icalcomponent *ical_comp_clone(icalcomponent *c) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+	return icalcomponent_new_clone(c);
+#pragma GCC diagnostic pop
+}
+
 /* struct recurrence */
 struct recurrence {
 	icalcomponent *comp;
@@ -59,10 +66,7 @@ static bool recurrence_init(struct recurrence *recur, icalcomponent *ic) {
 	if (!rrule) return false;
 
 	icalcomponent *root = icalcomponent_get_parent(ic);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-	root = icalcomponent_new_clone(root);
-#pragma GCC diagnostic pop
+	root = ical_comp_clone(root);
 	const char *ic_uid = icalcomponent_get_uid(ic);
 	asrt(ic_uid, "ic_uid");
 	icalcomponent *i =
@@ -356,54 +360,54 @@ static void comp_assign_related_to(icalcomponent *ic,
 		}
 	}
 }
-static void apply_edit_spec_to_icalcomponent(struct edit_spec *es,
-		icalcomponent *ic) {
+static void apply_props_to_icalcomponent(icalcomponent *ic,
+		const struct props *p, const struct props_mask *rem) {
 	// DEP: new prop
-	comp_assign_text(ic, ICAL_COLOR_PROPERTY, props_get_color(&es->p),
-		props_mask_get(&es->rem, PROP_COLOR));
-	comp_assign_text(ic, ICAL_SUMMARY_PROPERTY, props_get_summary(&es->p),
-		props_mask_get(&es->rem, PROP_SUMMARY));
-	comp_assign_text(ic, ICAL_LOCATION_PROPERTY, props_get_location(&es->p),
-		props_mask_get(&es->rem, PROP_LOCATION));
-	comp_assign_text(ic, ICAL_DESCRIPTION_PROPERTY, props_get_desc(&es->p),
-		props_mask_get(&es->rem, PROP_DESC));
-	comp_assign_categories(ic, props_get_categories(&es->p),
-		props_mask_get(&es->rem, PROP_CATEGORIES));
-	comp_assign_related_to(ic, props_get_related_to(&es->p),
-		props_mask_get(&es->rem, PROP_RELATED_TO));
+	comp_assign_text(ic, ICAL_COLOR_PROPERTY, props_get_color(p),
+		props_mask_get(rem, PROP_COLOR));
+	comp_assign_text(ic, ICAL_SUMMARY_PROPERTY, props_get_summary(p),
+		props_mask_get(rem, PROP_SUMMARY));
+	comp_assign_text(ic, ICAL_LOCATION_PROPERTY, props_get_location(p),
+		props_mask_get(rem, PROP_LOCATION));
+	comp_assign_text(ic, ICAL_DESCRIPTION_PROPERTY, props_get_desc(p),
+		props_mask_get(rem, PROP_DESC));
+	comp_assign_categories(ic, props_get_categories(p),
+		props_mask_get(rem, PROP_CATEGORIES));
+	comp_assign_related_to(ic, props_get_related_to(p),
+		props_mask_get(rem, PROP_RELATED_TO));
 
 	bool has;
 
 	ts ts_src;
-	has = props_get_start(&es->p, &ts_src);
+	has = props_get_start(p, &ts_src);
 	comp_assign_ts(ic, ICAL_DTSTART_PROPERTY, has, ts_src,
-		props_mask_get(&es->rem, PROP_START));
-	has = props_get_end(&es->p, &ts_src);
+		props_mask_get(rem, PROP_START));
+	has = props_get_end(p, &ts_src);
 	comp_assign_ts(ic, ICAL_DTEND_PROPERTY, has, ts_src,
-		props_mask_get(&es->rem, PROP_END));
-	has = props_get_due(&es->p, &ts_src);
+		props_mask_get(rem, PROP_END));
+	has = props_get_due(p, &ts_src);
 	comp_assign_ts(ic, ICAL_DUE_PROPERTY, has, ts_src,
-		props_mask_get(&es->rem, PROP_DUE));
-	has = props_get_last_modified(&es->p, &ts_src);
+		props_mask_get(rem, PROP_DUE));
+	has = props_get_last_modified(p, &ts_src);
 	comp_assign_ts(ic, ICAL_LASTMODIFIED_PROPERTY, has, ts_src,
-		props_mask_get(&es->rem, PROP_LAST_MODIFIED));
+		props_mask_get(rem, PROP_LAST_MODIFIED));
 
 	enum prop_status status;
-	has = props_get_status(&es->p, &status);
+	has = props_get_status(p, &status);
 	comp_assign_status(ic, has, status,
-		props_mask_get(&es->rem, PROP_STATUS));
+		props_mask_get(rem, PROP_STATUS));
 
 	enum prop_class class;
-	has = props_get_class(&es->p, &class);
-	comp_assign_class(ic, has, class, props_mask_get(&es->rem, PROP_CLASS));
+	has = props_get_class(p, &class);
+	comp_assign_class(ic, has, class, props_mask_get(rem, PROP_CLASS));
 
 	int int_src;
-	has = props_get_estimated_duration(&es->p, &int_src);
+	has = props_get_estimated_duration(p, &int_src);
 	comp_assign_estimated_duration(ic, has, int_src,
-		props_mask_get(&es->rem, PROP_ESTIMATED_DURATION));
-	has = props_get_percent_complete(&es->p, &int_src);
+		props_mask_get(rem, PROP_ESTIMATED_DURATION));
+	has = props_get_percent_complete(p, &int_src);
 	comp_assign_percent_complete(ic, has, int_src,
-		props_mask_get(&es->rem, PROP_PERCENT_COMPLETE));
+		props_mask_get(rem, PROP_PERCENT_COMPLETE));
 }
 
 static icalcomponent* libical_component_from_file(FILE *f) {
@@ -510,40 +514,34 @@ static void props_init_from_ical(struct props *p, icalcomponent *ic) {
 	props_set_related_to(p, rels);
 }
 static bool comp_init_from_ical(struct comp *c, icalcomponent *ic) {
+	enum comp_type type;
 	if (icalcomponent_isa(ic) == ICAL_VEVENT_COMPONENT) {
-		c->type = COMP_TYPE_EVENT;
+		type = COMP_TYPE_EVENT;
 	} else if (icalcomponent_isa(ic) == ICAL_VTODO_COMPONENT) {
-		c->type = COMP_TYPE_TODO;
+		type = COMP_TYPE_TODO;
 	} else {
 		return false;
 	}
 
 	const char *uid = icalcomponent_get_uid(ic);
 	if (!uid) return false;
-	c->uid = str_empty;
-	str_append(&c->uid, uid, strlen(uid));
+	struct str s_uid = str_empty;
+	str_append(&s_uid, uid, strlen(uid));
+	comp_init(c, s_uid, type);
 
-	c->p = props_empty;
 	props_init_from_ical(&c->p, ic);
 	if (!props_valid_for_type(&c->p, c->type)) {
 		pu_log_info("WARNING: component `%s` is invalid. skipping\n",
 			str_cstr(&c->uid));
-		str_free(&c->uid);
-		props_finish(&c->p);
+		comp_finish(c);
 		return false;
 	}
-
-	c->recur_insts = vec_new_empty(sizeof(struct comp_recur_inst));
 
 	struct recurrence recur;
 	if (recurrence_init(&recur, ic)) {
 		c->recur = malloc_check(sizeof(struct recurrence));
 		memcpy(c->recur, &recur, sizeof(struct recurrence));
-	} else {
-		c->recur = NULL;
 	}
-
-	c->all_expanded = false;
 
 	return true;
 }
@@ -718,19 +716,42 @@ int edit_spec_apply_to_storage(struct edit_spec *es,
 
 		/* find the specific component we are interested in, using the
 		 * uid */
-		icalcomponent *c =
+		icalcomponent *base_c = NULL, *c =
 			icalcomponent_get_first_component(root, type);
 		while (c) {
 			const char *c_uid = icalcomponent_get_uid(c);
-			if (strcmp(c_uid, str_cstr(&es->uid)) == 0) {
-				/* found it;
-				 * populate component with new values */
-				apply_edit_spec_to_icalcomponent(es, c);
-				break;
-			}
+			ts recurrence_id = ts_from_icaltime(
+				icalcomponent_get_recurrenceid(c));
+
+			asrt(c_uid, "missing uid");
+			if (strcmp(c_uid, str_cstr(&es->uid)) != 0) goto cont;
+			base_c = c;
+			if (es->recurrence_id != -1 && es->recurrence_id
+				!= recurrence_id) goto cont;
+
+			/* found it;
+			 * populate component with new values */
+			apply_props_to_icalcomponent(c, &es->p, &es->rem);
+			goto applied;
+cont:
 			c = icalcomponent_get_next_component(root, type);
 		}
+		/* we did not find the component. */
+		asrt(base_c, "no base comp");
+		asrt(es->recurrence_id != -1, "");
 
+		int idx = calendar_find_comp(cal, str_cstr(&es->uid));
+		struct comp *memory_comp = calendar_get_comp(cal, idx);
+
+		base_c = icalcomponent_new(type);
+		icalcomponent_set_uid(base_c, str_cstr(&es->uid));
+		comp_assign_ts(base_c, ICAL_RECURRENCEID_PROPERTY,
+			true, es->recurrence_id, false);
+		apply_props_to_icalcomponent(base_c, &memory_comp->p,
+			&props_mask_empty);
+		apply_props_to_icalcomponent(base_c, &es->p, &es->rem);
+		icalcomponent_add_component(root, base_c);
+applied:
 		/* serialize and write back the component */
 		result = icalcomponent_as_ical_string(root);
 		fprintf(stderr, "[editor storage] writing existing %s\n", path);
@@ -746,7 +767,7 @@ int edit_spec_apply_to_storage(struct edit_spec *es,
 		/* create the component */
 		icalcomponent *comp = icalcomponent_new(type);
 		icalcomponent_set_uid(comp, str_cstr(&es->uid));
-		apply_edit_spec_to_icalcomponent(es, comp);
+		apply_props_to_icalcomponent(comp, &es->p, &es->rem);
 		/* create a frame, serialize, and save to file */
 		icalcomponent *calendar = icalcomponent_vanew(
 			ICAL_VCALENDAR_COMPONENT,

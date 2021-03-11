@@ -345,7 +345,7 @@ static res prop(st s, struct edit_spec *es) {
 	} else if (strcmp(key, "instance") == 0) {
 		if (rem) return ERROR;
 		if (literal(s, &str) != OK) return ERROR;
-		es->recurrence_id = atol(str_cstr(&str));
+		es->recurrence_id = atoll(str_cstr(&str));
 	} else if (strcmp(key, "rel") == 0) {
 		if (rem) return props_mask_add(&es->rem, PROP_RELATED_TO), OK;
 		if (literal(s, &str) != OK) return ERROR;
@@ -594,10 +594,9 @@ void test_editor_parser() {
 	asrt(strcmp(str_cstr(&es.uid), "asdfg") == 0, "prop uid");
 	edit_spec_finish(&es);
 
-	// TODO: recurrence id
-	// edit_spec_init(&es);
-	// test_prop(&s, "instance `12345`", &es);
-	// asrt(es.recurrence_id == 12345, "prop instance");
+	edit_spec_init(&es);
+	test_prop(&s, "instance `12345`", &es);
+	asrt(es.recurrence_id == 12345, "prop instance");
 
 	edit_spec_init(&es);
 	test_prop(&s, "class private", &es);
