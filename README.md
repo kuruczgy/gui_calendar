@@ -24,8 +24,14 @@ foreseeable future.
   RELTYPE value
 - partial support for viewing recurring events (RRULE, but no RDATE or EXDATE)
 
+## Dependencies
+- `ds`
+- `libtouch`
+- `mgu`
+- `platform_utils`
 
 ## Compilation
+- Place dependencies into the `subprojects` directory.
 - `meson build`
 - `ninja -C build`
 
